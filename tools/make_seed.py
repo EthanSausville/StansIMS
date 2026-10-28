@@ -32,17 +32,10 @@ insert('recipes', data['recipes'], ['item_no', 'name', 'batch_size'])
 s = dict(data['settings'], id=1)
 insert('settings', [s], ['id'] + list(data['settings'].keys()))
 insert('year_settings', data['year_settings'], ['year', 'labor_scenario'])
-# Labor calculator pay groups from the staffing settings (schema.sql adds the scenarios).
-out.append('''insert into public.labor_groups (name, pay_type, headcount, annual_salary, hourly_rate, sort)
-select g.name, g.pay_type, g.headcount, g.salary, g.rate, g.sort
-from public.settings s
-cross join lateral (values
-  ('Salaried', 'salaried', s.salaried_count, s.salaried_wage, null::numeric, 1),
-  ('Hourly (A)', 'hourly', s.hourly_a_count, null::numeric, s.hourly_a_rate, 2),
-  ('Hourly (B)', 'hourly', s.hourly_b_count, null::numeric, s.hourly_b_rate, 3)
-) as g (name, pay_type, headcount, salary, rate, sort)
-where s.id = 1 and not exists (select 1 from public.labor_groups);
-''')
+# Labor positions from the staffing settings (same as schema.sql does once settings exist).
+schema = open(__import__('pathlib').Path(__file__).resolve().parent.parent / 'supabase/schema.sql').read()
+start = schema.index('insert into public.labor_positions'); end = schema.index('and not exists (select 1 from public.labor_positions);', start)
+out.append(schema[start:end] + 'and not exists (select 1 from public.labor_positions);\n')
 insert('purchase_settings', data['purchase_settings'],
        ['item_no', 'avg_weekly', 'max_weekly', 'manual_usage', 'standard_purchase', 'lead_time', 'safety_threshold'])
 

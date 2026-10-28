@@ -105,79 +105,99 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
   return false;
 }
 
-// ---------- Labor rate calculator ----------
-// Pay groups (salaried or hourly, with a headcount) and production scenarios
-// (days a week, hours a day, weeks a year, productive share). For a scenario:
-//   salaried cost  = headcount x (annual salary + annual fixed cost)   (the same
-//                    however few days production runs, so fewer days = a higher rate)
-//   hourly cost    = headcount x (hours worked x hourly rate + monthly fringe x 12)
-//                    (the fringe is fixed too; only the wages follow the hours)
-//   labor minutes  = every person's paid production hours x 60 x productive %
-//   rate per labor minute = total cost / labor minutes
-// A "labor minute" is one person working one minute, which is how BOMs count
-// minutes per batch.
+// ---------- Labor rate (standard direct labor cost per minute) ----------
+// Built the way manufacturers usually set a standard labor rate:
+//   1. Fully burdened cost of each position for the year:
+//        base pay (hourly rate x paid hours, or annual salary)
+//      + employer payroll taxes (% of base pay)
+//      + fixed benefits (monthly for hourly people, annual for salaried).
+//   2. Split it by how the paid time is spent. Hours on the production line are
+//      DIRECT labor; paid time off the line (a salaried person paid for 5 days
+//      who works 2 on the line) is INDIRECT labor, which belongs in overhead,
+//      not in the labor rate. (A setting can fold it into the labor rate.)
+//   3. Productive minutes = line hours x 60 x efficiency %, the share of line
+//      time spent actually making product (after setup, cleaning and breaks).
+//   4. Standard direct labor rate = direct labor cost / productive minutes.
+// A labor minute is one person working one minute, as BOMs count minutes per batch.
 
-// Groups and scenarios, falling back to the old fixed staffing settings
-// (salaried, hourly A, hourly B; scenarios 1-5 days a week).
-export function laborData(data) {
-  const s = data.settings || {};
-  const groups = (data.labor_groups || []).length ? [...data.labor_groups].sort((a, b) => a.sort - b.sort || a.id - b.id) : [
-    { id: -1, name: 'Salaried', pay_type: 'salaried', headcount: n(s.salaried_count), annual_salary: n(s.salaried_wage), annual_fixed: 0 },
-    { id: -2, name: 'Hourly (A)', pay_type: 'hourly', headcount: n(s.hourly_a_count), hourly_rate: n(s.hourly_a_rate), monthly_fringe: 0 },
-    { id: -3, name: 'Hourly (B)', pay_type: 'hourly', headcount: n(s.hourly_b_count), hourly_rate: n(s.hourly_b_rate), monthly_fringe: 0 },
-  ];
-  const scenarios = (data.labor_scenarios || []).length ? [...data.labor_scenarios].sort((a, b) => a.id - b.id)
-    : [1, 2, 3, 4, 5].map((k) => ({ id: k, name: `${k} day${k > 1 ? 's' : ''} a week`, days_per_week: k, hours_per_day: 8, weeks_per_year: 52, productive_pct: 100 }));
-  const heads = new Map((data.labor_scenario_heads || []).map((h) => [`${h.scenario_id}|${h.group_id}`, n(h.headcount)]));
-  return { groups, scenarios, heads };
+const laborPlant = (s = {}) => ({
+  paidWeeks: s.labor_paid_weeks ?? 52,
+  prodWeeks: s.labor_prod_weeks ?? s.labor_paid_weeks ?? 52,
+  efficiency: (s.labor_efficiency_pct ?? 100) / 100,
+  idleTo: s.labor_idle_to || 'overhead',
+});
+
+// One position for the year. `days` overrides the line days a week (what-ifs).
+export function laborPosition(p, plant, days) {
+  const people = n(p.headcount); const hrs = p.hours_per_day ?? 8;
+  const sal = p.pay_type === 'salaried';
+  const paidDays = n(p.paid_days ?? 5);
+  let lineDays = Math.min(n(days ?? p.production_days ?? paidDays), paidDays);
+  let paidDaysUsed = paidDays;
+  // Hourly people who are only paid for line days move with the line schedule.
+  if (!sal && days !== undefined && n(p.production_days) >= paidDays) { paidDaysUsed = n(days); lineDays = n(days); }
+  const paidHours = people * paidDaysUsed * n(hrs) * plant.paidWeeks;
+  const lineHours = Math.min(people * lineDays * n(hrs) * plant.prodWeeks, paidHours);
+  const base = sal ? people * n(p.annual_salary) : paidHours * n(p.hourly_rate);
+  const tax = base * n(p.payroll_tax_pct) / 100;
+  const benefits = people * (sal ? n(p.annual_fixed) : n(p.monthly_fringe) * 12);
+  const burdened = base + tax + benefits;
+  const share = paidHours ? lineHours / paidHours : 0;
+  const direct = burdened * share;
+  return { position: p, people, salaried: sal, paidDays: paidDaysUsed, lineDays, paidHours, lineHours, base, tax, benefits, burdened,
+    share, direct, indirect: burdened - direct, minutes: lineHours * 60 * plant.efficiency,
+    perPaidHour: paidHours ? burdened / paidHours : 0 };
 }
 
-// One scenario worked out. `override` changes any scenario field (e.g. days_per_week) for what-ifs.
-export function laborScenario(data, sc, override = {}) {
-  const { groups, heads } = laborData(data);
-  const s = { ...sc, ...override };
-  const days = n(s.days_per_week), hrs = s.hours_per_day ?? 8, weeks = s.weeks_per_year ?? 52;
-  const productive = (s.productive_pct ?? 100) / 100;
-  const byGroup = groups.map((g) => {
-    const people = heads.get(`${sc.id}|${g.id}`) ?? n(g.headcount);
-    const hours = people * days * n(hrs) * n(weeks);
-    const sal = g.pay_type === 'salaried';
-    const pay = sal ? people * n(g.annual_salary) : hours * n(g.hourly_rate);
-    const fixed = people * (sal ? n(g.annual_fixed) : n(g.monthly_fringe) * 12);
-    const cost = pay + fixed;
-    return { group: g, people, hours, pay, fixed, cost, minutes: hours * 60 * productive, overridden: heads.has(`${sc.id}|${g.id}`) };
-  });
-  const sum = (f) => byGroup.reduce((t, x) => t + f(x), 0);
-  const hours = sum((x) => x.hours); const minutes = sum((x) => x.minutes);
-  const salaried = sum((x) => (x.group.pay_type === 'salaried' ? x.cost : 0));
-  const hourly = sum((x) => (x.group.pay_type === 'salaried' ? 0 : x.cost));
-  const total = salaried + hourly;
-  const wages = sum((x) => x.pay); const fixedCosts = sum((x) => x.fixed);
-  const ratePerMin = minutes ? total / minutes : 0;
-  const perBatchMin = n(data.settings?.minutes_per_batch);
-  const batchOz = n(data.settings?.production_batch_size);
-  const totalBatches = perBatchMin ? minutes / perBatchMin : 0;
-  return { scenario: s.id, id: s.id, name: s.name, days, hoursPerDay: n(hrs), weeks: n(weeks), productivePct: productive * 100,
-    byGroup, productionDays: days * n(weeks), hours, minutes, salaried, hourly, total, wages, fixedCosts,
-    avgHourly: hours ? total / hours : 0, ratePerMin, perBatch: ratePerMin * perBatchMin, perOz: batchOz ? (ratePerMin * perBatchMin) / batchOz : 0,
-    salariedShare: total ? salaried / total : 0, totalBatches, monthlyBatches: totalBatches / 12 };
+export function laborRate(data, { days } = {}) {
+  const s = data.settings || {}; const plant = laborPlant(s);
+  const rows = [...(data.labor_positions || [])].sort((a, b) => n(a.sort) - n(b.sort) || n(a.id) - n(b.id)).map((p) => laborPosition(p, plant, days));
+  const sum = (f) => rows.reduce((t, r) => t + f(r), 0);
+  const direct = sum((r) => r.direct); const indirect = sum((r) => r.indirect); const minutes = sum((r) => r.minutes);
+  const charged = direct + (plant.idleTo === 'labor' ? indirect : 0);
+  const rate = minutes ? charged / minutes : 0;
+  const perBatchMin = n(s.minutes_per_batch); const batchOz = n(s.production_batch_size);
+  return { plant, rows, burdened: sum((r) => r.burdened), base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
+    direct, indirect, minutes, lineHours: sum((r) => r.lineHours), paidHours: sum((r) => r.paidHours),
+    rate, directOnlyRate: minutes ? direct / minutes : 0, fullyLoadedRate: minutes ? (direct + indirect) / minutes : 0,
+    overheadPerMin: minutes ? indirect / minutes : 0,
+    perBatch: rate * perBatchMin, perOz: batchOz ? (rate * perBatchMin) / batchOz : 0,
+    batchesPerYear: perBatchMin ? minutes / perBatchMin : 0 };
 }
 
-// Every scenario, plus the standard rate for each year: the locked rate on
-// year_settings if one was set, otherwise the chosen scenario's current rate.
-export function laborModel(data) {
-  const { groups, scenarios } = laborData(data);
-  const results = scenarios.map((sc) => laborScenario(data, sc));
-  const byId = new Map(results.map((r) => [r.id, r]));
-  const years = new Map((data.year_settings || []).map((y) => [y.year, y]));
-  const live = (year) => byId.get(years.get(year)?.labor_scenario)?.ratePerMin ?? 0;
-  const rateFor = (year) => { const y = years.get(year); return y && y.labor_rate !== null && y.labor_rate !== undefined ? n(y.labor_rate) : live(year); };
-  return { groups, scenarios, results, byId, years, live, rateFor };
-}
-
-// The workbook's five scenarios from the old staffing settings (kept for the tests against Excel).
+// The workbook's Labor Scenarios sheet: scenario k = k days a week for everyone,
+// all pay spread over line hours. Used until labor positions are set up, and
+// by the tests against Excel.
 export function laborScenarios(s) {
-  return laborModel({ settings: s }).results.map((r) => ({ ...r, description: `Working ${r.days} day${r.days > 1 ? 's' : ''} per week` }));
+  return [1, 2, 3, 4, 5].map((k) => {
+    const hrsSal = 8 * k * 52 * n(s.salaried_count);
+    const hrsA = 8 * k * 52 * n(s.hourly_a_count);
+    const hrsB = 8 * k * 52 * n(s.hourly_b_count);
+    const wagesSal = n(s.salaried_wage) * n(s.salaried_count);
+    const wagesA = n(s.hourly_a_rate) * hrsA;
+    const wagesB = n(s.hourly_b_rate) * hrsB;
+    const total = wagesSal + wagesA + wagesB;
+    const hours = hrsSal + hrsA + hrsB;
+    const avgHourly = hours ? total / hours : 0;
+    const totalBatches = n(s.minutes_per_batch) ? (hours * 60) / n(s.minutes_per_batch) : 0;
+    return { scenario: k, name: `Scenario ${k}`, description: `Working ${k} day${k > 1 ? 's' : ''} per week`,
+      hrsSal, hrsA, hrsB, wagesSal, wagesA, wagesB, total, avgHourly, ratePerMin: avgHourly / 60,
+      totalBatches, monthlyBatches: totalBatches / 12 };
+  });
+}
+
+// The standard labor rate for each year: a locked rate if one was set for the
+// year; otherwise today's calculated rate (or, before any positions are set
+// up, the workbook scenario chosen for the year).
+export function laborModel(data) {
+  const current = laborRate(data);
+  const years = new Map((data.year_settings || []).map((y) => [y.year, y]));
+  const hasPositions = (data.labor_positions || []).length > 0;
+  const legacy = laborScenarios(data.settings || {});
+  const live = (year) => (hasPositions ? current.rate : legacy[(years.get(year)?.labor_scenario || 0) - 1]?.ratePerMin ?? 0);
+  const locked = (year) => { const y = years.get(year); return y && y.labor_rate !== null && y.labor_rate !== undefined ? n(y.labor_rate) : null; };
+  const rateFor = (year) => locked(year) ?? live(year);
+  return { current, years, live, locked, rateFor, hasPositions };
 }
 
 // ---------- Standard Cost ----------
@@ -218,7 +238,7 @@ export function costModel(data) {
     const ys = years.filter((y) => cost(itemNo, y)).sort((a, b) => Math.abs(a - year) - Math.abs(b - year) || a - b);
     return ys.length ? cost(itemNo, ys[0]) : 0;
   };
-  return { years, cost, latest, nearest, scenarios: labor.results, labor, ix, lineQty };
+  return { years, cost, latest, nearest, labor, ix, lineQty };
 }
 
 // Price per case, with the same nearest-year fallback.

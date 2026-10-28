@@ -25,11 +25,11 @@ def mock_db():
     db['settings'] = [dict(inputs['settings'], id=1)]
     db['sales_imports'] = []
     st = inputs['settings']
-    db['labor_groups'] = [dict(id=1, name='Salaried', pay_type='salaried', headcount=st['salaried_count'], annual_salary=st['salaried_wage'], annual_fixed=None, hourly_rate=None, monthly_fringe=None, sort=1),
-                          dict(id=2, name='Hourly (A)', pay_type='hourly', headcount=st['hourly_a_count'], annual_salary=None, hourly_rate=st['hourly_a_rate'], monthly_fringe=None, annual_fixed=None, sort=2),
-                          dict(id=3, name='Hourly (B)', pay_type='hourly', headcount=st['hourly_b_count'], annual_salary=None, hourly_rate=st['hourly_b_rate'], monthly_fringe=None, annual_fixed=None, sort=3)]
-    db['labor_scenarios'] = [dict(id=k, name=f'{k} day{"s" if k > 1 else ""} a week', days_per_week=k, hours_per_day=8, weeks_per_year=52, productive_pct=100, notes=None) for k in range(1, 6)]
-    db['labor_scenario_heads'] = []
+    db['labor_positions'] = [
+        dict(id=1, name='Salaried', pay_type='salaried', headcount=st['salaried_count'], annual_salary=st['salaried_wage'], annual_fixed=None, hourly_rate=None, monthly_fringe=None, payroll_tax_pct=0, paid_days=5, production_days=2, hours_per_day=8, notes=None, sort=1),
+        dict(id=2, name='Hourly (A)', pay_type='hourly', headcount=st['hourly_a_count'], hourly_rate=st['hourly_a_rate'], monthly_fringe=None, annual_salary=None, annual_fixed=None, payroll_tax_pct=0, paid_days=2, production_days=2, hours_per_day=8, notes=None, sort=2),
+        dict(id=3, name='Hourly (B)', pay_type='hourly', headcount=st['hourly_b_count'], hourly_rate=st['hourly_b_rate'], monthly_fringe=None, annual_salary=None, annual_fixed=None, payroll_tax_pct=0, paid_days=2, production_days=2, hours_per_day=8, notes=None, sort=3)]
+    db['settings'][0].update(labor_paid_weeks=52, labor_prod_weeks=52, labor_efficiency_pct=100, labor_idle_to='overhead')
     nm = ROOT / 'tests/fixtures/qb-name-map.json'
     db['qb_name_map'] = json.load(open(nm)) if nm.exists() else []
     db['profiles'] = [dict(user_id='u1', email='owner@stans.test', role='admin', created_at='2026-10-27T12:00:00Z'),
@@ -114,7 +114,7 @@ with sync_playwright() as p:
     page.get_by_role('tab', name='Labor', exact=True).click(); page.wait_for_timeout(80)
     page.locator('.groups .group', has_text='Dashboard').click(); page.wait_for_timeout(80)
     page.locator('.groups .group', has_text='Standards').click(); page.wait_for_timeout(100)
-    check(page.locator('.about-slot summary[aria-label="About Labor Rate Calculator"]').is_visible(), 'returning to a group reopens the last tab used there')
+    check(page.locator('.about-slot summary[aria-label="About Labor Rate"]').is_visible(), 'returning to a group reopens the last tab used there')
     page.locator('.groups .group', has_text='Accounting').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
     check(sub == GROUPS['Accounting'], f'Accounting group shows Journals and T-Accounts ({sub})')
@@ -294,42 +294,48 @@ with sync_playwright() as p:
     page.locator('main').get_by_role('button', name='Show totals').click(); page.wait_for_timeout(120)
     check(page.locator('main tr.xt-totals').count() == 1, 'and shown again')
 
-    # ---- labor rate calculator ----
+    # ---- labor rate (best practice: direct vs indirect labor) ----
     st = inputs['settings']
-    def want_rate(days, sal_fixed=0, heads=None, a_fringe=0):
-        h = heads or [st['salaried_count'], st['hourly_a_count'], st['hourly_b_count']]
-        hours = [x * days * 8 * 52 for x in h]
-        cost = h[0] * (st['salaried_wage'] + sal_fixed) + hours[1] * st['hourly_a_rate'] + h[1] * a_fringe * 12 + hours[2] * st['hourly_b_rate']
-        return cost / (sum(hours) * 60)
-    rate_text = lambda col: page.locator('table.scen-table tr.key-row td').nth(col).inner_text()
+    def want(line_days=2, sal_fixed=0, a_fringe=0, tax=0, eff=100, idle='overhead', a_rate=None):
+        a_rate = st['hourly_a_rate'] if a_rate is None else a_rate
+        sal = st['salaried_count'] * (st['salaried_wage'] * (1 + tax / 100) + sal_fixed)
+        sal_paid = st['salaried_count'] * 5 * 8 * 52; sal_line = st['salaried_count'] * line_days * 8 * 52
+        ha = st['hourly_a_count'] * line_days * 8 * 52; hb = st['hourly_b_count'] * line_days * 8 * 52
+        hourly = (ha * a_rate + hb * st['hourly_b_rate']) * (1 + tax / 100) + st['hourly_a_count'] * a_fringe * 12
+        direct = sal * sal_line / sal_paid + hourly; indirect = sal - sal * sal_line / sal_paid
+        minutes = (sal_line + ha + hb) * 60 * eff / 100
+        return (direct + (indirect if idle == 'labor' else 0)) / minutes
+    rate_now = lambda: float(page.locator('.labor-cards .stat.key .value').inner_text().strip('$'))
     tab(page, 'Labor')
     shot(page, '37-labor')
-    got = [float(rate_text(i).strip('$')) for i in range(5)]
-    check(all(abs(got[i] - want_rate(i + 1)) < 1e-4 for i in range(5)), f'cost per labor minute for 1-5 production days matches the workbook formula ({got})')
-    check(got[1] > got[3] * 1.5, 'running 2 days a week costs much more per minute than 4 (salaried pay is spread over fewer minutes)')
-    c = cell(page, 'lg|1|afixed'); c.click(); c.fill('20000'); c.press('Tab'); page.wait_for_timeout(300)
-    check(abs(float(rate_text(1).strip('$')) - want_rate(2, 20000)) < 1e-4, f'a $20,000 annual fixed cost per salaried person raises the 2-day rate ({rate_text(1)})')
-    c = cell(page, 'lg|2|mfringe'); c.click(); c.fill('450'); c.press('Tab'); page.wait_for_timeout(300)
-    check(abs(float(rate_text(1).strip('$')) - want_rate(2, 20000, a_fringe=450)) < 1e-4, f'a $450 monthly fringe per hourly person is added as a fixed cost ({rate_text(1)})')
-    page.locator('table.pay-groups tr', has=page.locator('input[data-k="lg|2|name"]')).get_by_role('button', name='Details').click(); page.wait_for_timeout(150)
+    check(abs(rate_now() - want()) < 1e-4, f'standard labor rate: salaried pay for 3 off-line days goes to overhead, not the rate ({rate_now()} vs {want():.4f})')
+    old = page.evaluate("1")
+    sel = page.get_by_label('Paid time off the line goes to'); sel.select_option('labor'); page.wait_for_timeout(300)
+    check(abs(rate_now() - want(idle='labor')) < 1e-4, f'choosing to keep off-line time in the labor rate matches the workbook’s 2-day scenario ({rate_now()})')
+    page.get_by_label('Paid time off the line goes to').select_option('overhead'); page.wait_for_timeout(300)
+    c = cell(page, 'lp|1|annual_fixed'); c.click(); c.fill('20000'); c.press('Tab'); page.wait_for_timeout(250)
+    c = cell(page, 'lp|2|monthly_fringe'); c.click(); c.fill('450'); c.press('Tab'); page.wait_for_timeout(250)
+    check(abs(rate_now() - want(sal_fixed=20000, a_fringe=450)) < 1e-4, f'annual fixed cost (salaried) and monthly fringe (hourly) are added ({rate_now()})')
+    c = cell(page, 'set|labor_efficiency_pct'); c.click(); c.fill('85'); c.press('Tab'); page.wait_for_timeout(250)
+    check(abs(rate_now() - want(sal_fixed=20000, a_fringe=450, eff=85)) < 1e-4, 'line efficiency divides the cost over fewer productive minutes')
+    check(page.locator('table.whatif tbody tr').count() == 5 and page.locator('table.whatif tr.current').count() == 1, 'what-if shows 1 to 5 line days, with today marked')
+    w = page.locator('table.whatif tbody tr').nth(3).locator('td').nth(4).inner_text()
+    check(abs(float(w.strip('$')) - want(4, 20000, 450, eff=85, idle='labor')) < 1e-4, f'what-if: 4 line days gives a lower fully loaded rate ({w})')
+    page.locator('table.pay-groups tr', has=page.locator('input[data-k="lp|2|name"]')).get_by_role('button', name='Details').click(); page.wait_for_timeout(150)
     dlg = page.locator('dialog.group-dialog')
-    check(dlg.locator('.gd-table tbody tr').count() == 5, 'pay group details show the group’s cost in every scenario')
     dlg.get_by_label('Hourly rate (per person)').fill('25'); dlg.get_by_label('Notes').fill('Line crew'); page.wait_for_timeout(100)
-    shot(page, '38-pay-group-details')
+    check(dlg.locator('.gd-table').inner_text().count('$') >= 6, 'position details show the cost build-up as you type')
+    shot(page, '38-position-details')
     dlg.get_by_role('button', name='Save').click(); page.wait_for_timeout(300)
-    g2 = page.evaluate("window.__MOCK_DB__.labor_groups.find(g => g.id === 2)")
-    check(g2['hourly_rate'] == 25 and g2['notes'] == 'Line crew' and g2['monthly_fringe'] == 450, f'details save the hourly rate and notes ({g2})')
-    st = dict(st, hourly_a_rate=25)
-    c = cell(page, 'lh|4|2'); c.click(); c.fill('3'); c.press('Tab'); page.wait_for_timeout(300)
-    check(abs(float(rate_text(3).strip('$')) - want_rate(4, 20000, [st['salaried_count'], 3, st['hourly_b_count']], 450)) < 1e-4, 'a scenario can use a different headcount for one pay group')
-    check(page.locator('table.whatif tbody tr').count() == 6, 'what-if table shows 1 to 6 production days')
-    yr = next(y for y in sorted({r['year'] for r in inputs['year_settings']}))
+    p2 = page.evaluate("window.__MOCK_DB__.labor_positions.find(p => p.id === 2)")
+    check(p2['hourly_rate'] == 25 and p2['notes'] == 'Line crew', f'details save the hourly rate and notes ({p2["hourly_rate"]}, {p2["notes"]})')
+    yr = max(r['year'] for r in inputs['year_settings'])
     row = page.locator('table.labor-years tbody tr', has=page.locator('td', has_text=str(yr)))
     before = row.locator('td.std-rate').inner_text()
     row.get_by_role('button', name='Lock rate').click(); page.wait_for_timeout(300)
     locked = page.evaluate(f"window.__MOCK_DB__.year_settings.find(y => y.year === {yr}).labor_rate")
     check(locked and abs(locked - float(before.strip('$'))) < 1e-4, f'locking saves the {yr} standard rate ({locked})')
-    c = cell(page, 'lg|1|afixed'); c.click(); c.fill('30000'); c.press('Tab'); page.wait_for_timeout(300)
+    c = cell(page, 'lp|1|annual_fixed'); c.click(); c.fill('30000'); c.press('Tab'); page.wait_for_timeout(300)
     row = page.locator('table.labor-years tbody tr', has=page.locator('td', has_text=str(yr)))
     check(row.locator('td.std-rate').inner_text() == before and row.get_by_role('button', name='Update').count() == 1, 'a locked standard stays put when pay changes, and offers Update')
     tab(page, 'Standard Cost')
@@ -337,12 +343,11 @@ with sync_playwright() as p:
     check(abs(float(lab.strip('$')) - locked) < 1e-4, f'Standard Cost uses the locked labor rate ({lab})')
     tab(page, 'Labor')
     page.locator('table.labor-years tbody tr', has=page.locator('td', has_text=str(yr))).get_by_role('button', name='Unlock').click(); page.wait_for_timeout(200)
-    c = cell(page, 'lg|1|afixed'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(200)
-    c = cell(page, 'lg|2|mfringe'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(200)
-    c = cell(page, 'lh|4|2'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(200)
-    c = cell(page, 'lg|2|rate'); c.click(); c.fill(str(inputs['settings']['hourly_a_rate'])); c.press('Tab'); page.wait_for_timeout(200)
-    st = inputs['settings']
-    check(abs(float(rate_text(3).strip('$')) - want_rate(4)) < 1e-4, 'clearing the scenario headcount goes back to the pay group’s')
+    # Put the workbook's numbers back for the BOM checks below (they expect the 2-day scenario rate).
+    for k, v in [('lp|1|annual_fixed', ''), ('lp|2|monthly_fringe', ''), ('lp|2|hourly_rate', str(st['hourly_a_rate'])), ('set|labor_efficiency_pct', '100')]:
+        c = cell(page, k); c.click(); c.fill(v); c.press('Tab'); page.wait_for_timeout(150)
+    page.get_by_label('Paid time off the line goes to').select_option('labor'); page.wait_for_timeout(250)
+    check(abs(rate_now() - want(idle='labor')) < 1e-4, 'back to the workbook rate')
 
     # ---- admin edits a standard cost and recipe cost follows ----
     tab(page, 'Standard Cost')

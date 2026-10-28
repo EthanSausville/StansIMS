@@ -624,3 +624,15 @@ dialog.group-dialog textarea { width: 100%; resize: vertical; font: inherit; pad
 .gd-cards strong { font-size: 16px; font-variant-numeric: tabular-nums; }
 table.gd-table { width: 100%; font-size: 13px; }
 @media (max-width: 600px) { .gd-cards { grid-template-columns: 1fr; } }
+.labor-cards { margin-bottom: 0; }
+.labor-cards .stat.key { background: linear-gradient(135deg, #f1f6ff, #e3edff); border-color: var(--accent-2); }
+.labor-cards .stat.key .value { color: var(--accent-dark); font-size: 26px; }
+.formula { padding: 12px 14px; border-top: 1px solid var(--line); display: grid; gap: 4px; font-size: 13px; }
+.formula .accent { color: var(--accent-dark); font-size: 15px; }
+table.build tr.total td { font-weight: 650; background: #eef4ff; border-top: 2px solid var(--accent-2); }
+table.labor-years tr.this-year td { box-shadow: inset 0 -1px 0 var(--accent-2); }
+.pd-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
+.pd-grid label[hidden] { display: none; }
+.pd-sub { margin: 4px 0 0; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+table.gd-table td { white-space: normal; }
+@media (max-width: 640px) { .pd-grid { grid-template-columns: 1fr 1fr; } }

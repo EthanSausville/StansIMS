@@ -17,13 +17,13 @@ function changed() { state.version++; derivedCache.clear(); for (const fn of lis
 const TABLES = {
   items: 'sort', standard_costs: 'year', standard_prices: 'year', boms: 'item_no', bom_lines: 'sort', year_settings: 'year', purchase_settings: 'item_no', production: 'date',
   sales_imports: 'created_at', qb_name_map: 'kind',
-  labor_groups: 'sort', labor_scenarios: 'id', labor_scenario_heads: 'scenario_id',
+  labor_positions: 'sort',
   goods_receipts: 'date', cycle_counts: 'date', sales: 'date',
 };
 
 // Tables added after the first release: until the database has been updated
 // (schema.sql), they load as empty instead of stopping the whole site.
-const OPTIONAL = new Set(['labor_groups', 'labor_scenarios', 'labor_scenario_heads']);
+const OPTIONAL = new Set(['labor_positions']);
 const missingTable = (e) => /does not exist|could not find the table|schema cache/i.test(e?.message || '') || e?.code === '42P01' || e?.code === 'PGRST205';
 
 async function fetchAll(table, order) {
@@ -217,13 +217,4 @@ export async function saveRow(table, key, patch) {
   const row = await run(sb.from(table).upsert({ ...(existing || {}), ...key, ...patch }, { onConflict: keys.join(',') }).select().single());
   const i = list.findIndex((r) => same(r, key, keys)); if (i >= 0) list[i] = row; else list.push(row);
   changed(); return row;
-}
-
-// Removes a labor pay group or scenario, and its scenario headcounts.
-export async function deleteLabor(kind, id) {
-  const table = kind === 'group' ? 'labor_groups' : 'labor_scenarios';
-  await run(sb.from(table).delete().eq('id', id));
-  state.data[table] = state.data[table].filter((r) => r.id !== id);
-  state.data.labor_scenario_heads = state.data.labor_scenario_heads.filter((h) => (kind === 'group' ? h.group_id : h.scenario_id) !== id);
-  changed();
 }

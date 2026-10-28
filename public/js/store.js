@@ -116,10 +116,10 @@ export async function saveField(table, key, field, value) {
 
 // Saves a whole BOM: optionally creates the item it makes, sets what one run
 // makes, and makes its lines match `lines` (updating, adding and removing).
-export async function saveBom({ newItem, itemNo, yieldQty, yieldUnit, lines }) {
+export async function saveBom({ newItem, itemNo, yieldQty, yieldUnit, laborMinutes, lines }) {
   const d = state.data;
   if (newItem) d.items.push(await run(sb.from('items').insert(newItem).select().single()));
-  const bom = await run(sb.from('boms').upsert({ item_no: itemNo, yield_qty: yieldQty, yield_unit: yieldUnit || null }, { onConflict: 'item_no' }).select().single());
+  const bom = await run(sb.from('boms').upsert({ item_no: itemNo, yield_qty: yieldQty, yield_unit: yieldUnit || null, labor_minutes: laborMinutes ?? null }, { onConflict: 'item_no' }).select().single());
   const bi = d.boms.findIndex((b) => b.item_no === itemNo); if (bi >= 0) d.boms[bi] = bom; else d.boms.push(bom);
   const existing = d.bom_lines.filter((l) => l.parent_item_no === itemNo);
   const keep = new Set(lines.filter((l) => l.id).map((l) => l.id));

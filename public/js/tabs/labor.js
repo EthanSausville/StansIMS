@@ -18,12 +18,6 @@ function textCell(value, save, { disabled, label, key }) {
     onchange: async (e) => { const v = e.target.value.trim(); if (!v) { e.target.value = value ?? ''; return; } try { await save(v); } catch (err) { e.target.value = value ?? ''; toast(niceError(err), 'bad'); } } }));
 }
 
-function caseSizes() {
-  const ix = derived.ix(); const sizes = new Map();
-  for (const fg of ix.byType('Finished Good')) { const oz = ix.fgCaseOz.get(fg.item_no); if (oz) sizes.set(oz, [...(sizes.get(oz) || []), fg.name]); }
-  return [...sizes].sort((a, b) => a[0] - b[0]).map(([oz, names]) => ({ oz, names }));
-}
-
 const FIELDS = [
   ['name', 'Position', 'text'], ['pay_type', 'Paid', 'pay'], ['headcount', 'People', 2],
   ['hourly_rate', 'Hourly rate', 4, 'hourly'], ['monthly_fringe', 'Monthly fringe', 2, 'hourly'],
@@ -88,9 +82,9 @@ export default {
   label: 'Labor',
   render() {
     const d = state.data; const s = d.settings; const admin = isAdmin();
-    const live = Array.isArray(d.labor_positions) && (d.labor_positions.length > 0 || 'labor_paid_weeks' in s);
+    const live = Array.isArray(d.labor_positions) && (d.labor_positions.length > 0 || 'labor_prod_weeks' in s);
     const can = admin && live;
-    const lm = laborModel(d); const L = lm.current; const cm = derived.costs(); const sizes = caseSizes();
+    const lm = laborModel(d); const L = lm.current; const cm = derived.costs(); 
     const thisYear = new Date().getFullYear();
 
     const addPosition = async () => {
@@ -104,7 +98,7 @@ export default {
       stat('Standard labor rate', perMin(L.rate), `${money(L.rate * 60)} per labor hour · ${L.plant.idleTo === 'labor' ? 'includes' : 'excludes'} off-line time`, 'key'),
       stat('Direct labor a year', dollars(L.direct), `${fmt(L.minutes)} productive minutes`),
       stat('Indirect labor a year', dollars(L.indirect), L.plant.idleTo === 'labor' ? 'Included in the labor rate' : `Belongs in overhead: ${perMin(L.overheadPerMin)} per labor minute`),
-      stat(`Labor per batch (${fmt(s.minutes_per_batch)} min)`, money(L.perBatch), `Capacity ${fmt(L.batchesPerYear)} batches a year`));
+      stat('Productive line hours a year', fmt(L.minutes / 60), `${fmt(L.lineHours)} line hours × ${fmt(L.plant.efficiency * 100)}% efficiency`));
 
     // ---------- standard by year ----------
     let prior = null;
@@ -113,7 +107,7 @@ export default {
       h('p', { class: 'panel-note' }, 'Set the standard once a year: lock the rate so pay changes during the year don’t change standard costs (the difference shows up as a labor variance). Unlocked years use today’s calculated rate.'),
       h('div', { class: 'tablewrap flat' }, h('table', { class: 't labor-years' },
         h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Year'), h('th', { class: 'num' }, 'Standard $/min'), h('th', { class: 'num' }, 'Per labor hour'), h('th', null, 'Status'),
-          h('th', { class: 'num' }, 'vs. prior year'), h('th', { class: 'num' }, 'Per batch'), h('th'))),
+          h('th', { class: 'num' }, 'vs. prior year'), h('th'))),
         h('tbody', null, cm.years.map((y) => {
           const locked = lm.locked(y); const rate = lm.rateFor(y); const row = lm.years.get(y) || {};
           const change = prior && rate ? rate / prior - 1 : null; if (rate) prior = rate;
@@ -124,7 +118,6 @@ export default {
             h('td', { class: 'num strong std-rate' }, perMin(rate)), h('td', { class: 'num' }, rate ? money(rate * 60) : ''),
             h('td', null, locked !== null ? h('span', { class: 'pill lockpill' }, `🔒 Locked${row.labor_rate_set_at ? ' ' + longDate(row.labor_rate_set_at.slice(0, 10)) : ''}`) : h('span', { class: 'muted small' }, 'Uses today’s rate')),
             h('td', { class: 'num' + (change > 0 ? ' up' : change < 0 ? ' down' : '') }, change === null ? '' : (change > 0 ? '+' : '') + pct(change)),
-            h('td', { class: 'num' }, rate ? money(rate * n(s.minutes_per_batch)) : ''),
             h('td', { class: 'row-actions' }, admin && lm.live(y) ? [
               locked === null ? h('button', { class: 'btn ghost', onclick: lockNow }, 'Lock rate') : null,
               locked !== null && Math.abs(lm.live(y) - locked) > 5e-7 ? h('button', { class: 'btn ghost', title: `Replace with today’s ${perMin(lm.live(y))}`, onclick: lockNow }, 'Update') : null,
@@ -162,14 +155,26 @@ export default {
     const plant = h('section', { class: 'panel batch-panel' },
       h('h2', null, 'Plant assumptions'),
       h('table', { class: 't batch-table' }, h('tbody', null,
-        plantRow('Weeks paid a year', 'Usually 52; paid holidays and vacation are part of the year.', setting('labor_paid_weeks', 'Weeks paid a year')),
-        plantRow('Weeks the line runs a year', 'Paid weeks less holidays, vacation and shutdowns.', setting('labor_prod_weeks', 'Weeks the line runs a year')),
+        plantRow('Weeks the line runs a year', 'Hourly line workers are paid only for the weeks and days they work (no paid time off). Salaried people are paid all 52 weeks; weeks the line is down count as indirect labor.', setting('labor_prod_weeks', 'Weeks the line runs a year')),
         plantRow('Line efficiency %', 'Share of line time spent making product, after setup, cleaning and breaks. Often 80–90%.', setting('labor_efficiency_pct', 'Line efficiency %')),
         plantRow('Paid time off the line goes to', 'Best practice is overhead, so the labor rate reflects time making product.',
           h('td', null, h('select', { disabled: !can, 'aria-label': 'Paid time off the line goes to', onchange: (e) => saveSettings({ labor_idle_to: e.target.value }).catch((err) => toast(niceError(err), 'bad')) },
             h('option', { value: 'overhead', selected: L.plant.idleTo !== 'labor' }, 'Overhead (recommended)'), h('option', { value: 'labor', selected: L.plant.idleTo === 'labor' }, 'The labor rate')))),
-        plantRow('Labor minutes per batch', 'Everyone’s minutes added up (3 people × 40 min = 120).', numberCell(s.minutes_per_batch ?? null, (v) => saveSettings({ minutes_per_batch: v ?? 0 }), { disabled: !admin, key: 'set|minutes_per_batch', title: 'Labor minutes per batch' })),
-        plantRow('Batch size (oz)', null, numberCell(s.production_batch_size ?? null, (v) => saveSettings({ production_batch_size: v ?? 0 }), { disabled: !admin, key: 'set|production_batch_size', title: 'Batch size (oz)' })))));
+      )));
+
+    // ---------- labor in each recipe (batch size and minutes live on the recipe BOM) ----------
+    const saveBomField = (r, k) => (v) => saveRow('boms', { item_no: r.item.item_no }, { [k]: v });
+    const recipes = L.recipes.length ? h('section', { class: 'panel' },
+      h('h2', null, 'Labor in each recipe'),
+      h('p', { class: 'panel-note' }, 'Each recipe BOM has its own batch size (what one run makes) and labor minutes per batch (everyone’s minutes added up: 3 people × 40 min = 120). Change them here or on Create BOM. Production batches each recipe in its own batch size.'),
+      h('div', { class: 'tablewrap flat' }, h('table', { class: 't recipes-labor' },
+        h('thead', null, h('tr', null, h('th', null, 'Recipe'), h('th', { class: 'num' }, 'Batch size (oz)'), h('th', { class: 'num' }, 'Labor minutes per batch'),
+          h('th', { class: 'num' }, 'Labor per batch'), h('th', { class: 'num' }, 'Labor per oz'), h('th', { class: 'num' }, 'Fully loaded per oz'), h('th', { class: 'num' }, 'Batches a year (this recipe only)'))),
+        h('tbody', null, L.recipes.map((r) => h('tr', null, h('td', null, r.item.name),
+          numberCell(r.batchOz, saveBomField(r, 'yield_qty'), { disabled: !admin, digits: 2, key: `bom|${r.item.item_no}|yield`, title: `${r.item.name}: batch size (oz)` }),
+          numberCell(r.minutesPer, saveBomField(r, 'labor_minutes'), { disabled: !admin, digits: 2, key: `bom|${r.item.item_no}|minutes`, title: `${r.item.name}: labor minutes per batch` }),
+          h('td', { class: 'num calc' }, money(r.perBatch)), h('td', { class: 'num calc' }, r.perOz ? '$' + qty(r.perOz, 5) : '—'),
+          h('td', { class: 'num calc' }, r.loadedPerOz ? '$' + qty(r.loadedPerOz, 5) : '—'), h('td', { class: 'num calc' }, fmt(r.batchesPerYear)))))))) : null;
 
     // ---------- cost build-up ----------
     const cols = [['People', (r) => qty(r.people, 2)], ['Paid hours', (r) => fmt(r.paidHours)], ['Line hours', (r) => fmt(r.lineHours)], ['Base pay', (r) => dollars(r.base)],
@@ -198,16 +203,15 @@ export default {
       h('p', { class: 'panel-note' }, 'Same people and pay. Salaried people are paid for their full week whatever the line does, so on fewer line days more of their pay is indirect labor (overhead), and the fully loaded cost of each labor minute rises. The standard labor rate only moves when the mix of people on the line changes.'),
       h('div', { class: 'tablewrap flat' }, h('table', { class: 't whatif' },
         h('thead', null, h('tr', null, h('th', null, 'Line days a week'), h('th', { class: 'num' }, 'Standard labor rate'), h('th', { class: 'num' }, 'Indirect labor (overhead)'),
-          h('th', { class: 'num' }, 'Overhead per labor min'), h('th', null, 'Fully loaded $/min'), h('th', { class: 'num' }, 'vs. now'), h('th', { class: 'num' }, 'Fully loaded per batch'),
-          sizes.map((z) => h('th', { class: 'num', title: z.names.join(', ') }, `Per ${fmt(z.oz)} oz case`)))),
+          h('th', { class: 'num' }, 'Overhead per labor min'), h('th', null, 'Fully loaded $/min'), h('th', { class: 'num' }, 'vs. now'),
+          L.recipes.map((rc) => h('th', { class: 'num wrap' }, `Fully loaded per batch: ${rc.item.name.replace(/^RECIPE:\s*/i, '')}`)))),
         h('tbody', null, what.map(({ days, r }) => {
-          const batchMin = n(s.minutes_per_batch); const loaded = r.fullyLoadedRate * batchMin; const ozCost = n(s.production_batch_size) ? loaded / n(s.production_batch_size) : 0;
           return h('tr', { class: days === curDays ? 'current' : null },
             h('td', null, `${days} day${days > 1 ? 's' : ''}${days === curDays ? ' (now)' : ''}`),
             h('td', { class: 'num' }, perMin(r.rate)), h('td', { class: 'num' }, dollars(r.indirect)), h('td', { class: 'num' }, perMin(r.overheadPerMin)),
             h('td', { class: 'barcell' }, h('span', { class: 'bar', style: { width: `${maxRate ? (r.fullyLoadedRate / maxRate) * 100 : 0}%` } }), h('span', { class: 'barval' }, perMin(r.fullyLoadedRate))),
             h('td', { class: 'num' + (r.fullyLoadedRate > L.fullyLoadedRate * 1.0005 ? ' up' : r.fullyLoadedRate < L.fullyLoadedRate * 0.9995 ? ' down' : '') }, vs(r.fullyLoadedRate, L.fullyLoadedRate)),
-            h('td', { class: 'num' }, money(loaded)), sizes.map((z) => h('td', { class: 'num' }, ozCost ? money(ozCost * z.oz, 3) : '—')));
+            L.recipes.map((rc) => h('td', { class: 'num' }, money(r.fullyLoadedRate * rc.minutesPer))));
         }))))) : null;
 
     return h('div', { class: 'labor' },
@@ -215,6 +219,6 @@ export default {
         can ? h('button', { class: 'btn primary', onclick: addPosition }, '+ Add position') : null,
         h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so this shows the workbook’s labor scenarios read-only. It becomes editable after the next deploy to main.') : null),
-      summary, years, people, plant, build, whatPanel);
+      summary, years, people, plant, recipes, build, whatPanel);
   },
 };

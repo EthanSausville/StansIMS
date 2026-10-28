@@ -136,6 +136,15 @@ create table if not exists public.year_settings (
   labor_scenario int not null check (labor_scenario between 1 and 5)
 );
 
+-- Labor minutes per run of a BOM (a recipe's labor minutes per batch). BOM
+-- lines marked uses_batch_minutes (Direct Labor, Overhead) take this as their
+-- quantity. First time: filled from the old single minutes-per-batch setting.
+alter table public.boms add column if not exists labor_minutes numeric;
+update public.boms b set labor_minutes = s.minutes_per_batch
+from public.settings s
+where s.id = 1 and b.labor_minutes is null and s.minutes_per_batch > 0
+  and exists (select 1 from public.bom_lines l where l.parent_item_no = b.item_no and l.uses_batch_minutes);
+
 -- ---------- labor rate (Labor tab) ----------
 -- One row per position (or group of people paid the same way). Amounts are per
 -- person. Hourly: hourly rate + monthly fringe. Salaried: annual salary +

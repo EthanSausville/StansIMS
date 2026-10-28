@@ -53,7 +53,8 @@ export function evalEntry(text) {
 // BOM, with how much one run of it makes (yield_qty, e.g. 1 case or a 3,220 oz
 // batch). `bom_lines` lists what goes into one run; a line can be any item,
 // including one that has its own BOM, to any depth. A line flagged
-// uses_batch_minutes takes its quantity from the Labor tab's minutes per batch.
+// uses_batch_minutes takes its quantity from its BOM's labor minutes per run
+// (boms.labor_minutes; the old single minutes-per-batch setting if blank).
 //
 // Data from before multi-level BOMs (recipes / recipe_lines / fg_lines) is
 // converted here, so older exports still calculate the same way.
@@ -80,6 +81,8 @@ export function index(data) {
   }
   const children = (itemNo) => linesOf.get(itemNo) || [];
   const yieldOf = (itemNo) => n(bom.get(itemNo)?.yield_qty) || 1;
+  const laborMinutesOf = (itemNo) => { const m = bom.get(itemNo)?.labor_minutes; return m === null || m === undefined || m === '' ? n(data.settings?.minutes_per_batch) : n(m); };
+  const lineQty = (l) => (l.uses_batch_minutes ? laborMinutesOf(l.parent_item_no) : n(l.qty));
   // Oz of recipe in one case of a finished good (Production row 2).
   const fgCaseOz = new Map();
   for (const b of boms) {
@@ -90,7 +93,7 @@ export function index(data) {
   // Items that appear inside another BOM are not top-level.
   const usedIn = new Map();
   for (const l of lines) { if (!usedIn.has(l.item_no)) usedIn.set(l.item_no, new Set()); usedIn.get(l.item_no).add(l.parent_item_no); }
-  return { items, byType, bom, children, yieldOf, fgCaseOz, usedIn };
+  return { items, byType, bom, children, yieldOf, laborMinutesOf, lineQty, fgCaseOz, usedIn };
 }
 
 // True when putting `child` into `parent`'s BOM would make a loop
@@ -120,9 +123,12 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
 //   4. Standard direct labor rate = direct labor cost / productive minutes.
 // A labor minute is one person working one minute, as BOMs count minutes per batch.
 
+// No paid time off for people on the line: hourly people are paid for the
+// hours they work, in the weeks the line runs. Salaried people are paid all
+// 52 weeks, so weeks the line is down are indirect labor too.
 const laborPlant = (s = {}) => ({
-  paidWeeks: s.labor_paid_weeks ?? 52,
-  prodWeeks: s.labor_prod_weeks ?? s.labor_paid_weeks ?? 52,
+  paidWeeks: 52,
+  prodWeeks: s.labor_prod_weeks ?? 52,
   efficiency: (s.labor_efficiency_pct ?? 100) / 100,
   idleTo: s.labor_idle_to || 'overhead',
 });
@@ -136,7 +142,7 @@ export function laborPosition(p, plant, days) {
   let paidDaysUsed = paidDays;
   // Hourly people who are only paid for line days move with the line schedule.
   if (!sal && days !== undefined && n(p.production_days) >= paidDays) { paidDaysUsed = n(days); lineDays = n(days); }
-  const paidHours = people * paidDaysUsed * n(hrs) * plant.paidWeeks;
+  const paidHours = people * paidDaysUsed * n(hrs) * (sal ? plant.paidWeeks : plant.prodWeeks);
   const lineHours = Math.min(people * lineDays * n(hrs) * plant.prodWeeks, paidHours);
   const base = sal ? people * n(p.annual_salary) : paidHours * n(p.hourly_rate);
   const tax = base * n(p.payroll_tax_pct) / 100;
@@ -156,13 +162,18 @@ export function laborRate(data, { days } = {}) {
   const direct = sum((r) => r.direct); const indirect = sum((r) => r.indirect); const minutes = sum((r) => r.minutes);
   const charged = direct + (plant.idleTo === 'labor' ? indirect : 0);
   const rate = minutes ? charged / minutes : 0;
-  const perBatchMin = n(s.minutes_per_batch); const batchOz = n(s.production_batch_size);
-  return { plant, rows, burdened: sum((r) => r.burdened), base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
+  // Labor in each recipe: its own batch size and labor minutes per batch.
+  const ix = data.items ? index(data) : null;
+  const recipes = ix ? ix.byType('Recipe').filter((r) => ix.bom.has(r.item_no)).map((r) => {
+    const batchOz = ix.yieldOf(r.item_no); const minutesPer = ix.laborMinutesOf(r.item_no);
+    return { item: r, batchOz, minutesPer, perBatch: rate * minutesPer, perOz: batchOz ? (rate * minutesPer) / batchOz : 0,
+      loadedPerOz: batchOz && minutes ? ((direct + indirect) / minutes) * minutesPer / batchOz : 0, batchesPerYear: minutesPer ? minutes / minutesPer : 0 };
+  }) : [];
+  return { recipes, plant, rows, burdened: sum((r) => r.burdened), base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
     direct, indirect, minutes, lineHours: sum((r) => r.lineHours), paidHours: sum((r) => r.paidHours),
     rate, directOnlyRate: minutes ? direct / minutes : 0, fullyLoadedRate: minutes ? (direct + indirect) / minutes : 0,
     overheadPerMin: minutes ? indirect / minutes : 0,
-    perBatch: rate * perBatchMin, perOz: batchOz ? (rate * perBatchMin) / batchOz : 0,
-    batchesPerYear: perBatchMin ? minutes / perBatchMin : 0 };
+  };
 }
 
 // The workbook's Labor Scenarios sheet: scenario k = k days a week for everyone,
@@ -210,7 +221,6 @@ export function costModel(data) {
     ...data.standard_prices.map((p) => p.year)]);
   const first = yearsSet.size ? Math.min(...yearsSet) : new Date().getFullYear();
   const years = Array.from({ length: 10 }, (_, i) => first + i); // the workbook carries ten years
-  const minutes = n(data.settings.minutes_per_batch);
   const memo = new Map();
 
   function cost(itemNo, year) {
@@ -229,7 +239,7 @@ export function costModel(data) {
     memo.set(key, v);
     return v;
   }
-  const lineQty = (l) => (l.uses_batch_minutes ? minutes : n(l.qty));
+  const { lineQty } = ix;
   // "Latest Cost": the last year with a non-zero cost.
   const latest = (itemNo) => { for (let i = years.length - 1; i >= 0; i--) { const v = cost(itemNo, years[i]); if (v) return v; } return 0; };
   // Cost for a year, falling back to the nearest year that has standards.
@@ -265,10 +275,18 @@ export function avgPricePerOz(data, year) {
 
 // ---------- Production ----------
 // One row per production date: oz, batches and the estimated loss from the
-// last, partly-used batch (Production!D:F).
+// last, partly-used batch (Production!D:F). Each recipe is batched on its own,
+// in its own batch size (the recipe BOM's "one run makes").
 export function productionDays(data) {
   const ix = index(data);
-  const B = n(data.settings.production_batch_size);
+  const fallbackB = n(data.settings.production_batch_size);
+  // oz of each recipe in one case of each finished good
+  const recipeOz = new Map();
+  for (const fg of ix.byType('Finished Good')) {
+    const m = new Map();
+    for (const l of ix.children(fg.item_no)) if (ix.items.get(l.item_no)?.type === 'Recipe') m.set(l.item_no, (m.get(l.item_no) || 0) + n(l.qty) / ix.yieldOf(fg.item_no));
+    recipeOz.set(fg.item_no, m);
+  }
   const byDate = new Map();
   for (const p of data.production) {
     if (!byDate.has(p.date)) byDate.set(p.date, { date: p.date, cases: {} });
@@ -277,10 +295,19 @@ export function productionDays(data) {
   const avgCache = new Map();
   const avg = (y) => { if (!avgCache.has(y)) avgCache.set(y, avgPricePerOz(data, y)); return avgCache.get(y); };
   return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).map((row) => {
-    const oz = Object.entries(row.cases).reduce((s, [fg, c]) => s + c * (ix.fgCaseOz.get(Number(fg)) || 0), 0);
-    const batches = B ? Math.ceil(oz / B - 1e-9) : 0;
-    const leftover = batches ? batches * B - oz : 0;
-    return { ...row, oz, batches, leftoverOz: leftover, loss: leftover * avg(yearOf(row.date)) };
+    const perRecipe = new Map(); let oz = 0;
+    for (const [fg, c] of Object.entries(row.cases)) {
+      const m = recipeOz.get(Number(fg));
+      if (m && m.size) for (const [r, q] of m) perRecipe.set(r, (perRecipe.get(r) || 0) + c * q);
+      else oz += c * (ix.fgCaseOz.get(Number(fg)) || 0);
+    }
+    let batches = 0; let leftover = 0; const recipes = [];
+    for (const [r, q] of perRecipe) {
+      const B = ix.bom.has(r) ? ix.yieldOf(r) : fallbackB;
+      const b = B ? Math.ceil(q / B - 1e-9) : 0; const left = b ? b * B - q : 0;
+      oz += q; batches += b; leftover += left; recipes.push({ item_no: r, oz: q, batchSize: B, batches: b, leftoverOz: left });
+    }
+    return { ...row, oz, batches, leftoverOz: leftover, recipes, loss: leftover * avg(yearOf(row.date)) };
   });
 }
 
@@ -290,7 +317,6 @@ export function productionDays(data) {
 // costs, not stock, so they are skipped.
 export function perCaseUsage(data) {
   const ix = index(data); const out = new Map();
-  const minutes = n(data.settings.minutes_per_batch);
   const expand = (itemNo, per, m, path) => {
     if (path.has(itemNo)) return; path.add(itemNo);
     for (const l of ix.children(itemNo)) {

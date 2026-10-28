@@ -16,7 +16,7 @@ def mock_db():
     db = {k: v for k, v in inputs.items() if isinstance(v, list)}
     db['production'] = [dict(date=r['date'], item_no=r['item_no'], cases=r['cases']) for r in inputs['production']]
     for t in ('recipes', 'recipe_lines', 'fg_lines'): db.pop(t, None)
-    db['boms'] = [dict(item_no=r['item_no'], yield_qty=r['batch_size'], yield_unit='oz') for r in inputs['recipes']]
+    db['boms'] = [dict(item_no=r['item_no'], yield_qty=r['batch_size'], yield_unit='oz', labor_minutes=inputs['settings']['minutes_per_batch']) for r in inputs['recipes']]
     db['boms'] += [dict(item_no=f, yield_qty=1, yield_unit='case') for f in dict.fromkeys(l['fg_item_no'] for l in inputs['fg_lines'])]
     db['bom_lines'] = [dict(parent_item_no=l['recipe_item_no'], item_no=l['item_no'], qty=l['qty'], uses_batch_minutes=l['uses_batch_minutes'], sort=l['sort']) for l in inputs['recipe_lines']]
     db['bom_lines'] += [dict(parent_item_no=l['fg_item_no'], item_no=l['item_no'], qty=l['qty'], uses_batch_minutes=False, sort=l['sort']) for l in inputs['fg_lines']]
@@ -318,6 +318,13 @@ with sync_playwright() as p:
     check(abs(rate_now() - want(sal_fixed=20000, a_fringe=450)) < 1e-4, f'annual fixed cost (salaried) and monthly fringe (hourly) are added ({rate_now()})')
     c = cell(page, 'set|labor_efficiency_pct'); c.click(); c.fill('85'); c.press('Tab'); page.wait_for_timeout(250)
     check(abs(rate_now() - want(sal_fixed=20000, a_fringe=450, eff=85)) < 1e-4, 'line efficiency divides the cost over fewer productive minutes')
+    rec_row = page.locator('table.recipes-labor tbody tr').first
+    lpb = float(rec_row.locator('td').nth(3).inner_text().replace('$', '').replace(',', ''))
+    check(abs(lpb - rate_now() * st['minutes_per_batch']) < 0.01, f'labor per batch = rate x the recipe’s labor minutes ({lpb})')
+    rid = page.evaluate("window.__MOCK_DB__.items.find(i => i.type === 'Recipe').item_no")
+    c = cell(page, f'bom|{rid}|minutes'); c.click(); c.fill('60'); c.press('Tab'); page.wait_for_timeout(250)
+    check(page.evaluate(f"window.__MOCK_DB__.boms.find(b => b.item_no === {rid}).labor_minutes") == 60, 'a recipe’s labor minutes per batch are saved on its BOM')
+    c = cell(page, f'bom|{rid}|minutes'); c.click(); c.fill(str(st['minutes_per_batch'])); c.press('Tab'); page.wait_for_timeout(250)
     check(page.locator('table.whatif tbody tr').count() == 5 and page.locator('table.whatif tr.current').count() == 1, 'what-if shows 1 to 5 line days, with today marked')
     w = page.locator('table.whatif tbody tr').nth(3).locator('td').nth(4).inner_text()
     check(abs(float(w.strip('$')) - want(4, 20000, 450, eff=85, idle='labor')) < 1e-4, f'what-if: 4 line days gives a lower fully loaded rate ({w})')

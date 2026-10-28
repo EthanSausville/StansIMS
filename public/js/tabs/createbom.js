@@ -20,7 +20,7 @@ function nextItemNo(type) {
 
 function freshDraft() {
   return { mode: 'new', itemNo: null, newItem: { name: '', item_no: nextItemNo('Finished Good'), type: 'Finished Good', unit: 'ea' },
-    yieldQty: 1, yieldUnit: 'case', lines: [blankLine()], dirty: false };
+    yieldQty: 1, yieldUnit: 'case', laborMinutes: null, lines: [blankLine()], dirty: false };
 }
 
 function loadExisting(itemNo) {
@@ -30,6 +30,7 @@ function loadExisting(itemNo) {
   const it = state.data.items.find((i) => i.item_no === itemNo);
   return { mode: b ? 'edit' : 'existing', itemNo, newItem: null,
     yieldQty: b ? Number(b.yield_qty) : 1, yieldUnit: b ? (b.yield_unit || '') : (it?.type === 'Finished Good' ? 'case' : it?.unit || ''),
+    laborMinutes: b && b.labor_minutes !== null && b.labor_minutes !== undefined ? Number(b.labor_minutes) : (lines.some((l) => l.uses_batch_minutes) ? Number(state.data.settings.minutes_per_batch) || null : null),
     lines: lines.length ? lines : [blankLine()], dirty: false };
 }
 
@@ -45,7 +46,7 @@ function previewData() {
   const d = state.data;
   const target = draft.mode === 'new' ? Number(draft.newItem.item_no) : draft.itemNo;
   const items = draft.mode === 'new' && target ? [...d.items, { ...draft.newItem, item_no: target, sort: 1e9 }] : d.items;
-  const boms = [...d.boms.filter((b) => b.item_no !== target), { item_no: target, yield_qty: Number(draft.yieldQty) || 1, yield_unit: draft.yieldUnit }];
+  const boms = [...d.boms.filter((b) => b.item_no !== target), { item_no: target, yield_qty: Number(draft.yieldQty) || 1, yield_unit: draft.yieldUnit, labor_minutes: draft.laborMinutes }];
   const lines = [...d.bom_lines.filter((l) => l.parent_item_no !== target),
     ...draft.lines.filter((l) => l.item_no).map((l, i) => ({ id: `draft${i}`, parent_item_no: target, item_no: l.item_no, qty: l.qty, uses_batch_minutes: l.uses_batch_minutes, sort: i + 1 }))];
   return { target, data: { ...d, items, boms, bom_lines: lines } };
@@ -61,6 +62,7 @@ function problems() {
     else if (state.data.items.some((i) => i.item_no === Number(n.item_no))) out.push(`Item # ${n.item_no} is already used.`);
   } else if (!draft.itemNo) out.push('Choose the item this BOM makes.');
   if (!(Number(draft.yieldQty) > 0)) out.push('“One run makes” must be more than 0.');
+  if (draft.lines.some((l) => l.item_no && l.uses_batch_minutes) && !(Number(draft.laborMinutes) > 0)) out.push('Enter the labor minutes per run (used by the lines marked “Labor minutes”).');
   const filled = draft.lines.filter((l) => l.item_no);
   if (!filled.length) out.push('Add at least one line.');
   for (const l of filled) {
@@ -113,7 +115,10 @@ export default {
         h('div', { class: 'cb-yield' },
           h('label', { class: 'field' }, 'One run makes', h('input', { id: 'cb-yield', type: 'text', inputmode: 'decimal', value: draft.yieldQty, onchange: (e) => { try { draft.yieldQty = evalEntry(e.target.value); } catch { draft.yieldQty = null; } touch(); } })),
           h('label', { class: 'field' }, 'Unit', h('input', { id: 'cb-yield-unit', type: 'text', value: draft.yieldUnit, placeholder: 'case, oz, batch', onchange: (e) => { draft.yieldUnit = e.target.value.trim(); touch(); } })),
-          h('p', { class: 'small muted' }, 'Enter quantities for one run: one case of a product, or one batch of a recipe (e.g. a batch makes 3,220 oz).'))));
+          h('label', { class: 'field' }, 'Labor minutes per run', h('input', { id: 'cb-minutes', type: 'text', inputmode: 'decimal', value: draft.laborMinutes ?? '', placeholder: 'e.g. 90',
+            title: 'Everyone’s minutes added up for one run (3 people × 40 min = 120). Direct Labor and Overhead lines marked “Labor minutes” use it.',
+            onchange: (e) => { try { draft.laborMinutes = e.target.value.trim() ? evalEntry(e.target.value) : null; } catch { draft.laborMinutes = null; } touch(); } })),
+          h('p', { class: 'small muted' }, 'Enter quantities for one run: one case of a product, or one batch of a recipe. For a recipe, “one run makes” is its batch size (e.g. 3,220 oz) and labor minutes are everyone’s minutes for one batch.'))));
 
     // ---------- 2. lines ----------
     const groups = ['Recipe', 'Finished Good', 'Raw Material', 'Component', 'Indirect Cost'];
@@ -123,6 +128,7 @@ export default {
           l.item_no = Number(e.target.value) || null;
           const t = ix.items.get(l.item_no)?.type;
           l.uses_batch_minutes = t === 'Indirect Cost' && (Number(draft.yieldQty) > 1);
+          if (l.uses_batch_minutes && draft.laborMinutes === null) draft.laborMinutes = Number(state.data.settings.minutes_per_batch) || null;
           if (idx === draft.lines.length - 1 && l.item_no) draft.lines.push(blankLine());
           touch();
         } },
@@ -137,23 +143,23 @@ export default {
               `${i.name}${ix.bom.has(i.item_no) ? '  ▸ has BOM' : ''}${self ? ' (this item)' : loop ? ' (contains this item)' : ''}`);
           }));
         }));
-      const q = l.uses_batch_minutes ? Number(state.data.settings.minutes_per_batch) || 0 : Number(l.qty) || 0;
+      const q = l.uses_batch_minutes ? Number(draft.laborMinutes) || 0 : Number(l.qty) || 0;
       const c = l.item_no ? pcm.cost(l.item_no, year) : 0;
       return h('tr', null,
         h('td', { class: 'num muted' }, idx + 1),
         h('td', { class: 'cell entry wide-cell' }, select),
         h('td', null, it ? typePill(it.type) : ''),
         l.uses_batch_minutes
-          ? h('td', { class: 'num calc', title: 'Minutes per batch, from the Labor tab' }, qty(q, 4))
+          ? h('td', { class: 'num calc', title: 'Labor minutes per run (above)' }, qty(q, 4))
           : h('td', { class: 'cell num entry' }, h('input', { type: 'text', inputmode: 'decimal', value: l.qty ?? '', 'data-k': `cb-qty-${l.key}`, 'aria-label': `Line ${idx + 1} quantity`,
             onchange: (e) => { try { l.qty = evalEntry(e.target.value); e.target.classList.remove('error'); } catch (err) { e.target.classList.add('error'); toast(err.message, 'bad'); return; } touch(); } })),
         h('td', { class: 'muted' }, it ? (it.unit || '') : ''),
-        h('td', null, it?.type === 'Indirect Cost' ? h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: l.uses_batch_minutes, onchange: (e) => { l.uses_batch_minutes = e.target.checked; touch(); } }), ' Minutes per batch') : ''),
+        h('td', null, it?.type === 'Indirect Cost' ? h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: l.uses_batch_minutes, onchange: (e) => { l.uses_batch_minutes = e.target.checked; if (e.target.checked && draft.laborMinutes === null) draft.laborMinutes = Number(state.data.settings.minutes_per_batch) || null; touch(); } }), ' Labor minutes') : ''),
         h('td', { class: 'num calc' }, c ? '$' + fmt(c, Math.abs(c) < 1 ? 5 : 2, 2) : ''),
         h('td', { class: 'num calc' }, c && q ? money(c * q, 2) : ''),
         h('td', null, h('button', { class: 'btn ghost danger', 'aria-label': `Remove line ${idx + 1}`, onclick: () => { draft.lines.splice(idx, 1); if (!draft.lines.length) draft.lines.push(blankLine()); touch(); } }, 'Remove')));
     });
-    const runCost = target ? draft.lines.filter((l) => l.item_no).reduce((s, l) => s + pcm.cost(l.item_no, year) * (l.uses_batch_minutes ? Number(state.data.settings.minutes_per_batch) || 0 : Number(l.qty) || 0), 0) : 0;
+    const runCost = target ? draft.lines.filter((l) => l.item_no).reduce((s, l) => s + pcm.cost(l.item_no, year) * (l.uses_batch_minutes ? Number(draft.laborMinutes) || 0 : Number(l.qty) || 0), 0) : 0;
     const perUnit = runCost / (Number(draft.yieldQty) || 1);
     const linesPanel = h('section', { class: 'panel section' },
       h('h2', null, h('span', { class: 'grow' }, '2. What goes into one run?'), h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells')),
@@ -175,7 +181,7 @@ export default {
         const itemNo = draft.mode === 'new' ? Number(draft.newItem.item_no) : draft.itemNo;
         const newItem = draft.mode === 'new' ? { item_no: itemNo, name: draft.newItem.name.trim(), type: draft.newItem.type, unit: draft.newItem.unit || null,
           sort: Math.max(0, ...state.data.items.map((i) => i.sort)) + 1 } : null;
-        await saveBom({ newItem, itemNo, yieldQty: Number(draft.yieldQty), yieldUnit: draft.yieldUnit, lines });
+        await saveBom({ newItem, itemNo, yieldQty: Number(draft.yieldQty), yieldUnit: draft.yieldUnit, laborMinutes: draft.laborMinutes, lines });
         toast(`Saved the BOM for ${name}.`);
         draft = loadExisting(itemNo);
         rerender();

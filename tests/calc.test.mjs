@@ -39,13 +39,39 @@ test('standard cost for every item (2026)', () => {
   for (const [item, v] of Object.entries(X.std_cost_2026)) close(cm.cost(Number(item), 2026), v, `item ${item}`);
 });
 
+// The workbook batched all recipes made on a day together; the site batches
+// each recipe on its own (recipes can't share a batch, and each recipe BOM has
+// its own batch size). Days where that gives the same number of batches must
+// match Excel exactly; on the others it can only need more batches, never fewer.
 test('production oz, batches and estimated loss', () => {
   const days = new Map(C.productionDays(data).map((d) => [d.date, d]));
+  let single = 0;
   for (const [date, [loss, batches, oz]] of Object.entries(X.production)) {
     const d = days.get(date); assert.ok(d, `missing ${date}`);
-    close(d.loss, loss, `${date} loss`); close(d.batches, batches, `${date} batches`); close(d.oz, oz, `${date} oz`);
+    close(d.oz, oz, `${date} oz`);
+    if (d.batches === batches) { single++; close(d.loss, loss, `${date} loss`); }
+    else {
+      assert.ok(d.batches >= batches && d.batches <= batches + d.recipes.length - 1, `${date} batches`);
+      for (const r of d.recipes) { assert.equal(r.batches, Math.ceil(r.oz / r.batchSize - 1e-9)); close(r.leftoverOz, r.batches * r.batchSize - r.oz, `${date} leftover`); }
+    }
   }
+  assert.ok(single > 0);
   assert.equal(days.size, Object.keys(X.production).length);
+});
+
+test('each recipe uses its own batch size and labor minutes', () => {
+  const recipe = data.items.find((i) => i.type === 'Recipe').item_no;
+  const boms = C.bomData(data).boms.map((b) => (b.item_no === recipe ? { ...b, yield_qty: 1610, labor_minutes: 50 } : b));
+  const lines = C.bomData(data).lines;
+  const d2 = { ...data, boms, bom_lines: lines };
+  const one = C.productionDays(d2).find((d) => d.recipes.some((r) => r.item_no === recipe));
+  const r = one.recipes.find((x) => x.item_no === recipe);
+  assert.equal(r.batchSize, 1610); assert.equal(r.batches, Math.ceil(r.oz / 1610 - 1e-9));
+  const ix = C.index(d2);
+  assert.equal(ix.laborMinutesOf(recipe), 50);
+  const labor = ix.children(recipe).find((l) => l.uses_batch_minutes);
+  if (labor) assert.equal(ix.lineQty(labor), 50);
+  assert.equal(C.index(data).laborMinutesOf(recipe), data.settings.minutes_per_batch);
 });
 
 test('daily consumption', () => {
@@ -92,9 +118,16 @@ test('sales report standard price, cost and margin (2026 rows)', () => {
 });
 
 test('dashboard: lost inventory by month', () => {
+  // Months where every production day made one recipe match Excel; the rest
+  // add the loss from batching each recipe on its own (see above).
   const d = C.dashboard(data, 2026, 12);
+  const prod = C.productionDays(data);
   for (const [label, v] of X.dash_loss_by_month) {
-    const i = C.MONTHS.indexOf(label); if (i >= 0) close(d.loss[i].loss, v, `loss ${label}`);
+    const i = C.MONTHS.indexOf(label); if (i < 0) continue;
+    const days = prod.filter((p) => p.date.startsWith('2026') && C.monthOf(p.date) === i + 1);
+    close(d.loss[i].loss, days.reduce((t, p) => t + p.loss, 0), `loss ${label}`);
+    if (days.every((p) => X.production[p.date] && X.production[p.date][1] === p.batches)) close(d.loss[i].loss, v, `loss ${label} vs Excel`);
+    else assert.ok(d.loss[i].loss >= v - 0.01, `loss ${label} not below Excel`);
   }
 });
 

@@ -8,7 +8,6 @@ export default {
   render({ rerender }) {
     const fgs = derived.ix().byType('Finished Good');
     const days = new Map(derived.production().map((d) => [d.date, d]));
-    const B = state.data.settings.production_batch_size;
     const inMonth = monthDays(view.ym).map((d) => days.get(d)).filter(Boolean);
     const sum = (f) => inMonth.reduce((s, d) => s + f(d), 0);
     const calc = (d) => {
@@ -16,7 +15,7 @@ export default {
       return [h('td', { class: 'num calc' }, p ? money(p.loss) : ''), h('td', { class: 'num calc' }, p ? p.batches : ''), h('td', { class: 'num calc' }, p ? fmt(p.oz) : '')];
     };
     return h('div', null,
-      pageHead('Production', `Cases produced each day. Oz, batches (${fmt(B)} oz each) and the estimated loss from the last partial batch calculate automatically. Typing math like 24*10 works.`,
+      pageHead('Production', 'Cases produced each day. Oz, batches and the estimated loss from the last partial batch calculate automatically: each recipe is batched on its own, in its recipe BOM’s batch size. Typing math like 24*10 works.',
         monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); }),
         chip('Cases', qty(sum((d) => Object.values(d.cases).reduce((a, b) => a + b, 0)))),
         chip('Batches', fmt(sum((d) => d.batches))),

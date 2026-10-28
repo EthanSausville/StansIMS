@@ -10,7 +10,11 @@ let year = new Date().getFullYear();
 const open = new Set(); // open rows, by path of item numbers ("20001>10021")
 
 const unitCostFmt = (v) => (v ? '$' + fmt(v, Math.abs(v) < 1 ? 5 : 2, 2) : '—');
-const makes = (b, it) => `${qty(Number(b.yield_qty) || 1, 2)} ${b.yield_unit || it?.unit || ''}`.trim();
+const makes = (b, it, ix) => {
+  const base = `${qty(Number(b.yield_qty) || 1, 2)} ${b.yield_unit || it?.unit || ''}`.trim();
+  const usesMin = ix.children(b.item_no).some((l) => l.uses_batch_minutes);
+  return usesMin ? `${base} · ${qty(ix.laborMinutesOf(b.item_no), 2)} labor min` : base;
+};
 
 export default {
   id: 'bom',
@@ -49,9 +53,9 @@ export default {
         h('td', { class: 'muted' }, itemNo),
         h('td', null, typePill(it.type)),
         h('td', { class: 'small muted used-in' }, depth === 0 && b ? usedInText(itemNo) : ''),
-        h('td', { class: 'num' }, line && q !== null ? (line.uses_batch_minutes ? h('span', { title: 'Minutes per batch, from the Labor tab' }, qty(q, 4)) : qty(q, 4)) : ''),
+        h('td', { class: 'num' }, line && q !== null ? (line.uses_batch_minutes ? h('span', { title: 'Labor minutes per run of this BOM' }, qty(q, 4)) : qty(q, 4)) : ''),
         h('td', { class: 'muted' }, line ? (it.unit || '') : ''),
-        h('td', { class: 'muted' }, b ? makes(b, it) : ''),
+        h('td', { class: 'muted' }, b ? makes(b, it, ix) : ''),
         h('td', { class: 'num' }, unitCostFmt(unit)),
         h('td', { class: 'num' }, line && q !== null ? money(unit * q, 2) : ''),
         admin ? h('td', null, b ? h('button', { class: 'btn ghost', onclick: (e) => { e.stopPropagation(); openInEditor(itemNo); } }, 'Edit') : null) : null));

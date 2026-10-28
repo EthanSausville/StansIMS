@@ -105,15 +105,18 @@ Database rules can be checked on a local Postgres with `tests/supabase_stub.sql`
 ## How the numbers work
 
 - **Standard cost:** raw materials, packaging and overhead are entered per year. Direct labor per minute comes from the labor scenario chosen for that year. Anything with a BOM costs Σ(line cost × qty per run) ÷ what one run makes, following nested BOMs down every level. A recipe that makes 3,220 oz per batch costs its batch ÷ 3,220 per oz; a product that makes 1 case costs the sum of its lines.
-- **Labor rate:** set the way manufacturers usually do. Each position (hourly: rate + monthly fringe; salaried: salary + annual fixed cost; plus payroll tax %) has a fully burdened yearly cost. Time on the production line is direct labor; paid time off the line (a salaried person paid 5 days who is on the line 2) is indirect labor and belongs in overhead (a setting can fold it into the labor rate instead). Standard labor rate = direct labor cost ÷ productive line minutes (line hours × 60 × line efficiency %). A labor minute is one person working one minute. Lock each year's rate as its standard; Standard Cost's Direct Labor uses the locked rate, or today's rate for unlocked years.
+- **Labor rate:** set the way manufacturers usually do. Each position (hourly: rate + monthly fringe; salaried: salary + annual fixed cost; plus payroll tax %) has a fully burdened yearly cost. Time on the production line is direct labor; paid time off the line (a salaried person paid 5 days who is on the line 2) is indirect labor and belongs in overhead (a setting can fold it into the labor rate instead). Standard labor rate = direct labor cost ÷ productive line minutes (line hours × 60 × line efficiency %). Hourly line workers are paid only for the weeks and days they work (no paid time off); salaried people are paid all 52 weeks. A labor minute is one person working one minute. Lock each year's rate as its standard; Standard Cost's Direct Labor uses the locked rate, or today's rate for unlocked years.
 - **BOM storage:** `boms` (what each BOM makes per run) and `bom_lines` (what goes into one run). The older `recipes`, `recipe_lines` and `fg_lines` tables are kept but no longer used; running `schema.sql` copies them into the BOM tables once. A database trigger refuses any line that would put an item inside itself.
-- **Production:** oz = Σ cases × oz per case; batches = oz ÷ batch size, rounded up; estimated loss = leftover oz in the last batch × that year's average price per oz.
+- **Production:** oz = Σ cases × oz per case. Each recipe is batched on its own in its recipe BOM's batch size (what one run makes): batches = recipe oz ÷ batch size, rounded up; estimated loss = leftover oz × that year's average price per oz.
+- **Labor minutes per batch:** set on each recipe BOM (Create BOM, or the Labor tab's recipe table). Direct Labor and Overhead lines marked “Labor minutes” use it.
 - **Usage:** each case uses (recipe qty ÷ batch size × oz per case) of every raw material, plus its packaging.
 - **Daily inventory:** starts at each item's first cycle count. Each day = (that day's count, or yesterday's balance) + receipts − usage. Finished goods add cases produced and subtract cases sold.
 - **Purchase demand:** safety stock = threshold × lead time × planning usage. A standard purchase is suggested on any day when inventory plus all purchases suggested so far is below safety stock.
 - **Sales:** standard price, cost and margin use the sale year's standards, or the nearest year that has them.
 
 ### Differences from the workbook
+
+- Production batched every recipe made on a day together in one batch size. The site batches each recipe on its own in its own batch size, so a day making both recipes can need one more batch, and a larger estimated loss, than the workbook showed.
 
 - Daily Inventory in the workbook reads packaging receipts from the next column over (7 oz Container used 7 oz Lid receipts, and so on; Gallon Box read an empty column). The site matches receipts by item number.
 - Finished-goods inventory was blank in the workbook; the site calculates it from counts, production and sales.

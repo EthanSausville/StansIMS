@@ -105,24 +105,75 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
   return false;
 }
 
-// ---------- Labor Scenarios ----------
-// Scenario k = working k days a week, 8 hours a day, 52 weeks.
-export function laborScenarios(s) {
-  return [1, 2, 3, 4, 5].map((k) => {
-    const hrsSal = 8 * k * 52 * n(s.salaried_count);
-    const hrsA = 8 * k * 52 * n(s.hourly_a_count);
-    const hrsB = 8 * k * 52 * n(s.hourly_b_count);
-    const wagesSal = n(s.salaried_wage) * n(s.salaried_count);
-    const wagesA = n(s.hourly_a_rate) * hrsA;
-    const wagesB = n(s.hourly_b_rate) * hrsB;
-    const total = wagesSal + wagesA + wagesB;
-    const hours = hrsSal + hrsA + hrsB;
-    const avgHourly = hours ? total / hours : 0;
-    const totalBatches = n(s.minutes_per_batch) ? (hours * 60) / n(s.minutes_per_batch) : 0;
-    return { scenario: k, name: `Scenario ${k}`, description: `Working ${k} day${k > 1 ? 's' : ''} per week`,
-      hrsSal, hrsA, hrsB, wagesSal, wagesA, wagesB, total, avgHourly, ratePerMin: avgHourly / 60,
-      totalBatches, monthlyBatches: totalBatches / 12 };
+// ---------- Labor rate calculator ----------
+// Pay groups (salaried or hourly, with a headcount) and production scenarios
+// (days a week, hours a day, weeks a year, productive share). For a scenario:
+//   salaried cost  = headcount x annual salary x (1 + fringe)   (the same however
+//                    few days production runs, so fewer days = a higher rate)
+//   hourly cost    = headcount x hours worked x rate x (1 + fringe)
+//   labor minutes  = every person's paid production hours x 60 x productive %
+//   rate per labor minute = total cost / labor minutes
+// A "labor minute" is one person working one minute, which is how BOMs count
+// minutes per batch.
+
+// Groups and scenarios, falling back to the old fixed staffing settings
+// (salaried, hourly A, hourly B; scenarios 1-5 days a week).
+export function laborData(data) {
+  const s = data.settings || {};
+  const groups = (data.labor_groups || []).length ? [...data.labor_groups].sort((a, b) => a.sort - b.sort || a.id - b.id) : [
+    { id: -1, name: 'Salaried', pay_type: 'salaried', headcount: n(s.salaried_count), annual_salary: n(s.salaried_wage), fringe_pct: 0 },
+    { id: -2, name: 'Hourly (A)', pay_type: 'hourly', headcount: n(s.hourly_a_count), hourly_rate: n(s.hourly_a_rate), fringe_pct: 0 },
+    { id: -3, name: 'Hourly (B)', pay_type: 'hourly', headcount: n(s.hourly_b_count), hourly_rate: n(s.hourly_b_rate), fringe_pct: 0 },
+  ];
+  const scenarios = (data.labor_scenarios || []).length ? [...data.labor_scenarios].sort((a, b) => a.id - b.id)
+    : [1, 2, 3, 4, 5].map((k) => ({ id: k, name: `${k} day${k > 1 ? 's' : ''} a week`, days_per_week: k, hours_per_day: 8, weeks_per_year: 52, productive_pct: 100 }));
+  const heads = new Map((data.labor_scenario_heads || []).map((h) => [`${h.scenario_id}|${h.group_id}`, n(h.headcount)]));
+  return { groups, scenarios, heads };
+}
+
+// One scenario worked out. `override` changes any scenario field (e.g. days_per_week) for what-ifs.
+export function laborScenario(data, sc, override = {}) {
+  const { groups, heads } = laborData(data);
+  const s = { ...sc, ...override };
+  const days = n(s.days_per_week), hrs = s.hours_per_day ?? 8, weeks = s.weeks_per_year ?? 52;
+  const productive = (s.productive_pct ?? 100) / 100;
+  const byGroup = groups.map((g) => {
+    const people = heads.get(`${sc.id}|${g.id}`) ?? n(g.headcount);
+    const hours = people * days * n(hrs) * n(weeks);
+    const pay = g.pay_type === 'salaried' ? people * n(g.annual_salary) : hours * n(g.hourly_rate);
+    const cost = pay * (1 + n(g.fringe_pct) / 100);
+    return { group: g, people, hours, pay, cost, minutes: hours * 60 * productive, overridden: heads.has(`${sc.id}|${g.id}`) };
   });
+  const sum = (f) => byGroup.reduce((t, x) => t + f(x), 0);
+  const hours = sum((x) => x.hours); const minutes = sum((x) => x.minutes);
+  const salaried = sum((x) => (x.group.pay_type === 'salaried' ? x.cost : 0));
+  const hourly = sum((x) => (x.group.pay_type === 'salaried' ? 0 : x.cost));
+  const total = salaried + hourly;
+  const ratePerMin = minutes ? total / minutes : 0;
+  const perBatchMin = n(data.settings?.minutes_per_batch);
+  const batchOz = n(data.settings?.production_batch_size);
+  const totalBatches = perBatchMin ? minutes / perBatchMin : 0;
+  return { scenario: s.id, id: s.id, name: s.name, days, hoursPerDay: n(hrs), weeks: n(weeks), productivePct: productive * 100,
+    byGroup, productionDays: days * n(weeks), hours, minutes, salaried, hourly, total,
+    avgHourly: hours ? total / hours : 0, ratePerMin, perBatch: ratePerMin * perBatchMin, perOz: batchOz ? (ratePerMin * perBatchMin) / batchOz : 0,
+    salariedShare: total ? salaried / total : 0, totalBatches, monthlyBatches: totalBatches / 12 };
+}
+
+// Every scenario, plus the standard rate for each year: the locked rate on
+// year_settings if one was set, otherwise the chosen scenario's current rate.
+export function laborModel(data) {
+  const { groups, scenarios } = laborData(data);
+  const results = scenarios.map((sc) => laborScenario(data, sc));
+  const byId = new Map(results.map((r) => [r.id, r]));
+  const years = new Map((data.year_settings || []).map((y) => [y.year, y]));
+  const live = (year) => byId.get(years.get(year)?.labor_scenario)?.ratePerMin ?? 0;
+  const rateFor = (year) => { const y = years.get(year); return y && y.labor_rate !== null && y.labor_rate !== undefined ? n(y.labor_rate) : live(year); };
+  return { groups, scenarios, results, byId, years, live, rateFor };
+}
+
+// The workbook's five scenarios from the old staffing settings (kept for the tests against Excel).
+export function laborScenarios(s) {
+  return laborModel({ settings: s }).results.map((r) => ({ ...r, description: `Working ${r.days} day${r.days > 1 ? 's' : ''} per week` }));
 }
 
 // ---------- Standard Cost ----------
@@ -130,8 +181,7 @@ export function laborScenarios(s) {
 export function costModel(data) {
   const ix = index(data);
   const entered = new Map(data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, n(c.cost)]));
-  const scenarios = laborScenarios(data.settings);
-  const scenarioByYear = new Map(data.year_settings.map((y) => [y.year, y.labor_scenario]));
+  const labor = laborModel(data);
   const yearsSet = new Set([...data.standard_costs.map((c) => c.year), ...data.year_settings.map((y) => y.year),
     ...data.standard_prices.map((p) => p.year)]);
   const first = yearsSet.size ? Math.min(...yearsSet) : new Date().getFullYear();
@@ -150,8 +200,7 @@ export function costModel(data) {
       // Built from its BOM: cost of one run divided by what one run makes.
       v = ix.children(itemNo).reduce((s, l) => s + cost(l.item_no, year) * lineQty(l), 0) / ix.yieldOf(itemNo);
     } else if (itemNo === LABOR_ITEM) {
-      const sc = scenarioByYear.get(year);
-      v = sc ? scenarios[sc - 1].ratePerMin : 0;
+      v = labor.rateFor(year);
     } else v = entered.get(key) ?? 0;
     memo.set(key, v);
     return v;
@@ -165,7 +214,7 @@ export function costModel(data) {
     const ys = years.filter((y) => cost(itemNo, y)).sort((a, b) => Math.abs(a - year) - Math.abs(b - year) || a - b);
     return ys.length ? cost(itemNo, ys[0]) : 0;
   };
-  return { years, cost, latest, nearest, scenarios, ix, lineQty };
+  return { years, cost, latest, nearest, scenarios: labor.results, labor, ix, lineQty };
 }
 
 // Price per case, with the same nearest-year fallback.

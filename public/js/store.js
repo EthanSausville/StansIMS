@@ -17,8 +17,14 @@ function changed() { state.version++; derivedCache.clear(); for (const fn of lis
 const TABLES = {
   items: 'sort', standard_costs: 'year', standard_prices: 'year', boms: 'item_no', bom_lines: 'sort', year_settings: 'year', purchase_settings: 'item_no', production: 'date',
   sales_imports: 'created_at', qb_name_map: 'kind',
+  labor_groups: 'sort', labor_scenarios: 'id', labor_scenario_heads: 'scenario_id',
   goods_receipts: 'date', cycle_counts: 'date', sales: 'date',
 };
+
+// Tables added after the first release: until the database has been updated
+// (schema.sql), they load as empty instead of stopping the whole site.
+const OPTIONAL = new Set(['labor_groups', 'labor_scenarios', 'labor_scenario_heads']);
+const missingTable = (e) => /does not exist|could not find the table|schema cache/i.test(e?.message || '') || e?.code === '42P01' || e?.code === 'PGRST205';
 
 async function fetchAll(table, order) {
   const rows = []; const page = 1000;
@@ -26,6 +32,7 @@ async function fetchAll(table, order) {
     let q = sb.from(table).select('*').order(order).range(from, from + page - 1);
     if (table === 'sales') q = q.order('id');
     const { data, error } = await q;
+    if (error && OPTIONAL.has(table) && missingTable(error)) return [];
     if (error) throw error;
     rows.push(...data);
     if (data.length < page) return rows;
@@ -202,3 +209,21 @@ export async function saveSettings(patch) {
 
 export async function listProfiles() { return run(sb.from('profiles').select('*').order('created_at')); }
 export async function setRole(userId, role) { return run(sb.from('profiles').update({ role }).eq('user_id', userId).select().single()); }
+
+// Upserts a keyed row with several fields at once (creating it if needed).
+export async function saveRow(table, key, patch) {
+  const keys = Object.keys(key); const list = state.data[table];
+  const existing = list.find((r) => same(r, key, keys));
+  const row = await run(sb.from(table).upsert({ ...(existing || {}), ...key, ...patch }, { onConflict: keys.join(',') }).select().single());
+  const i = list.findIndex((r) => same(r, key, keys)); if (i >= 0) list[i] = row; else list.push(row);
+  changed(); return row;
+}
+
+// Removes a labor pay group or scenario, and its scenario headcounts.
+export async function deleteLabor(kind, id) {
+  const table = kind === 'group' ? 'labor_groups' : 'labor_scenarios';
+  await run(sb.from(table).delete().eq('id', id));
+  state.data[table] = state.data[table].filter((r) => r.id !== id);
+  state.data.labor_scenario_heads = state.data.labor_scenario_heads.filter((h) => (kind === 'group' ? h.group_id : h.scenario_id) !== id);
+  changed();
+}

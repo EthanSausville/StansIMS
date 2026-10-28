@@ -578,3 +578,37 @@ main { padding: 0; max-width: none; }
   .grouprow .spacer { display: none; }
   .gear-wrap { flex: none; }
 }
+
+/* ---------- Labor rate calculator ---------- */
+.labor > * + * { margin-top: 16px; }
+.labor .grid2 > .panel + .panel { margin-top: 0; }
+.panel-note { margin: 0; padding: 10px 14px; color: var(--muted); font-size: 12.5px; max-width: 95ch; }
+.tablewrap.flat { border: 0; border-top: 1px solid var(--line); border-radius: 0 0 var(--radius) var(--radius); box-shadow: none; }
+.labor-grid { grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr); align-items: start; }
+.labor-grid > .panel { margin-bottom: 0; }
+.labor td.cell.text input { width: 150px; text-align: left; }
+.labor td.cell input::placeholder { color: #9a8a3a; opacity: .8; }
+.labor td.cell.override input { font-weight: 650; color: var(--accent-dark); }
+table.scen-table th.rowhead { font-weight: 500; color: var(--ink); font-size: 13px; background: var(--panel); text-align: left; white-space: nowrap; }
+table.scen-table tr.section th, table.scen-table tr.section td { background: var(--bg); color: var(--faint); font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; padding-top: 7px; padding-bottom: 4px; }
+table.scen-table th.scen-head { text-align: right; vertical-align: bottom; min-width: 130px; }
+table.scen-table .scen-no { font-size: 11px; color: var(--faint); font-weight: 500; }
+table.scen-table .scen-no .used { color: var(--accent); }
+table.scen-table input.scen-name { width: 100%; min-width: 110px; text-align: right; font-weight: 650; border: 1px solid transparent; border-radius: 5px; padding: 3px 6px; background: var(--entry); }
+table.scen-table input.scen-name:focus { border-color: var(--accent); background: #fff; outline: none; }
+table.scen-table tr.strong-row td, table.scen-table tr.strong-row th { font-weight: 650; }
+table.scen-table tr.key-row td, table.scen-table tr.key-row th { background: #eef4ff; color: var(--accent-dark); font-weight: 700; font-size: 14px; }
+table.labor-years tr.locked td { background: #fbfdff; }
+table.labor-years td.std-rate { color: var(--accent-dark); font-size: 14px; }
+.lockpill { background: var(--accent-soft); color: var(--accent-dark); }
+td.up { color: var(--bad); }
+td.down { color: var(--good); }
+table.whatif tr.current td { background: #eef4ff; font-weight: 650; }
+table.whatif td.barcell { position: relative; min-width: 200px; }
+table.whatif .bar { position: absolute; left: 8px; top: 7px; bottom: 7px; max-width: calc(100% - 16px); background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius: 4px; opacity: .35; }
+table.whatif .barval { position: relative; font-variant-numeric: tabular-nums; font-weight: 600; padding-left: 6px; }
+label.field.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 400; }
+@media (max-width: 900px) { .labor-grid { grid-template-columns: 1fr; } }
+table.batch-table { width: 100%; }
+table.batch-table td.cell input { width: 90px; }
+table.batch-table td { white-space: normal; }

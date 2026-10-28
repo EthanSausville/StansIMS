@@ -663,3 +663,4 @@ table.side-people td.unit-hr::after, table.side-people td.unit-yr::after, table.
 table.side-people td.unit-hr::after { content: '/hr'; } table.side-people td.unit-yr::after { content: '/yr'; } table.side-people td.unit-mo::after { content: '/mo'; }
 table.side-people .row-actions { text-align: right; }
 table.side-people .icon-btn { padding: 2px 5px; }
+table.batch-table tr.needs td { background: var(--warn-soft); }

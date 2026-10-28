@@ -26,9 +26,11 @@ def mock_db():
     db['sales_imports'] = []
     st = inputs['settings']
     db['labor_positions'] = [
-        dict(id=1, year=2026, name='Salaried', pay_type='salaried', headcount=st['salaried_count'], annual_salary=st['salaried_wage'], annual_fixed=None, hourly_rate=None, monthly_fringe=None, payroll_tax_pct=0, paid_days=5, production_days=2, hours_per_day=8, notes=None, sort=1),
-        dict(id=2, year=2026, name='Hourly (A)', pay_type='hourly', headcount=st['hourly_a_count'], hourly_rate=st['hourly_a_rate'], monthly_fringe=None, annual_salary=None, annual_fixed=None, payroll_tax_pct=0, paid_days=2, production_days=2, hours_per_day=8, notes=None, sort=2),
-        dict(id=3, year=2026, name='Hourly (B)', pay_type='hourly', headcount=st['hourly_b_count'], hourly_rate=st['hourly_b_rate'], monthly_fringe=None, annual_salary=None, annual_fixed=None, payroll_tax_pct=0, paid_days=2, production_days=2, hours_per_day=8, notes=None, sort=3)]
+        dict(id=1, year=2026, name='Salaried', pay_type='salaried', headcount=st['salaried_count'], annual_salary=st['salaried_wage'], annual_fixed=None, hourly_rate=None, monthly_fringe=None, payroll_tax_pct=0, paid_hours_week=40, on_line=True, notes=None, sort=1),
+        dict(id=2, year=2026, name='Hourly (A)', pay_type='hourly', headcount=st['hourly_a_count'], hourly_rate=st['hourly_a_rate'], monthly_fringe=None, annual_salary=None, annual_fixed=None, payroll_tax_pct=0, paid_hours_week=16, on_line=True, notes=None, sort=2),
+        dict(id=3, year=2026, name='Hourly (B)', pay_type='hourly', headcount=st['hourly_b_count'], hourly_rate=st['hourly_b_rate'], monthly_fringe=None, annual_salary=None, annual_fixed=None, payroll_tax_pct=0, paid_hours_week=16, on_line=True, notes=None, sort=3)]
+    for y in db['year_settings']:
+        if y['year'] == min(r['year'] for r in db['year_settings']): y['labor_line_hours'] = 16
     nm = ROOT / 'tests/fixtures/qb-name-map.json'
     db['qb_name_map'] = json.load(open(nm)) if nm.exists() else []
     db['profiles'] = [dict(user_id='u1', email='owner@stans.test', role='admin', created_at='2026-10-27T12:00:00Z'),
@@ -295,13 +297,15 @@ with sync_playwright() as p:
 
     # ---- labor rate: every year set up on its own; all paid time in the rate ----
     st = inputs['settings']
-    def want(line_days=2, sal_fixed=0, a_fringe=0, eff=100, salary=None):
+    def want(line_hours=16, sal_fixed=0, a_fringe=0, salary=None, hourly_week=None):
         salary = st['salaried_wage'] if salary is None else salary
+        hw = line_hours if hourly_week is None else hourly_week
+        hw = min(hw, 40)
         sal = st['salaried_count'] * (salary + sal_fixed)
-        sal_line = st['salaried_count'] * line_days * 8 * 52
-        ha = st['hourly_a_count'] * line_days * 8 * 52; hb = st['hourly_b_count'] * line_days * 8 * 52
+        sal_line = st['salaried_count'] * min(40, line_hours) * 52
+        ha = st['hourly_a_count'] * hw * 52; hb = st['hourly_b_count'] * hw * 52
         cost = sal + ha * st['hourly_a_rate'] + hb * st['hourly_b_rate'] + st['hourly_a_count'] * a_fringe * 12
-        return cost / ((sal_line + ha + hb) * 60 * eff / 100)
+        return cost / ((sal_line + min(ha, st['hourly_a_count'] * line_hours * 52) + min(hb, st['hourly_b_count'] * line_hours * 52)) * 60)
     rate_now = lambda: float(page.locator('.labor-cards .stat.key .value').inner_text().strip('$'))
     tab(page, 'Labor')
     side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
@@ -318,9 +322,11 @@ with sync_playwright() as p:
     c = cell(page, 'lp|1|annual_fixed'); c.click(); c.fill('20000'); c.press('Tab'); page.wait_for_timeout(250)
     c = cell(page, 'lp|2|monthly_fringe'); c.click(); c.fill('450'); c.press('Tab'); page.wait_for_timeout(250)
     check(abs(rate_now() - want(sal_fixed=20000, a_fringe=450)) < 1e-4, f'annual fixed cost (salaried) and monthly fringe (hourly) are added ({rate_now()})')
-    c = cell(page, 'ly|2026|labor_efficiency_pct'); c.click(); c.fill('85'); c.press('Tab'); page.wait_for_timeout(250)
-    check(abs(rate_now() - want(sal_fixed=20000, a_fringe=450, eff=85)) < 1e-4, 'line efficiency (saved for the year) divides the cost over fewer minutes')
-    check(page.evaluate("window.__MOCK_DB__.year_settings.find(y => y.year === 2026).labor_efficiency_pct") == 85, 'line assumptions are saved per year')
+    check(page.locator('text=Line efficiency').count() == 0, 'there is no line efficiency setting (100% assumed)')
+    c = cell(page, 'ly|2026|labor_line_hours'); c.click(); c.fill('24'); c.press('Tab'); page.wait_for_timeout(250)
+    check(abs(rate_now() - want(24, sal_fixed=20000, a_fringe=450, hourly_week=16)) < 1e-4, f'running the line 24 hours a week puts salaried people on it longer ({rate_now()})')
+    check(page.evaluate("window.__MOCK_DB__.year_settings.find(y => y.year === 2026).labor_line_hours") == 24, 'production hours a week are saved for the year')
+    c = cell(page, 'ly|2026|labor_line_hours'); c.click(); c.fill('16'); c.press('Tab'); page.wait_for_timeout(250)
     rec_row = page.locator('table.recipes-labor tbody tr').first
     lpb = float(rec_row.locator('td').nth(3).inner_text().replace('$', '').replace(',', ''))
     check(abs(lpb - rate_now() * st['minutes_per_batch']) < 0.01, f'labor per batch = rate x the recipe’s labor minutes ({lpb})')
@@ -328,9 +334,10 @@ with sync_playwright() as p:
     c = cell(page, f'bom|{rid}|minutes'); c.click(); c.fill('60'); c.press('Tab'); page.wait_for_timeout(250)
     check(page.evaluate(f"window.__MOCK_DB__.boms.find(b => b.item_no === {rid}).labor_minutes") == 60, 'a recipe’s labor minutes per batch are saved on its BOM')
     c = cell(page, f'bom|{rid}|minutes'); c.click(); c.fill(str(st['minutes_per_batch'])); c.press('Tab'); page.wait_for_timeout(250)
-    check(page.locator('table.whatif tbody tr').count() == 5 and page.locator('table.whatif tr.current').count() == 1, 'what-if shows 1 to 5 line days, with today marked')
-    w = page.locator('table.whatif tbody tr').nth(3).locator('td').nth(1).inner_text()
-    check(abs(float(w.strip('$')) - want(4, 20000, 450, eff=85)) < 1e-4, f'what-if: 4 line days gives a lower rate ({w})')
+    hrs = page.locator('table.whatif tbody tr td:first-child').all_inner_texts()
+    check(hrs[0].startswith('16') and hrs[-1].startswith('120') and page.locator('table.whatif tr.current').count() == 1, f'what-if runs up to 120 production hours a week ({hrs})')
+    w = page.locator('table.whatif tbody tr').last.locator('td').nth(1).inner_text()
+    check(abs(float(w.strip('$')) - want(120, 20000, 450)) < 1e-4, f'what-if: at 120 hours the same people cost less per minute ({w})')
     page.get_by_role('button', name='Details for Hourly (A)').click(); page.wait_for_timeout(150)
     dlg = page.locator('dialog.group-dialog')
     dlg.get_by_label('Notes').fill('Line crew'); page.wait_for_timeout(100)
@@ -352,15 +359,15 @@ with sync_playwright() as p:
     sid = page.evaluate(f"window.__MOCK_DB__.labor_positions.find(p => p.year === {nxt} && p.pay_type === 'salaried').id")
     c = cell(page, f'lp|{sid}|annual_salary'); c.click(); c.fill('84000'); c.press('Tab'); page.wait_for_timeout(300)
     r_next = rate_now()
-    check(abs(r_next - want(sal_fixed=20000, a_fringe=450, eff=85, salary=84000)) < 1e-4, f'{nxt} has its own pay ({r_next})')
+    check(abs(r_next - want(sal_fixed=20000, a_fringe=450, salary=84000)) < 1e-4, f'{nxt} has its own pay ({r_next})')
     tab(page, 'Standard Cost')
     lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(5).inner_text().strip('$'))
     lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).inner_text().strip('$'))
-    check(abs(lab_next - r_next) < 1e-4 and abs(lab_this - want(sal_fixed=20000, a_fringe=450, eff=85)) < 1e-4, f'Standard Cost uses each year’s own labor rate ({lab_this}, {lab_next})')
+    check(abs(lab_next - r_next) < 1e-4 and abs(lab_this - want(sal_fixed=20000, a_fringe=450)) < 1e-4, f'Standard Cost uses each year’s own labor rate ({lab_this}, {lab_next})')
     tab(page, 'Labor')
     page.get_by_role('button', name='Show 2026').click(); page.wait_for_timeout(200)
     # Put the workbook's numbers back for the BOM checks below.
-    for k, v in [('lp|1|annual_fixed', ''), ('lp|2|monthly_fringe', ''), ('ly|2026|labor_efficiency_pct', '')]:
+    for k, v in [('lp|1|annual_fixed', ''), ('lp|2|monthly_fringe', '')]:
         c = cell(page, k); c.click(); c.fill(v); c.press('Tab'); page.wait_for_timeout(150)
     check(abs(rate_now() - want()) < 1e-4, 'back to the workbook rate')
 

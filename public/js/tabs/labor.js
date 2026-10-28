@@ -22,7 +22,7 @@ const FIELDS = [
   ['name', 'Position', 'text'], ['pay_type', 'Paid', 'pay'], ['headcount', 'People', 2],
   ['hourly_rate', 'Hourly rate', 4, 'hourly'], ['monthly_fringe', 'Monthly fringe', 2, 'hourly'],
   ['annual_salary', 'Annual salary', 2, 'salaried'], ['annual_fixed', 'Annual fixed cost', 2, 'salaried'],
-  ['payroll_tax_pct', 'Payroll tax %', 2], ['paid_days', 'Days paid / wk', 2], ['production_days', 'Days on line / wk', 2], ['hours_per_day', 'Hours / day', 2],
+  ['payroll_tax_pct', 'Payroll tax %', 2], ['paid_hours_week', 'Hours paid a week', 2], ['on_line', 'Works the line', 'bool'],
 ];
 
 // Every detail of one position, with its cost build-up as you type.
@@ -33,6 +33,7 @@ function positionDialog(p, can) {
     let el;
     if (kind === 'text') el = h('input', { type: 'text', value: p[k] ?? '', disabled: !can, required: true });
     else if (kind === 'pay') el = h('select', { disabled: !can }, h('option', { value: 'hourly', selected: p.pay_type !== 'salaried' }, 'Hourly'), h('option', { value: 'salaried', selected: p.pay_type === 'salaried' }, 'Salaried'));
+    else if (kind === 'bool') el = h('select', { disabled: !can }, h('option', { value: 'yes', selected: p.on_line !== false }, 'Yes, while it runs'), h('option', { value: 'no', selected: p.on_line === false }, 'No'));
     else el = h('input', { type: 'text', inputmode: 'decimal', value: p[k] ?? '', disabled: !can });
     inputs[k] = el;
     const label2 = { hourly_rate: 'Hourly rate (per person)', monthly_fringe: 'Monthly fringe (per person)', annual_salary: 'Annual salary (per person)', annual_fixed: 'Annual fixed cost (per person)' }[k] || label;
@@ -40,7 +41,7 @@ function positionDialog(p, can) {
   }
   inputs.notes = h('textarea', { rows: 2, disabled: !can, placeholder: 'Who this is, what the fixed cost covers…' }, p.notes || '');
   const read = () => {
-    const out = { ...p, name: inputs.name.value.trim() || p.name, pay_type: inputs.pay_type.value, notes: inputs.notes.value.trim() || null };
+    const out = { ...p, name: inputs.name.value.trim() || p.name, pay_type: inputs.pay_type.value, on_line: inputs.on_line.value === 'yes', notes: inputs.notes.value.trim() || null };
     for (const [k, , kind] of FIELDS) if (typeof kind === 'number') { const v = inputs[k].value.trim(); try { out[k] = v === '' ? null : evalEntry(v); } catch { out[k] = p[k]; } }
     return out;
   };
@@ -50,9 +51,9 @@ function positionDialog(p, can) {
     for (const r of rows) r.el.hidden = r.only ? (r.only === 'salaried') !== sal : false;
     const r = laborPosition(x, plant);
     summary.replaceChildren(h('table', { class: 't gd-table' }, h('tbody', null,
-      [['Paid hours a year', fmt(r.paidHours)], ['Hours on the line a year', fmt(r.lineHours)], ['Base pay', dollars(r.base)], ['Payroll taxes', dollars(r.tax)],
+      [['Paid hours a year', fmt(r.paidHours)], ['Hours on the line a year', fmt(r.lineHours)], ['On the line each week', `${qty(r.lineWeek, 2)} of ${qty(r.week, 2)} paid hours`], ['Base pay', dollars(r.base)], ['Payroll taxes', dollars(r.tax)],
         ['Benefits and fixed costs', dollars(r.benefits)], ['Fully burdened cost', dollars(r.burdened)], ['Burdened cost per paid hour', money(r.perPaidHour)],
-        ['On the line', pct(r.share)], ['Productive minutes', fmt(r.minutes)]]
+        ['Minutes on the line', fmt(r.minutes)]]
         .map(([a, b]) => h('tr', null, h('td', null, a), h('td', { class: 'num strong' }, b))))));
   };
   for (const el of Object.values(inputs)) el.addEventListener('input', refresh);
@@ -63,7 +64,7 @@ function positionDialog(p, can) {
         const x = read(); const patch = { notes: x.notes };
         for (const [k] of FIELDS) patch[k] = x[k];
         if (!patch.name) throw new Error('Give the position a name.');
-        for (const k of ['headcount', 'payroll_tax_pct', 'paid_days', 'production_days', 'hours_per_day']) patch[k] = patch[k] ?? 0;
+        for (const k of ['headcount', 'payroll_tax_pct', 'paid_hours_week']) patch[k] = patch[k] ?? 0;
         await updateRow('labor_positions', 'id', p.id, patch); dlg.close(); toast(`${patch.name} saved.`);
       } catch (err) { toast(niceError(err), 'bad'); }
     } },
@@ -95,7 +96,7 @@ export default {
     const prevYear = selYear - 1; const prev = byYear.get(prevYear);
 
     const addPosition = async () => {
-      try { await insertRow('labor_positions', { year: selYear, name: 'New position', pay_type: 'hourly', headcount: 1, hourly_rate: 0, monthly_fringe: 0, payroll_tax_pct: 7.65, paid_days: 5, production_days: 5, hours_per_day: 8, sort: Math.max(0, ...d.labor_positions.filter((x) => x.year === selYear).map((x) => n(x.sort))) + 1 }); }
+      try { await insertRow('labor_positions', { year: selYear, name: 'New position', pay_type: 'hourly', headcount: 1, hourly_rate: 0, monthly_fringe: 0, payroll_tax_pct: 7.65, paid_hours_week: 40, on_line: true, sort: Math.max(0, ...d.labor_positions.filter((x) => x.year === selYear).map((x) => n(x.sort))) + 1 }); }
       catch (err) { toast(niceError(err), 'bad'); }
     };
     const copyPrev = async () => {
@@ -104,11 +105,11 @@ export default {
           const { id, ...rest } = p; await insertRow('labor_positions', { ...rest, year: selYear });
         }
         const py = d.year_settings.find((y) => y.year === prevYear);
-        if (py && (py.labor_prod_weeks !== null || py.labor_efficiency_pct !== null)) await saveRow('year_settings', { year: selYear }, { labor_prod_weeks: py.labor_prod_weeks ?? null, labor_efficiency_pct: py.labor_efficiency_pct ?? null });
+        if (py && (py.labor_prod_weeks !== null || py.labor_line_hours !== null)) await saveRow('year_settings', { year: selYear }, { labor_prod_weeks: py.labor_prod_weeks ?? null, labor_line_hours: py.labor_line_hours ?? null });
         toast(`Copied ${prevYear}’s people into ${selYear}. Now update their pay for ${selYear}.`);
       } catch (err) { toast(niceError(err), 'bad'); }
     };
-    const save = (p, k) => (v) => updateRow('labor_positions', 'id', p.id, { [k]: v ?? (['headcount', 'payroll_tax_pct', 'paid_days', 'production_days', 'hours_per_day'].includes(k) ? 0 : null) });
+    const save = (p, k) => (v) => updateRow('labor_positions', 'id', p.id, { [k]: v ?? (['headcount', 'payroll_tax_pct', 'paid_hours_week'].includes(k) ? 0 : null) });
 
     // ---------- side bar: the rate for every year ----------
     let prior = null;
@@ -130,24 +131,24 @@ export default {
     const summary = h('div', { class: 'cards labor-cards' },
       stat(`${selYear} labor rate`, empty ? '—' : perMin(L.rate), empty ? 'Set up this year’s people' : `${money(L.rate * 60)} per labor hour`, 'key'),
       stat('Paid labor cost', dollars(L.burdened), `${dollars(L.base)} pay · ${dollars(L.tax + L.benefits)} taxes & benefits`),
-      stat('Productive minutes', fmt(L.minutes), `${fmt(L.lineHours)} line hours × ${fmt(L.plant.efficiency * 100)}%`),
+      stat('Production hours a week', L.plant.lineHours ? qty(L.plant.lineHours, 2) : '—', L.plant.lineHours ? `${fmt(L.minutes)} labor minutes a year · crew of ${qty(L.crew, 2)}` : 'Enter the production hours a week'),
       stat('Paid hours on the line', L.paidHours ? pct(L.lineHours / L.paidHours) : '—', `${fmt(L.lineHours)} of ${fmt(L.paidHours)} paid hours`));
 
     // People for the year, compact enough for the side bar: pay and fixed cost
     // show the right field for hourly or salaried; the rest is in Details.
     const ps = [...d.labor_positions].filter((p) => p.year === selYear).sort((a, b) => n(a.sort) - n(b.sort) || a.id - b.id);
     const peopleTable = h('table', { class: 't side-people' },
-      h('thead', null, h('tr', null, h('th', null, 'Position'), h('th', { class: 'num' }, 'People'), h('th', { class: 'num' }, 'Pay'), h('th', { class: 'num' }, 'Fixed'), h('th', { class: 'num', title: 'Days paid / days on the line, per week' }, 'Days'), h('th'))),
+      h('thead', null, h('tr', null, h('th', null, 'Position'), h('th', { class: 'num' }, 'People'), h('th', { class: 'num' }, 'Pay'), h('th', { class: 'num' }, 'Fixed'), h('th', { class: 'num', title: 'Hours paid a week (and on the line, while it runs)' }, 'Hrs/wk'), h('th'))),
       h('tbody', null, ps.map((p) => {
         const sal = p.pay_type === 'salaried';
         return h('tr', null,
-          h('td', { class: 'pos' }, h('div', { class: 'pos-name', title: p.name }, p.name), h('div', { class: 'pos-type' }, sal ? 'Salaried' : 'Hourly')),
+          h('td', { class: 'pos' }, h('div', { class: 'pos-name', title: p.name }, p.name), h('div', { class: 'pos-type' }, `${sal ? 'Salaried' : 'Hourly'}${p.on_line === false ? ' · off the line' : ''}`)),
           numberCell(p.headcount ?? null, save(p, 'headcount'), { disabled: !can, digits: 2, key: `lp|${p.id}|headcount`, title: `${p.name}: people` }),
           sal ? numberCell(p.annual_salary ?? null, save(p, 'annual_salary'), { disabled: !can, digits: 2, key: `lp|${p.id}|annual_salary`, title: `${p.name}: annual salary per person`, cls: 'unit-yr' })
             : numberCell(p.hourly_rate ?? null, save(p, 'hourly_rate'), { disabled: !can, digits: 4, key: `lp|${p.id}|hourly_rate`, title: `${p.name}: hourly rate per person`, cls: 'unit-hr' }),
           sal ? numberCell(p.annual_fixed ?? null, save(p, 'annual_fixed'), { disabled: !can, digits: 2, key: `lp|${p.id}|annual_fixed`, title: `${p.name}: annual fixed cost per person`, cls: 'unit-yr' })
             : numberCell(p.monthly_fringe ?? null, save(p, 'monthly_fringe'), { disabled: !can, digits: 2, key: `lp|${p.id}|monthly_fringe`, title: `${p.name}: monthly fringe per person`, cls: 'unit-mo' }),
-          h('td', { class: 'num', title: `Paid ${qty(p.paid_days, 2)} days, on the line ${qty(p.production_days, 2)} days a week` }, `${qty(p.paid_days, 2)} / ${qty(p.production_days, 2)}`),
+          numberCell(p.paid_hours_week ?? null, save(p, 'paid_hours_week'), { disabled: !can, digits: 2, key: `lp|${p.id}|paid_hours_week`, title: `${p.name}: hours paid a week` }),
           h('td', { class: 'row-actions' }, h('button', { class: 'btn icon-btn', title: 'Details', 'aria-label': `Details for ${p.name}`, onclick: () => positionDialog(p, can) }, '✎'),
             can ? h('button', { class: 'btn icon-btn danger', title: 'Remove', 'aria-label': `Remove ${p.name}`, onclick: async () => {
               if (await confirmDialog(`Remove ${p.name} from ${selYear}?`, 'Remove')) deleteRow('labor_positions', 'id', p.id).catch((err) => toast(niceError(err), 'bad'));
@@ -161,12 +162,12 @@ export default {
           prev && prev.rows.length ? h('button', { class: 'btn primary', onclick: copyPrev }, `Start from ${prevYear}’s people`) : null,
           h('button', { class: 'btn', onclick: addPosition }, '+ Add position')) : null)) : null;
 
-    const setYear = (k, title) => numberCell(ys[k] ?? null, (v) => saveRow('year_settings', { year: selYear }, { [k]: v }), { disabled: !can, key: `ly|${selYear}|${k}`, title, placeholder: k === 'labor_prod_weeks' ? '52' : '100' });
+    const setYear = (k, title, placeholder) => numberCell(ys[k] ?? null, (v) => saveRow('year_settings', { year: selYear }, { [k]: v }), { disabled: !can, key: `ly|${selYear}|${k}`, title, placeholder });
     const plant = h('section', { class: 'panel batch-panel' },
       h('h2', null, `${selYear} line assumptions`),
       h('table', { class: 't batch-table' }, h('tbody', null,
-        h('tr', null, h('td', null, 'Weeks the line runs', h('div', { class: 'small muted' }, 'Hourly line workers are paid only for the days and weeks they work (no paid time off). Salaried people are paid all 52 weeks.')), setYear('labor_prod_weeks', 'Weeks the line runs')),
-        h('tr', null, h('td', null, 'Line efficiency %', h('div', { class: 'small muted' }, 'Share of line time spent making product, after setup, cleaning and breaks. Often 80–90%.')), setYear('labor_efficiency_pct', 'Line efficiency %')))));
+        h('tr', { class: L.plant.lineHours ? null : 'needs' }, h('td', null, 'Production hours a week', h('div', { class: 'small muted' }, 'How many hours a week the line runs (e.g. 16 now; 120 is three 8-hour shifts, 5 days). People who work the line are on it while it runs, up to the hours they’re paid.')), setYear('labor_line_hours', 'Production hours a week', 'e.g. 16')),
+        h('tr', null, h('td', null, 'Weeks the line runs', h('div', { class: 'small muted' }, 'Hourly line workers are paid only for the weeks they work (no paid time off). Salaried people are paid all 52 weeks.')), setYear('labor_prod_weeks', 'Weeks the line runs', '52')))));
 
     const saveBomField = (r, k) => (v) => saveRow('boms', { item_no: r.item.item_no }, { [k]: v });
     const recipes = L.recipes.length ? h('section', { class: 'panel' },
@@ -183,7 +184,7 @@ export default {
 
     const cols = [['People', (r) => qty(r.people, 2)], ['Paid hours', (r) => fmt(r.paidHours)], ['Line hours', (r) => fmt(r.lineHours)], ['Base pay', (r) => dollars(r.base)],
       ['Payroll tax', (r) => dollars(r.tax)], ['Benefits & fixed', (r) => dollars(r.benefits)], ['Paid labor cost', (r) => dollars(r.burdened)],
-      ['On the line', (r) => pct(r.share)], ['Productive minutes', (r) => fmt(r.minutes)]];
+      ['On the line', (r) => pct(r.share)], ['Minutes on the line', (r) => fmt(r.minutes)]];
     const tot = { people: L.rows.reduce((t, r) => t + r.people, 0), paidHours: L.paidHours, lineHours: L.lineHours, base: L.base, tax: L.tax, benefits: L.benefits,
       burdened: L.burdened, share: L.paidHours ? L.lineHours / L.paidHours : 0, minutes: L.minutes };
     const build = empty ? null : h('section', { class: 'panel' },
@@ -193,23 +194,25 @@ export default {
         h('tbody', null, L.rows.map((r) => h('tr', null, h('td', { class: 'sticky-col' }, r.position.name), cols.map(([, f]) => h('td', { class: 'num' }, f(r))))),
           h('tr', { class: 'total' }, h('td', { class: 'sticky-col' }, 'Total'), cols.map(([, f]) => h('td', { class: 'num' }, f(tot))))))),
       h('div', { class: 'formula' },
-        h('div', null, 'Labor rate = paid labor cost ', h('strong', null, dollars(L.burdened)), ' ÷ productive minutes ', h('strong', null, fmt(L.minutes)), ' = ', h('strong', { class: 'accent' }, perMin(L.rate)), ' per labor minute')));
+        h('div', null, 'Labor rate = paid labor cost ', h('strong', null, dollars(L.burdened)), ' ÷ minutes on the line ', h('strong', null, fmt(L.minutes)), ' = ', h('strong', { class: 'accent' }, perMin(L.rate)), ' per labor minute')));
 
-    const what = [1, 2, 3, 4, 5].map((days) => ({ days, r: laborRate(d, { year: selYear, days }) }));
-    const curDays = Math.max(0, ...L.rows.map((r) => r.lineDays));
+    const cur = L.plant.lineHours;
+    const steps = [...new Set([16, 24, 40, 80, 120, cur].filter((x) => x > 0))].sort((a, b) => a - b);
+    const what = steps.map((hrs) => ({ hrs, r: laborRate(d, { year: selYear, lineHours: hrs }) }));
     const maxRate = Math.max(0, ...what.map((w) => w.r.rate));
     const vs = (v, base) => { if (!base) return ''; const c = v / base - 1; return Math.abs(c) < 0.0005 ? 'same' : (c > 0 ? '+' : '') + pct(c); };
-    const whatPanel = empty ? null : h('section', { class: 'panel' },
-      h('h2', null, 'What if the line runs more or fewer days a week?'),
-      h('p', { class: 'panel-note' }, 'Same people and pay. Salaried people are paid for their full week whatever the line does, so fewer line days spread their pay over fewer minutes; hourly people who only work line days are paid for those days.'),
+    const whatPanel = empty || !cur ? null : h('section', { class: 'panel' },
+      h('h2', null, 'What if the line runs more hours a week?'),
+      h('p', { class: 'panel-note' }, 'The same people: salaried people stay paid for their week, and hourly people who only work the line work its hours, up to 40 a week each. Past that the line needs more people: the crew column shows how many are on the line on average, so add positions to staff longer hours.'),
       h('div', { class: 'tablewrap flat' }, h('table', { class: 't whatif' },
-        h('thead', null, h('tr', null, h('th', null, 'Line days a week'), h('th', null, 'Labor rate'), h('th', { class: 'num' }, 'vs. now'), h('th', { class: 'num' }, 'Paid labor cost'),
+        h('thead', null, h('tr', null, h('th', null, 'Production hours a week'), h('th', null, 'Labor rate'), h('th', { class: 'num' }, 'vs. now'), h('th', { class: 'num' }, 'Paid labor cost'),
+          h('th', { class: 'num', title: 'Average number of people on the line while it runs' }, 'Crew on the line'),
           L.recipes.map((rc) => h('th', { class: 'num wrap' }, `Per batch: ${rc.item.name.replace(/^RECIPE:\s*/i, '')}`)))),
-        h('tbody', null, what.map(({ days, r }) => h('tr', { class: days === curDays ? 'current' : null },
-          h('td', null, `${days} day${days > 1 ? 's' : ''}${days === curDays ? ' (now)' : ''}`),
+        h('tbody', null, what.map(({ hrs, r }) => h('tr', { class: hrs === cur ? 'current' : null },
+          h('td', null, `${qty(hrs, 2)} hours${hrs === cur ? ' (now)' : ''}`),
           h('td', { class: 'barcell' }, h('span', { class: 'bar', style: { width: `${maxRate ? (r.rate / maxRate) * 100 : 0}%` } }), h('span', { class: 'barval' }, perMin(r.rate))),
           h('td', { class: 'num' + (r.rate > L.rate * 1.0005 ? ' up' : r.rate < L.rate * 0.9995 ? ' down' : '') }, vs(r.rate, L.rate)),
-          h('td', { class: 'num' }, dollars(r.burdened)),
+          h('td', { class: 'num' }, dollars(r.burdened)), h('td', { class: 'num' + (r.crew < 1 ? ' up' : '') }, qty(r.crew, 2)),
           L.recipes.map((rc) => h('td', { class: 'num' }, money(r.rate * rc.minutesPer)))))))));
 
     return h('div', { class: 'labor' },
@@ -218,7 +221,7 @@ export default {
         yearTable,
         h('div', { class: 'side-title side-sep' }, `${selYear} people`),
         ps.length ? peopleTable : h('p', { class: 'small muted' }, `No one entered for ${selYear} yet.`),
-        h('p', { class: 'small muted' }, 'Amounts are per person. Hourly: pay per hour, fixed fringe per month. Salaried: salary and fixed cost per year. Days = paid / on the line each week. ✎ opens every detail.'),
+        h('p', { class: 'small muted' }, 'Amounts are per person. Hourly: pay per hour, fixed fringe per month. Salaried: salary and fixed cost per year. Hrs/wk = hours paid a week. ✎ opens every detail, including whether someone works the line.'),
         can ? h('button', { class: 'btn primary', onclick: addPosition }, `+ Add position to ${selYear}`) : null,
         can && empty && prev && prev.rows.length ? h('button', { class: 'btn', onclick: copyPrev }, `Start ${selYear} from ${prevYear}’s people`) : null,
         h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),

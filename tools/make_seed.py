@@ -34,7 +34,7 @@ insert('settings', [s], ['id'] + list(data['settings'].keys()))
 insert('year_settings', data['year_settings'], ['year', 'labor_scenario'])
 # Labor positions from the staffing settings (same as schema.sql does once settings exist).
 schema = open(__import__('pathlib').Path(__file__).resolve().parent.parent / 'supabase/schema.sql').read()
-start = schema.index('insert into public.labor_positions'); end = schema.index('and not exists (select 1 from public.labor_positions);', start)
+start = schema.index('update public.year_settings y set labor_line_hours'); end = schema.index('and not exists (select 1 from public.labor_positions);', start)
 out.append(schema[start:end] + 'and not exists (select 1 from public.labor_positions);\n')
 insert('purchase_settings', data['purchase_settings'],
        ['item_no', 'avg_weekly', 'max_weekly', 'manual_usage', 'standard_purchase', 'lead_time', 'safety_threshold'])

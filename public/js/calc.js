@@ -110,52 +110,50 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
 
 // ---------- Labor rate (standard labor cost per minute) ----------
 // Set fresh every year from that year's people:
-//   1. Fully burdened cost of each position for the year:
+//   1. Paid cost of each position for the year:
 //        base pay (hourly rate x paid hours, or annual salary)
 //      + employer payroll taxes (% of base pay)
 //      + fixed benefits (monthly for hourly people, annual for salaried).
-//      Hourly people are paid for the days they work in the weeks the line
+//      Hourly people are paid for the hours they work in the weeks the line
 //      runs (no paid time off); salaried people are paid all 52 weeks.
-//   2. All of that paid cost goes into the labor rate, including paid time
-//      off the line (a salaried person paid for 5 days who is on the line 2).
-//   3. Productive minutes = hours on the line x 60 x line efficiency %.
-//   4. Labor rate = total burdened cost / productive minutes.
+//   2. Line hours: the line runs the year's production hours a week. Someone
+//      who works the line is on it while it runs, up to their paid hours.
+//   3. Labor rate = all paid labor cost / minutes on the line. All paid time
+//      is included, so a salaried person paid 40 hours who is on a 16-hour
+//      line has 40 hours of pay spread over 16 hours of minutes.
 // A labor minute is one person working one minute, as BOMs count minutes per batch.
 
 export const LABOR_FIRST_YEAR = 2026;
 // The years shown on the Labor tab: 2026 through next year.
 export const laborYears = (now = new Date().getFullYear()) => Array.from({ length: Math.max(1, now + 2 - LABOR_FIRST_YEAR) }, (_, i) => LABOR_FIRST_YEAR + i);
 
-const laborPlant = (y = {}) => ({
-  paidWeeks: 52,
-  prodWeeks: y.labor_prod_weeks ?? 52,
-  efficiency: (y.labor_efficiency_pct ?? 100) / 100,
-});
+const laborPlant = (y = {}) => ({ paidWeeks: 52, prodWeeks: y.labor_prod_weeks ?? 52, lineHours: n(y.labor_line_hours) });
 
-// One position for the year. `days` overrides the line days a week (what-ifs).
-export function laborPosition(p, plant, days) {
-  const people = n(p.headcount); const hrs = p.hours_per_day ?? 8;
-  const sal = p.pay_type === 'salaried';
-  const paidDays = n(p.paid_days ?? 5);
-  let lineDays = Math.min(n(days ?? p.production_days ?? paidDays), paidDays);
-  let paidDaysUsed = paidDays;
-  // Hourly people who are only paid for line days move with the line schedule.
-  if (!sal && days !== undefined && n(p.production_days) >= paidDays) { paidDaysUsed = n(days); lineDays = n(days); }
-  const paidHours = people * paidDaysUsed * n(hrs) * (sal ? plant.paidWeeks : plant.prodWeeks);
-  const lineHours = Math.min(people * lineDays * n(hrs) * plant.prodWeeks, paidHours);
+// One position for the year. `lineHours` overrides the production hours a
+// week (what-ifs): hourly people who only work the line then work the line's
+// hours, up to 40 a week.
+export function laborPosition(p, plant, lineHours) {
+  const people = n(p.headcount); const sal = p.pay_type === 'salaried';
+  const onLine = p.on_line !== false;
+  let week = n(p.paid_hours_week ?? 40);
+  const H = lineHours ?? plant.lineHours;
+  if (!sal && onLine && lineHours !== undefined && week <= plant.lineHours) week = Math.min(lineHours, 40);
+  const lineWeek = onLine ? Math.min(week, H) : 0;
+  const paidHours = people * week * (sal ? plant.paidWeeks : plant.prodWeeks);
+  const lineHrs = people * lineWeek * plant.prodWeeks;
   const base = sal ? people * n(p.annual_salary) : paidHours * n(p.hourly_rate);
   const tax = base * n(p.payroll_tax_pct) / 100;
   const benefits = people * (sal ? n(p.annual_fixed) : n(p.monthly_fringe) * 12);
   const burdened = base + tax + benefits;
-  return { position: p, people, salaried: sal, paidDays: paidDaysUsed, lineDays, paidHours, lineHours, base, tax, benefits, burdened,
-    share: paidHours ? lineHours / paidHours : 0, minutes: lineHours * 60 * plant.efficiency, perPaidHour: paidHours ? burdened / paidHours : 0 };
+  return { position: p, people, salaried: sal, onLine, week, lineWeek, paidHours, lineHours: lineHrs, base, tax, benefits, burdened,
+    share: paidHours ? lineHrs / paidHours : 0, minutes: lineHrs * 60, perPaidHour: paidHours ? burdened / paidHours : 0 };
 }
 
-export function laborRate(data, { year, days } = {}) {
+export function laborRate(data, { year, lineHours } = {}) {
   const ys = (data.year_settings || []).find((y) => y.year === year) || {};
   const plant = laborPlant(ys);
   const rows = (data.labor_positions || []).filter((p) => year === undefined || p.year === year)
-    .sort((a, b) => n(a.sort) - n(b.sort) || n(a.id) - n(b.id)).map((p) => laborPosition(p, plant, days));
+    .sort((a, b) => n(a.sort) - n(b.sort) || n(a.id) - n(b.id)).map((p) => laborPosition(p, plant, lineHours));
   const sum = (f) => rows.reduce((t, r) => t + f(r), 0);
   const burdened = sum((r) => r.burdened); const minutes = sum((r) => r.minutes);
   const rate = minutes ? burdened / minutes : 0;
@@ -164,7 +162,8 @@ export function laborRate(data, { year, days } = {}) {
     const batchOz = ix.yieldOf(r.item_no); const minutesPer = ix.laborMinutesOf(r.item_no);
     return { item: r, batchOz, minutesPer, perBatch: rate * minutesPer, perOz: batchOz ? (rate * minutesPer) / batchOz : 0, batchesPerYear: minutesPer ? minutes / minutesPer : 0 };
   }) : [];
-  return { year, plant, rows, recipes, burdened, base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
+  const H = lineHours ?? plant.lineHours;
+  return { year, plant, lineHoursWeek: H, crew: H ? sum((r) => r.people * r.lineWeek) / H : 0, rows, recipes, burdened, base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
     minutes, lineHours: sum((r) => r.lineHours), paidHours: sum((r) => r.paidHours), rate };
 }
 

@@ -2,6 +2,7 @@
 // sheets in the workbook (Production, GoodsReceipt, CycleCounts, ...).
 import { h, numberCell, dateLabel, qty, todayIso } from '../ui.js';
 import { eachDay, isWeekend, monthEnd } from '../calc.js';
+import { totalsFoot } from '../xtable.js';
 
 export const monthDays = ({ year, month }) => [...eachDay(`${year}-${String(month).padStart(2, '0')}-01`, monthEnd(year, month))];
 
@@ -24,7 +25,7 @@ export function itemHead(items, { before = [], after = [], notes = true, firstLa
 // Editable month grid backed by one keyed table (date, item_no, field).
 //   before(date) / after(date): arrays of <td> for calculated columns
 //   cellClass(date, item): extra class for a cell (e.g. a warning outline)
-export function entryGrid({ table, field, items, ym, editable, before, after, beforeLabels = [], afterLabels = [], cellClass, rows, notes = true, footer = true, digits = 4 }) {
+export function entryGrid({ table, field, items, ym, editable, before, after, beforeLabels = [], afterLabels = [], cellClass, rows, notes = true, footer = true, digits = 4, rerender }) {
   const values = new Map(rows.map((r) => [`${r.date}|${r.item_no}`, r[field]]));
   const today = todayIso();
   const days = monthDays(ym);
@@ -40,8 +41,8 @@ export function entryGrid({ table, field, items, ym, editable, before, after, be
         title: `${it.name}, ${d}`, cls: cellClass ? cellClass(d, it) : null });
     }),
     after ? after(d) : null)));
-  const foot = footer ? h('tfoot', null, h('tr', null, h('td', { class: 'sticky-col' }, 'Total'), beforeLabels.map(() => h('td')),
-    totals.map((t) => h('td', { class: 'num' }, t ? qty(t, 2) : '')), afterLabels.map(() => h('td')))) : null;
+  const foot = footer ? totalsFoot({ id: `grid-${table}`, rerender, width: 1 + beforeLabels.length + items.length + afterLabels.length,
+    label: 'Month total', cells: [beforeLabels.map(() => h('td')), totals.map((t) => h('td', { class: 'num' }, t ? qty(t, 2) : '')), afterLabels.map(() => h('td'))] }) : null;
   return h('div', { class: 'tablewrap tall', 'data-scroll': table },
     h('table', { class: 't' }, itemHead(items, { before: beforeLabels, after: afterLabels, notes }), body, foot));
 }

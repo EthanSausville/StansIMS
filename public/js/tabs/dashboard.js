@@ -1,4 +1,4 @@
-import { h, pageHead, money, pct, yearSelect, todayIso, qty } from '../ui.js';
+import { h, bigHead, money, pct, yearSelect, todayIso, qty } from '../ui.js';
 import { state, derived } from '../store.js';
 import { dashboard, MONTHS } from '../calc.js';
 import { barChart, hbarChart } from '../charts.js';
@@ -26,7 +26,7 @@ export default {
     const panel = (title, body, legend) => h('div', { class: 'panel' }, h('h2', null, title), legend || null, h('div', { class: 'body chart' }, body));
 
     return h('div', null,
-      pageHead(`${year} Management Dashboard`, `Year to date through ${MONTHS[month - 1][0]}${MONTHS[month - 1].slice(1).toLowerCase()}.`,
+      bigHead(`${year} Management Dashboard`, `Year to date through ${MONTHS[month - 1][0]}${MONTHS[month - 1].slice(1).toLowerCase()}.`,
         yearSelect(years, year, (y) => { year = y; rerender(); }),
         h('label', { class: 'field' }, 'Through', h('select', { onchange: (e) => { month = Number(e.target.value); rerender(); } },
           MONTHS.map((m, i) => h('option', { value: i + 1, selected: i + 1 === month }, m))))),

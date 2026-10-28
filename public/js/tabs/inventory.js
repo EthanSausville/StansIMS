@@ -1,6 +1,7 @@
 import { h, pageHead, monthPicker, seg, yearSelect, qty, money, typePill, todayIso, longDate } from '../ui.js';
 import { state, derived } from '../store.js';
 import { viewGrid, view } from './grid.js';
+import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
 import * as C from '../calc.js';
 
 let mode = 'daily';
@@ -50,27 +51,28 @@ export default {
     const rows = C.endingInventory(state.data, inv, year);
     const monthIdx = [...Array(12).keys()];
     const totals = (type) => monthIdx.map((m) => rows.filter((r) => r.item.type === type).reduce((s, r) => s + r.value[m], 0));
-    const cell = (r, m) => {
-      const v = show === 'qty' ? r.qty[m] : r.value[m];
-      const future = C.monthEnd(year, m + 1) > today;
-      return h('td', { class: 'num' + (v < 0 ? ' neg' : '') + (future ? ' blank' : '') }, v ? (show === 'qty' ? qty(v, 1) : money(v, 0)) : '');
-    };
+    const cellText = (r, m) => { const v = show === 'qty' ? r.qty[m] : r.value[m]; return v ? (show === 'qty' ? qty(v, 1) : money(v, 0)) : ''; };
+    const columns = [
+      { key: 'name', label: 'Item', sticky: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col' }, r.item.name) },
+      { key: 'type', label: 'Type', value: (r) => r.item.type, text: (r) => (r.item.type === 'Component' ? 'Packaging' : r.item.type), cell: (r) => h('td', null, typePill(r.item.type)) },
+      { key: 'unit', label: 'Unit', value: (r) => r.item.unit || '', cell: (r) => h('td', { class: 'muted' }, r.item.unit) },
+      ...monthIdx.map((m) => ({ key: `m${m}`, label: C.MONTHS[m], num: true, value: (r) => (show === 'qty' ? r.qty[m] : r.value[m]),
+        cell: (r) => { const v = show === 'qty' ? r.qty[m] : r.value[m]; const future = C.monthEnd(year, m + 1) > today;
+          return h('td', { class: 'num' + (v < 0 ? ' neg' : '') + (future ? ' blank' : '') }, cellText(r, m)); },
+        total: (rs) => { const t = rs.reduce((s, r) => s + r.value[m], 0); return t ? money(t, 0) : ''; } })),
+    ];
+    const tid = 'inv-me';
+    const shown = filteredRows({ id: tid, columns, rows });
+    const nFilters = activeFilterCount(tid);
     return h('div', null,
-      pageHead('Month-end Inventory', show === 'qty' ? 'Inventory on the last day of each month, in each item’s unit.' : 'Month-end inventory valued at standard cost for the year.',
+      pageHead('Month-end Inventory', (show === 'qty' ? 'Inventory on the last day of each month, in each item’s unit.' : 'Month-end inventory valued at standard cost for the year.')
+        + ` The totals row is in dollars at the ${year} standard cost (or the latest one entered); filter Type to total one kind of item. Month-ends after today are projections.`,
         switcher, seg([['qty', 'Quantity'], ['value', 'Value $']], show, (s) => { show = s; rerender(); }),
-        yearSelect(years, year, (y) => { year = y; rerender(); })),
+        yearSelect(years, year, (y) => { year = y; rerender(); }),
+        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null),
       notes,
-      h('div', { class: 'tablewrap tall', 'data-scroll': 'inv-me' }, h('table', { class: 't' },
-        h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Type'), h('th', null, 'Unit'),
-          monthIdx.map((m) => h('th', { class: 'num' }, C.MONTHS[m])))),
-        h('tbody', null,
-          ['Raw Material', 'Component', 'Finished Good'].map((type) => [
-            rows.filter((r) => r.item.type === type).map((r) => h('tr', null,
-              h('td', { class: 'sticky-col' }, r.item.name), h('td', null, typePill(type)), h('td', { class: 'muted' }, r.item.unit),
-              monthIdx.map((m) => cell(r, m)))),
-            h('tr', { class: 'total' }, h('td', { class: 'sticky-col' }, `Total ${type === 'Component' ? 'packaging' : type.toLowerCase() + 's'} ($)`), h('td'), h('td'),
-              totals(type).map((t) => h('td', { class: 'num' }, t ? money(t, 0) : ''))),
-          ])))),
-      h('p', { class: 'small muted' }, `Values use the ${year} standard cost (or the latest one entered). Month-ends after ${longDate(today)} are projections.`));
+      h('div', { class: 'tablewrap tall', 'data-scroll': tid },
+        xtable({ id: tid, columns, allRows: rows, rows: shown, rerender, showTotals: prefTotals(tid), onToggleTotals: (on) => { setPrefTotals(tid, on); rerender(); },
+          totalsLabel: (rs, all) => (rs.length === all.length ? 'Total value ($)' : `Total value, ${rs.length} items ($)`) })));
   },
 };

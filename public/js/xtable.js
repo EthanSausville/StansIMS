@@ -131,7 +131,7 @@ function showMenu(button, anchor, { id, columns, rows, col, rerender, defaultSor
 // filtered and sorted with filteredRows), then the totals row in the footer,
 // which stays pinned to the bottom of the screen. onToggleTotals(on) adds a
 // Hide button to it, and a slim "Show totals" bar while it's hidden.
-export function xtable({ id, columns, allRows, rows, rerender, defaultSort, showTotals, onToggleTotals, rowClass, extraCells, emptyText = 'No rows match these filters.', className = '' }) {
+export function xtable({ id, columns, allRows, rows, rerender, defaultSort, showTotals, onToggleTotals, totalsLabel, rowClass, extraCells, extraHead, emptyText = 'No rows match these filters.', className = '' }) {
   const view = viewOf(id, defaultSort);
   const width = columns.length + (extraCells ? 1 : 0);
   const head = h('tr', null, columns.map((col) => {
@@ -145,16 +145,17 @@ export function xtable({ id, columns, allRows, rows, rerender, defaultSort, show
       } },
       filtered ? '⏷' : '▾');
     return h('th', { class: [col.num ? 'num' : '', col.sticky ? 'sticky-col' : '', 'xf-th'].join(' ').trim(), 'aria-sort': sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : null },
-      h('span', { class: 'xf-head' }, h('span', { class: 'xf-label' }, col.label, sorted ? h('span', { class: 'xf-arrow', 'aria-hidden': 'true' }, sorted === 'asc' ? ' ↑' : ' ↓') : null), btn));
-  }), extraCells ? h('th') : null);
+      h('span', { class: 'xf-head' }, h('span', { class: 'xf-label' }, col.label, col.sub ? h('span', { class: 'xf-sub' }, col.sub) : null, sorted ? h('span', { class: 'xf-arrow', 'aria-hidden': 'true' }, sorted === 'asc' ? ' ↑' : ' ↓') : null), btn));
+  }), extraCells ? h('th', null, extraHead || null) : null);
   const count = h('span', { title: `${rows.length.toLocaleString()} of ${allRows.length.toLocaleString()} lines shown` },
     rows.length === allRows.length ? `${rows.length.toLocaleString()} lines` : `${rows.length.toLocaleString()} of ${allRows.length.toLocaleString()}`);
   const toggle = (on) => h('button', { type: 'button', class: 'xt-toggle', onclick: () => onToggleTotals(on) },
     on ? h('span', { 'aria-hidden': 'true' }, '▴ ') : null, on ? 'Show totals' : 'Hide');
+  const first = totalsLabel ? totalsLabel(rows, allRows) : count;
   let foot = null;
   if (showTotals) {
     foot = h('tr', { class: 'xt-totals' }, columns.map((col, i) => h('td', { class: [col.num ? 'num' : '', col.sticky ? 'sticky-col' : ''].join(' ').trim() },
-      i === 0 ? count : col.total ? col.total(rows) : '')),
+      i === 0 ? (extraCells || !onToggleTotals ? first : h('span', { class: 'ft-label' }, first, toggle(false))) : col.total ? col.total(rows) : '')),
       extraCells ? h('td', { class: 'xt-hide' }, onToggleTotals ? toggle(false) : null) : null);
   } else if (onToggleTotals) {
     foot = h('tr', { class: 'xt-totals-off' }, h('td', { colspan: width }, h('span', { class: 'xt-off-inner' }, toggle(true))));
@@ -164,4 +165,17 @@ export function xtable({ id, columns, allRows, rows, rerender, defaultSort, show
     h('tbody', null, rows.length ? rows.map((r) => h('tr', { class: rowClass ? rowClass(r) : null }, columns.map((c) => c.cell(r)), extraCells ? extraCells(r) : null))
       : h('tr', null, h('td', { colspan: width, class: 'empty' }, emptyText))),
     foot ? h('tfoot', null, foot) : null);
+}
+
+// A totals footer for tables that aren't xtables (the daily grids and sales
+// summaries): pinned to the bottom like Sales Detail, with Hide / Show totals.
+// cells: the <td>s after the first (label) cell.
+export function totalsFoot({ id, rerender, label = 'Total', cells, width }) {
+  const on = prefTotals(id);
+  const flip = (v) => () => { setPrefTotals(id, v); rerender(); };
+  if (!on) return h('tfoot', null, h('tr', { class: 'xt-totals-off' }, h('td', { colspan: width }, h('span', { class: 'xt-off-inner' },
+    h('button', { type: 'button', class: 'xt-toggle', onclick: flip(true) }, h('span', { 'aria-hidden': 'true' }, '▴ '), 'Show totals')))));
+  return h('tfoot', null, h('tr', { class: 'xt-totals' },
+    h('td', { class: 'sticky-col' }, h('span', { class: 'ft-label' }, label, h('button', { type: 'button', class: 'xt-toggle', onclick: flip(false) }, 'Hide'))),
+    cells));
 }

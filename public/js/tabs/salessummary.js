@@ -2,6 +2,7 @@
 // for the chosen year and measure. Built from the same lines as Invoices.
 import { h, pageHead, money, qty, pct, seg, yearSelect } from '../ui.js';
 import { derived } from '../store.js';
+import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
 import { MONTHS } from '../calc.js';
 
 const MEASURES = [
@@ -34,20 +35,31 @@ function summaryTab({ id, label, title, keyOf, description, colLabel }) {
       const lastMonth = Math.max(0, ...rows.map((r) => r.month));
       const months = MONTHS.slice(0, Math.max(lastMonth, 1));
       const cell = (v) => h('td', { class: 'num' + (v < 0 ? ' neg' : '') + (v ? '' : ' muted') }, v ? show(v) : '–');
+      const sum = (rs, f) => rs.reduce((acc, t) => acc + f(t), 0);
+      const columns = [
+        { key: 'key', label: colLabel, sticky: true, value: (t) => t.key, cell: (t) => h('td', { class: 'sticky-col' }, t.key) },
+        ...months.map((m, i) => ({ key: `m${i}`, label: m, num: true, value: (t) => t.months[i], text: (t) => (t.months[i] ? show(t.months[i]) : '–'),
+          cell: (t) => cell(t.months[i]), total: (rs) => { const v = sum(rs, (t) => t.months[i]); return v ? show(v) : '–'; } })),
+        { key: 'total', label: `Total ${mLabel.toLowerCase()}`, num: true, value: (t) => t.total, text: (t) => show(t.total),
+          cell: (t) => h('td', { class: 'num strong' }, show(t.total)), total: (rs) => show(sum(rs, (t) => t.total)) },
+        { key: 'share', label: 'Share', num: true, value: (t) => (grand ? t.total / grand : 0), text: (t) => (grand ? pct(t.total / grand) : ''),
+          cell: (t) => h('td', { class: 'num muted' }, grand ? pct(t.total / grand) : ''), total: (rs) => (grand ? pct(sum(rs, (t) => t.total) / grand) : '') },
+        { key: 'mpct', label: 'Margin %', num: true, value: (t) => (t.sales ? t.margin / t.sales : null), text: (t) => (t.sales ? pct(t.margin / t.sales) : ''),
+          cell: (t) => h('td', { class: 'num muted' }, t.sales ? pct(t.margin / t.sales) : ''),
+          total: (rs) => { const sl = sum(rs, (t) => t.sales); return sl ? pct(sum(rs, (t) => t.margin) / sl) : ''; } },
+      ];
+      const tid = `${id}-${year}-${measure}`;
+      const sort = { key: 'total', dir: 'desc' };
+      const shown = filteredRows({ id: tid, columns, rows: list, defaultSort: sort });
+      const nFilters = activeFilterCount(tid);
       return h('div', null,
         pageHead(title, description,
           seg(MEASURES.map(([k, l]) => [k, l]), measure, (m) => { measure = m; rerender(); }),
-          yearSelect(years, year, (y) => { year = y; rerender(); })),
-        list.length ? h('div', { class: 'tablewrap', 'data-scroll': id }, h('table', { class: 't' },
-          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, colLabel), months.map((m) => h('th', { class: 'num' }, m)),
-            h('th', { class: 'num' }, `Total ${mLabel.toLowerCase()}`), h('th', { class: 'num' }, 'Share'), h('th', { class: 'num' }, 'Margin %'))),
-          h('tbody', null, list.map((t) => h('tr', null, h('td', { class: 'sticky-col' }, t.key),
-            months.map((_, m) => cell(t.months[m])),
-            h('td', { class: 'num strong' }, show(t.total)), h('td', { class: 'num muted' }, grand ? pct(t.total / grand) : ''),
-            h('td', { class: 'num muted' }, t.sales ? pct(t.margin / t.sales) : '')))),
-          h('tfoot', null, h('tr', null, h('td', { class: 'sticky-col' }, 'Total'), months.map((_, m) => cell(monthTotals[m])),
-            h('td', { class: 'num' }, show(grand)), h('td', { class: 'num' }, grand ? '100%' : ''),
-            h('td', { class: 'num' }, (() => { const s = list.reduce((a, t) => a + t.sales, 0); const mg = list.reduce((a, t) => a + t.margin, 0); return s ? pct(mg / s) : ''; })())))))
+          yearSelect(years, year, (y) => { year = y; rerender(); }),
+          nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null),
+        list.length ? h('div', { class: 'tablewrap', 'data-scroll': id },
+          xtable({ id: tid, columns, allRows: list, rows: shown, rerender, defaultSort: sort, showTotals: prefTotals(id),
+            onToggleTotals: (on) => { setPrefTotals(id, on); rerender(); }, totalsLabel: (rs, all) => (rs.length === all.length ? 'Total' : `Total (${rs.length} of ${all.length})`) }))
           : h('div', { class: 'panel empty' }, `No sales in ${year}.`));
     },
   };

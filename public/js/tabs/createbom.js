@@ -198,6 +198,7 @@ export default {
     return h('div', null,
       pageHead(draft.mode === 'edit' ? `Edit BOM: ${name}` : 'Create BOM',
         'Build what an item is made of. A line can be another item with its own BOM, such as a recipe inside a product, or a sub-recipe inside a recipe. Nothing is saved until you click Save.',
+        h('strong', { class: 'tb-title' }, draft.mode === 'edit' ? `Editing: ${name}` : 'New BOM'),
         h('button', { class: 'btn', onclick: () => { draft = freshDraft(); rerender(); } }, 'Start a new BOM'),
         yearSelect(cmNow.years, year, (y) => { year = y; rerender(); }, 'Cost year')),
       whatPanel, linesPanel, savePanel);

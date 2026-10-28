@@ -135,7 +135,7 @@ export default {
     const body = preview || (open === 'add' ? addForm : open === 'history' ? historyTable() : null);
     // One bar: load a QuickBooks report, add a line by hand, see past loads.
     return h('div', null,
-      h('section', { class: 'panel sales-toolbar' },
+      h('section', { class: 'panel toolbar sales-toolbar' },
         h('div', { class: 'tb-row' },
           loadButton(rerender),
           h('button', { class: 'btn' + (open === 'add' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'add'), onclick: flip('add') }, '+ Add a line by hand'),
@@ -143,7 +143,7 @@ export default {
           h('span', { class: 'grow' }),
           nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(TID); rerender(); } }, `Clear filters (${nFilters})`) : null),
         body ? h('div', { class: 'tb-body' }, body) : null),
-      h('div', { class: 'tablewrap tall', 'data-scroll': 'sales', style: { marginTop: '12px' } },
+      h('div', { class: 'tablewrap tall', 'data-scroll': 'sales' },
         xtable({ id: TID, columns: COLUMNS, allRows: rowsAll, rows, rerender, defaultSort: DEFAULT_SORT, showTotals, onToggleTotals: (on) => { setPrefTotals(TID, on); rerender(); }, className: 'sales-report',
           rowClass: (r) => (r.import_id ? 'from-qb' : null), extraCells: actions })));
   },

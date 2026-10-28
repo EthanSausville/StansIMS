@@ -138,10 +138,25 @@ export function confirmDialog(message, okLabel = 'Delete') {
   });
 }
 
+// The bar at the top of a tab: its controls in one compact row, like the
+// Sales Detail bar. The tab's name is already in the tab row, so the title is
+// only used to label the bar; the description sits behind an "About" button.
+// (The Dashboard keeps a full heading: bigHead.)
 export function pageHead(title, description, ...controls) {
+  const items = controls.flat(Infinity).filter(Boolean);
+  return h('section', { class: 'panel toolbar', 'aria-label': title },
+    h('div', { class: 'tb-row' }, items,
+      h('span', { class: 'grow' }),
+      description ? h('details', { class: 'tb-info' },
+        h('summary', { title: 'About this tab', 'aria-label': `About ${title}` }, h('span', { 'aria-hidden': 'true' }, 'i')),
+        h('div', { class: 'tb-info-pop' }, h('strong', null, title), h('p', null, description))) : null));
+}
+export function bigHead(title, description, ...controls) {
   return h('div', { class: 'pagehead' },
     h('div', { class: 'grow' }, h('h1', null, title), description ? h('p', null, description) : null),
     controls.length ? h('div', { class: 'controls' }, controls) : null);
 }
+// A small figure for the bar (e.g. "Cases 1,240").
+export const chip = (label, value) => h('span', { class: 'tb-chip' }, h('span', { class: 'muted' }, label), ' ', h('strong', null, value));
 
 export const shortName = (name) => name.replace(/\s*\(Case of 24\)/, ' (24)').replace(/\.\s/, ' ');

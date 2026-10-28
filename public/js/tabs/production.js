@@ -1,4 +1,4 @@
-import { h, pageHead, monthPicker, money, qty, fmt } from '../ui.js';
+import { h, pageHead, monthPicker, money, qty, fmt, chip } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
 
@@ -17,15 +17,14 @@ export default {
     };
     return h('div', null,
       pageHead('Production', `Cases produced each day. Oz, batches (${fmt(B)} oz each) and the estimated loss from the last partial batch calculate automatically. Typing math like 24*10 works.`,
-        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
-        monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); })),
-      h('div', { class: 'cards' },
-        stat('Cases this month', qty(sum((d) => Object.values(d.cases).reduce((a, b) => a + b, 0)))),
-        stat('Batches', fmt(sum((d) => d.batches))),
-        stat('Oz produced', fmt(sum((d) => d.oz))),
-        stat('Estimated loss', money(sum((d) => d.loss)))),
+        monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); }),
+        chip('Cases', qty(sum((d) => Object.values(d.cases).reduce((a, b) => a + b, 0)))),
+        chip('Batches', fmt(sum((d) => d.batches))),
+        chip('Oz', fmt(sum((d) => d.oz))),
+        chip('Est. loss', money(sum((d) => d.loss))),
+        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells')),
       entryGrid({
-        table: 'production', field: 'cases', items: fgs, ym: view.ym, rows: state.data.production, notes: false, digits: 2,
+        table: 'production', field: 'cases', rerender, items: fgs, ym: view.ym, rows: state.data.production, notes: false, digits: 2,
         beforeLabels: ['Est. loss', 'Batches', 'Oz'], before: calc,
         editable: { allowed: true, save: (date, item_no, v) => saveCell('production', { date, item_no }, 'cases', v) },
       }));

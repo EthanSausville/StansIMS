@@ -1,6 +1,7 @@
 import { h, pageHead, numberCell, typePill, toast, niceError, confirmDialog, fmt } from '../ui.js';
 import { state, derived, saveCell, isAdmin, insertRow, updateRow, deleteRow } from '../store.js';
 import { TYPES, LABOR_ITEM, OVERHEAD_ITEM } from '../calc.js';
+import { xtable, filteredRows, activeFilterCount, clearFilters } from '../xtable.js';
 
 const enterable = (it) => it.type === 'Raw Material' || it.type === 'Component' || it.item_no === OVERHEAD_ITEM;
 const fmtCost = (v) => (v ? '$' + fmt(v, 5, 2) : '');
@@ -50,28 +51,35 @@ function itemDialog(item) {
 export default {
   id: 'costs',
   label: 'Standard Cost',
-  render() {
+  render({ rerender }) {
     const cm = derived.costs(); const admin = isAdmin();
     const entered = new Map(state.data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, c.cost]));
     const scen = new Map(state.data.year_settings.map((y) => [y.year, y.labor_scenario]));
     const items = [...state.data.items].sort((a, b) => a.sort - b.sort);
+    const costOf = (it, y) => (enterable(it) ? entered.get(`${it.item_no}|${y}`) ?? null : cm.cost(it.item_no, y));
+    const columns = [
+      { key: 'name', label: 'Item', sticky: true, value: (it) => it.name, cell: (it) => h('td', { class: 'sticky-col' }, it.name) },
+      { key: 'type', label: 'Type', value: (it) => it.type, cell: (it) => h('td', null, typePill(it.type)) },
+      { key: 'item_no', label: 'Item #', num: true, value: (it) => it.item_no, cell: (it) => h('td', { class: 'num muted' }, it.item_no) },
+      { key: 'unit', label: 'Units', value: (it) => it.unit || '', cell: (it) => h('td', { class: 'muted' }, it.unit || '') },
+      { key: 'latest', label: 'Latest cost', num: true, value: (it) => cm.latest(it.item_no) || 0, text: (it) => fmtCost(cm.latest(it.item_no)),
+        cell: (it) => h('td', { class: 'num calc' }, fmtCost(cm.latest(it.item_no))) },
+      ...cm.years.map((y) => ({ key: `y${y}`, label: String(y), sub: scen.get(y) ? `Scenario ${scen.get(y)}` : null, num: true,
+        value: (it) => costOf(it, y), text: (it) => fmtCost(costOf(it, y)),
+        cell: (it) => (enterable(it)
+          ? numberCell(entered.get(`${it.item_no}|${y}`) ?? null, (v) => saveCell('standard_costs', { item_no: it.item_no, year: y }, 'cost', v),
+            { disabled: !admin, digits: 7, key: `sc|${it.item_no}|${y}`, title: `${it.name} ${y} cost per ${it.unit || 'unit'}` })
+          : h('td', { class: 'num calc', title: it.item_no === LABOR_ITEM ? 'From the Labor tab' : 'Calculated' }, fmtCost(cm.cost(it.item_no, y)))) })),
+    ];
+    const rows = filteredRows({ id: 'costs', columns, rows: items });
+    const nFilters = activeFilterCount('costs');
     return h('div', null,
-      pageHead('Standard Cost', 'Update on January 1st each year. Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab, and recipes and finished goods add themselves up.' + (admin ? '' : ' Only admins can change these.'),
-        admin ? h('button', { class: 'btn primary', onclick: () => itemDialog(null) }, 'Add item') : null),
-      h('div', { class: 'tablewrap tall', 'data-scroll': 'costs' }, h('table', { class: 't' },
-        h('thead', null,
-          h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Type'), h('th', { class: 'num' }, 'Item #'), h('th', null, 'Units'),
-            h('th', { class: 'num' }, 'Latest cost'), cm.years.map((y) => h('th', { class: 'num' }, y)), admin ? h('th') : null),
-          h('tr', null, h('th', { class: 'sticky-col' }), h('th'), h('th'), h('th'), h('th', { class: 'num' }, 'Labor scenario →'),
-            cm.years.map((y) => h('th', { class: 'num' }, scen.get(y) ? `Scenario ${scen.get(y)}` : '—')), admin ? h('th') : null)),
-        h('tbody', null, items.map((it) => h('tr', null,
-          h('td', { class: 'sticky-col' }, it.name), h('td', null, typePill(it.type)), h('td', { class: 'num muted' }, it.item_no), h('td', { class: 'muted' }, it.unit || ''),
-          h('td', { class: 'num calc' }, fmtCost(cm.latest(it.item_no))),
-          cm.years.map((y) => enterable(it)
-            ? numberCell(entered.get(`${it.item_no}|${y}`) ?? null, (v) => saveCell('standard_costs', { item_no: it.item_no, year: y }, 'cost', v),
-              { disabled: !admin, digits: 7, key: `sc|${it.item_no}|${y}`, title: `${it.name} ${y} cost per ${it.unit || 'unit'}` })
-            : h('td', { class: 'num calc', title: it.item_no === LABOR_ITEM ? 'From the Labor tab' : 'Calculated' }, fmtCost(cm.cost(it.item_no, y)))),
-          admin ? h('td', null, h('button', { class: 'btn ghost', onclick: () => itemDialog(it) }, 'Edit')) : null))))),
-      h('p', { class: 'small muted' }, 'Recipe costs are per oz; finished goods are per case. Grey cells are calculated.'));
+      pageHead('Standard Cost', 'Update on January 1st each year. Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Only admins can change these.'),
+        admin ? h('button', { class: 'btn primary', onclick: () => itemDialog(null) }, 'Add item') : null,
+        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells; grey cells are calculated'),
+        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('costs'); rerender(); } }, `Clear filters (${nFilters})`) : null),
+      h('div', { class: 'tablewrap tall', 'data-scroll': 'costs' },
+        xtable({ id: 'costs', columns, allRows: items, rows, rerender,
+          extraCells: admin ? (it) => h('td', null, h('button', { class: 'btn ghost', onclick: () => itemDialog(it) }, 'Edit')) : null })));
   },
 };

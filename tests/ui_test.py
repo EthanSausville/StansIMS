@@ -107,7 +107,7 @@ with sync_playwright() as p:
     page.get_by_role('tab', name='Labor', exact=True).click(); page.wait_for_timeout(80)
     page.locator('.groups .group', has_text='Dashboard').click(); page.wait_for_timeout(80)
     page.locator('.groups .group', has_text='Standard Cost').click(); page.wait_for_timeout(100)
-    check(page.locator('h1', has_text='Labor Scenarios').is_visible(), 'returning to a group reopens the last tab used there')
+    check(page.locator('.toolbar[aria-label="Labor Scenarios"]').is_visible(), 'returning to a group reopens the last tab used there')
     page.locator('.groups .group', has_text='Accounting').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
     check(sub == GROUPS['Accounting'], f'Accounting group shows Journals and T-Accounts ({sub})')

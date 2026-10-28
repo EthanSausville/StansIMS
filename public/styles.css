@@ -481,3 +481,31 @@ td.xt-hide { text-align: right; }
 .dropzone.compact > span:last-child { gap: 0; line-height: 1.2; font-size: 13px; }
 .dropzone.compact .small { font-size: 11.5px; }
 .sales-toolbar .grow, .tb-title .grow { flex: 1; }
+
+/* ---- Tab bar (pageHead): one compact row of controls, like Sales Detail ---- */
+.toolbar { padding: 0; margin-bottom: 12px; position: relative; }
+.toolbar .tb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px; min-height: 52px; box-sizing: border-box; }
+.toolbar .grow { flex: 1; }
+.toolbar label.field { flex-direction: row; align-items: center; gap: 6px; font-size: 12.5px; }
+.toolbar label.field > select, .toolbar label.field > input { padding-top: 5px; padding-bottom: 5px; }
+.toolbar .legend-entry { padding: 0 4px; }
+.tb-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 5px 10px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line);
+  font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tb-chip strong { color: var(--ink); font-weight: 650; }
+.tb-info { position: relative; }
+.tb-info > summary { list-style: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line-strong);
+  color: var(--accent-dark); font: italic 700 14px Georgia, serif; cursor: pointer; background: var(--panel); }
+.tb-info > summary::-webkit-details-marker { display: none; }
+.tb-info > summary:hover, .tb-info[open] > summary { border-color: var(--accent); background: var(--accent-soft); }
+.tb-info-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: min(420px, 86vw); padding: 12px 14px; background: var(--panel);
+  border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 12px 32px rgba(15, 35, 75, .18); font-size: 13px; }
+.tb-info-pop p { margin: 4px 0 0; color: var(--muted); line-height: 1.45; }
+.toolbar + .note, .note + .note { margin-top: -2px; }
+.note { padding: 7px 12px; margin-bottom: 10px; }
+/* Totals rows in every table's footer look like the Sales Detail totals. */
+table.t tfoot tr:not(.xt-totals-off) td { background: #eef4ff; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink); border-top: 2px solid var(--accent-2); }
+table.t tfoot tr:not(.xt-totals-off) td.sticky-col { background: #eef4ff; color: var(--accent-dark); z-index: 3; }
+.ft-label { display: inline-flex; align-items: center; gap: 8px; }
+.ft-label .xt-toggle { padding: 1px 8px; font-size: 11.5px; }
+.xf-sub { display: block; font-weight: 400; font-size: 10.5px; color: var(--faint); }
+.toolbar .tb-title { font-size: 14px; margin-right: 4px; }

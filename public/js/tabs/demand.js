@@ -1,6 +1,7 @@
 import { h, pageHead, monthPicker, numberCell, qty, todayIso, longDate, seg } from '../ui.js';
 import { state, derived, saveField, isAdmin } from '../store.js';
 import { viewGrid, view } from './grid.js';
+import { xtable, filteredRows, activeFilterCount, clearFilters } from '../xtable.js';
 
 const FIELDS = [
   ['avg_weekly', 'Avg. weekly usage'], ['max_weekly', 'Max. weekly usage'], ['manual_usage', 'Planning usage'],
@@ -21,20 +22,26 @@ export default {
     const switcher = seg([['plan', 'Suggestions'], ['settings', 'Settings']], mode, (m) => { mode = m; rerender(); });
 
     if (mode === 'settings') {
+      const info = (it) => ({ s: settings.get(it.item_no) || {}, onHand: inv.byItem.get(it.item_no)?.get(today), safety: pd.get(it.item_no)?.safety, nx: next(it.item_no) });
+      const columns = [
+        { key: 'name', label: 'Item', sticky: true, value: (it) => it.name, cell: (it) => h('td', { class: 'sticky-col' }, it.name) },
+        { key: 'unit', label: 'Unit', value: (it) => it.pack_note || it.unit || '', cell: (it) => h('td', { class: 'muted' }, it.pack_note || it.unit) },
+        ...FIELDS.map(([f, l]) => ({ key: f, label: l, num: true, value: (it) => info(it).s[f] ?? null, text: (it) => (info(it).s[f] ?? '') === '' ? '' : qty(info(it).s[f], 2),
+          cell: (it) => numberCell(info(it).s[f] ?? null, (v) => saveField('purchase_settings', { item_no: it.item_no }, f, v), { disabled: !admin, key: `ps|${it.item_no}|${f}`, title: `${l}, ${it.name}` }) })),
+        { key: 'safety', label: 'Safety stock', num: true, value: (it) => info(it).safety ?? null, text: (it) => (info(it).safety !== undefined ? qty(info(it).safety, 1) : ''),
+          cell: (it) => h('td', { class: 'num calc' }, info(it).safety !== undefined ? qty(info(it).safety, 1) : '') },
+        { key: 'onhand', label: 'On hand today', num: true, value: (it) => info(it).onHand ?? null, text: (it) => (info(it).onHand !== undefined ? qty(info(it).onHand, 1) : ''),
+          cell: (it) => { const v = info(it).onHand; return h('td', { class: 'num' + (v < 0 ? ' neg' : '') }, v !== undefined ? qty(v, 1) : '—'); } },
+        { key: 'next', label: 'Next suggested purchase', value: (it) => info(it).nx || '', text: (it) => (info(it).nx ? longDate(info(it).nx) : ''),
+          cell: (it) => h('td', null, info(it).nx ? longDate(info(it).nx) : '') },
+      ];
+      const rows = filteredRows({ id: 'purchase-settings', columns, rows: items });
+      const nFilters = activeFilterCount('purchase-settings');
       return h('div', null,
-        pageHead('Purchase Settings', 'Safety stock = safety threshold × lead time × planning usage. A purchase is suggested when inventory plus purchases already suggested drops below it.' + (admin ? '' : ' Only admins can change these.'), switcher),
-        h('div', { class: 'tablewrap' }, h('table', { class: 't' },
-          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Unit'), FIELDS.map(([, l]) => h('th', { class: 'num wrap' }, l)),
-            h('th', { class: 'num wrap' }, 'Safety stock'), h('th', { class: 'num wrap' }, 'On hand today'), h('th', { class: 'wrap' }, 'Next suggested purchase'))),
-          h('tbody', null, items.map((it) => {
-            const s = settings.get(it.item_no) || {}; const onHand = inv.byItem.get(it.item_no)?.get(today);
-            const safety = pd.get(it.item_no)?.safety; const nx = next(it.item_no);
-            return h('tr', null, h('td', { class: 'sticky-col' }, it.name), h('td', { class: 'muted' }, it.pack_note || it.unit),
-              FIELDS.map(([f, l]) => numberCell(s[f] ?? null, (v) => saveField('purchase_settings', { item_no: it.item_no }, f, v), { disabled: !admin, key: `ps|${it.item_no}|${f}`, title: `${l}, ${it.name}` })),
-              h('td', { class: 'num calc' }, safety !== undefined ? qty(safety, 1) : ''),
-              h('td', { class: 'num' + (onHand < 0 ? ' neg' : '') }, onHand !== undefined ? qty(onHand, 1) : '—'),
-              h('td', null, nx ? longDate(nx) : ''));
-          })))));
+        pageHead('Purchase Settings', 'Safety stock = safety threshold × lead time × planning usage. A purchase is suggested when inventory plus purchases already suggested drops below it.' + (admin ? '' : ' Only admins can change these.'), switcher,
+          h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
+          nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('purchase-settings'); rerender(); } }, `Clear filters (${nFilters})`) : null),
+        h('div', { class: 'tablewrap', 'data-scroll': 'purchase-settings' }, xtable({ id: 'purchase-settings', columns, allRows: items, rows, rerender })));
     }
 
     return h('div', null,

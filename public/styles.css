@@ -106,8 +106,8 @@ label.field > input, label.field > select { font-size: 14px; color: var(--ink); 
 @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } main { padding: 12px; } }
 
 /* ---------- tables ---------- */
-.tablewrap { overflow: auto; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
-.tablewrap.tall { max-height: calc(100vh - 230px); }
+.tablewrap { overflow-x: auto; overflow-y: hidden; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.tablewrap.tall { max-height: none; }
 table.t { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
 table.t th, table.t td { padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.t thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); font-weight: 600; font-size: 12px; color: var(--muted); text-align: left; vertical-align: bottom; border-bottom: 1px solid var(--line-strong); }
@@ -276,3 +276,208 @@ table.bom tr.bom-add td { background: var(--panel); }
 .tentry strong { display: block; font-weight: 600; }
 .tentry span { color: var(--muted); }
 .tentry.empty-side { color: var(--faint); }
+
+/* ---------- BOM tree ---------- */
+table.tree-table td { height: 38px; padding-top: 0; padding-bottom: 0; }
+table.tree-table tr.has-bom { cursor: pointer; }
+table.tree-table tr.d0 td { background: #f8fbff; border-top: 1px solid var(--line-strong); }
+table.tree-table tr.d0 td.sticky-col { background: #f8fbff; }
+table.tree-table td.tree-cell { padding: 0 12px 0 8px; min-width: 340px; }
+.tree { display: flex; align-items: stretch; height: 38px; }
+.guide { position: relative; flex: none; width: 24px; }
+.guide.pipe::before, .guide.tee::before { content: ""; position: absolute; left: 11px; top: 0; bottom: 0; border-left: 1.5px solid var(--accent-2); }
+.guide.elbow::before { content: ""; position: absolute; left: 11px; top: 0; height: 50%; border-left: 1.5px solid var(--accent-2); }
+.guide.tee::after, .guide.elbow::after { content: ""; position: absolute; left: 11px; right: 0; top: 50%; border-top: 1.5px solid var(--accent-2); }
+.tree .twisty, .tree .leaf { position: relative; flex: none; width: 24px; align-self: center; }
+.tree .twisty { height: 20px; margin-right: 4px; display: grid; place-items: center; border-radius: 5px; border: 1.5px solid var(--accent); background: var(--panel); color: var(--accent); font-weight: 700; font-size: 14px; line-height: 1; cursor: pointer; padding: 0; width: 20px; margin-left: 2px; }
+.tree .twisty.open { background: var(--accent); color: #fff; }
+.tree .twisty.open::after { content: ""; position: absolute; left: 8.5px; top: 19px; height: 11px; border-left: 1.5px solid var(--accent-2); }
+.tree .leaf { width: 14px; height: 14px; }
+.tree .leaf::before { content: ""; position: absolute; left: 0; top: 50%; width: 8px; border-top: 1.5px solid var(--accent-2); }
+.tree-name { align-self: center; white-space: nowrap; }
+.tree-name.top { font-weight: 700; }
+table.tree-table tr.d1 .tree-name { font-weight: 600; }
+
+/* ---------- Create BOM ---------- */
+.cb-grid { display: flex; flex-wrap: wrap; gap: 14px 16px; align-items: flex-end; }
+.cb-grid .field.wide select, .cb-grid .field.wide input { width: min(420px, 80vw); }
+.cb-grid input, .cb-grid select { background: var(--entry); border-color: #e6d58a; }
+.cb-yield { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; flex-basis: 100%; }
+.cb-yield input { width: 120px; }
+.cb-yield p { margin: 0 0 6px; max-width: 52ch; }
+table.cb-lines td.wide-cell select { width: min(360px, 70vw); border: 0; background: transparent; padding: 6px 8px; }
+table.cb-lines td.cell input { width: 110px; }
+label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.cb-summary { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; justify-content: space-between; }
+.cb-total { font-size: 26px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.cb-total span { font-size: 15px; font-weight: 500; }
+.cb-issues { margin: 0; padding-left: 18px; color: var(--warn); font-size: 13px; }
+table.tree-table td.used-in { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- three-row header: gray bar, blue section tabs, white page tabs ---------- */
+:root { --bar: #e9edf2; --bar-ink: #1d2a3b; --bar-line: #d5dce5; --tabrow: #ffffff; }
+.topbar { box-shadow: none; }
+.brandrow { background: var(--bar); color: var(--bar-ink); padding: 8px 20px; border-bottom: 1px solid var(--bar-line); flex-wrap: nowrap; }
+.brand { color: var(--accent-dark); }
+.brand span { color: var(--muted); }
+.who { color: var(--muted); }
+.role { background: var(--accent-soft); color: var(--accent-dark); }
+.who .btn { background: var(--panel); border-color: var(--line-strong); color: var(--ink); }
+.who .btn:hover { background: var(--panel); border-color: var(--accent); color: var(--accent-dark); }
+.who .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+.who .btn.ghost:hover { color: var(--accent-dark); }
+
+.grouprow { background: linear-gradient(90deg, var(--accent-dark), var(--accent)); padding: 8px 14px 0; }
+.groups { display: flex; gap: 4px; margin: 0; overflow-x: auto; scrollbar-width: none; align-items: flex-end; }
+.group { position: relative; border-radius: 9px 9px 0 0; padding: 9px 18px 10px; color: #dbe6fb; font-weight: 600; }
+.group:hover { background: rgba(255,255,255,.12); color: #fff; }
+/* The chosen section is a folder tab that opens into the row below it. */
+.group[aria-current="true"], .group[aria-current="true"]:hover { background: var(--tabrow); color: var(--accent-dark); }
+.group[aria-current="true"]::before, .group[aria-current="true"]::after {
+  content: ""; position: absolute; bottom: 0; width: 10px; height: 10px; pointer-events: none;
+}
+.group[aria-current="true"]::before { left: -10px; background: radial-gradient(circle at 0 0, transparent 9.5px, var(--tabrow) 10px); }
+.group[aria-current="true"]::after { right: -10px; background: radial-gradient(circle at 100% 0, transparent 9.5px, var(--tabrow) 10px); }
+.groups .group:first-child[aria-current="true"]::before { display: none; }
+.group:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
+.tabs { background: var(--tabrow); padding-top: 0; }
+/* Dashboard has no page tabs, so its tab opens straight onto the page. */
+.topbar.no-subtabs { --tabrow: var(--bg); }
+.topbar.no-subtabs .grouprow { box-shadow: none; }
+@media (max-width: 760px) {
+  .brandrow { padding: 8px 12px; }
+  .grouprow { padding: 6px 8px 0; }
+  .group { padding: 8px 12px 9px; }
+}
+table.t td.strong { font-weight: 650; }
+table.t thead th.num { text-align: right; }
+
+/* ---------- Sales Detail ---------- */
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dropzone { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border: 2px dashed var(--accent-2); border-radius: var(--radius); background: var(--accent-soft); cursor: pointer; }
+.dropzone:hover, .dropzone.over { background: #dce8fd; border-color: var(--accent); }
+.dropzone:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.dropzone.busy { opacity: .7; cursor: progress; }
+.dropzone > span:last-child { display: grid; gap: 2px; }
+.dz-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 22px; flex: none; }
+.import-panel .cards { margin-bottom: 12px; }
+.filters { align-items: flex-end; }
+table.sales-detail td.desc { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+table.sales-detail tr.grp-head td { background: #f1f6ff; font-weight: 700; border-top: 1px solid var(--line-strong); }
+table.sales-detail tr.grp-total td { font-weight: 650; background: var(--calc); }
+.confirm-names { margin: 4px 0 14px; }
+.confirm-names h3 { margin: 0 0 2px; font-size: 14px; }
+.confirm-names p { margin: 0 0 8px; }
+.confirm-names td.wide-cell input, .confirm-names td.wide-cell select { width: min(320px, 70vw); border: 0; background: transparent; padding: 6px 8px; }
+details.new-lines { margin-top: 4px; }
+details.new-lines summary { cursor: pointer; color: var(--accent-dark); font-weight: 600; margin-bottom: 8px; }
+
+/* ---------- one page scroll; tables scroll sideways only when too wide ---------- */
+/* Tables never scroll up and down on their own; the page does. A table wider
+   than the screen gets a sideways scrollbar. A table that fits is marked
+   .fits by app.js, so its header row stays pinned under the site header as
+   the page scrolls. */
+.tablewrap.fits { overflow: visible; }
+.tablewrap.fits table.t thead th { top: var(--topbar-h, 0px); }
+.tablewrap.fits table.t thead tr.group + tr th { top: calc(var(--topbar-h, 0px) + 22px); }
+.tablewrap.fits table.t thead tr.group + tr + tr th { top: calc(var(--topbar-h, 0px) + 52px); }
+.tablewrap.fits table.t thead tr:first-child th:first-child { border-top-left-radius: var(--radius); }
+.tablewrap.fits table.t thead tr:first-child th:last-child { border-top-right-radius: var(--radius); }
+
+/* ---------- scrollbars in the site's colors ---------- */
+:root { --scroll-thumb: #c5d3e8; --scroll-thumb-hover: var(--accent-2); }
+html { scrollbar-color: var(--scroll-thumb) var(--bg); scrollbar-width: thin; }
+.tablewrap, .tabs, .groups { scrollbar-color: var(--scroll-thumb) transparent; scrollbar-width: thin; }
+.tablewrap:hover, html:hover { scrollbar-color: var(--scroll-thumb-hover) transparent; }
+html:hover { scrollbar-color: var(--scroll-thumb-hover) var(--bg); }
+.tabs, .groups { scrollbar-width: none; }
+.tabs::-webkit-scrollbar, .groups::-webkit-scrollbar { display: none; }
+/* Browsers that only support the older scrollbar styling (Safari) */
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+}
+table.sales-report th, table.sales-report td { padding-left: 7px; padding-right: 7px; }
+table.t td.row-actions { white-space: nowrap; padding-top: 2px; padding-bottom: 2px; }
+.btn.icon-btn { padding: 2px 8px; border-color: transparent; background: none; color: var(--muted); font-size: 15px; line-height: 1.2; }
+.btn.icon-btn:hover { border-color: var(--line-strong); background: var(--panel); color: var(--accent-dark); }
+.btn.icon-btn.danger:hover { color: var(--bad); border-color: var(--bad); }
+/* Floating copy of a wide table's header, shown while the real one is scrolled off. */
+.float-head { position: fixed; z-index: 15; overflow: hidden; pointer-events: none; background: var(--panel);
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line); box-shadow: 0 3px 6px -3px rgba(15, 31, 53, .22); }
+.float-head table.t { table-layout: fixed; min-width: 0; }
+.float-head table.t thead th { position: static; }
+.float-head table.t thead th.sticky-col { position: relative; z-index: 2; }
+
+/* ---- Excel-style tables (xtable.js): filter buttons, totals row at the top ---- */
+table.t.xtable { width: 100%; }  /* columns may shrink to fit, wrapping long headings */
+table.t.xtable thead { position: sticky; top: 0; z-index: 2; }
+table.t.xtable thead th, table.t.xtable thead td { position: static; }
+.tablewrap table.t.xtable thead .sticky-col { position: sticky; left: 0; top: auto; z-index: 3; }
+.tablewrap.fits table.t.xtable thead { top: var(--topbar-h, 0px); }
+table.t.xtable thead th.xf-th { padding-right: 4px; }
+.xf-head { display: flex; align-items: flex-end; gap: 3px; }
+th.num .xf-head { justify-content: flex-end; }
+.xf-label { white-space: normal; line-height: 1.25; }
+.xf-arrow { color: var(--accent); }
+.xf-btn { flex: none; width: 17px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
+  color: var(--muted); font-size: 11px; line-height: 16px; cursor: pointer; }
+.xf-btn:hover { border-color: var(--accent); color: var(--accent); }
+.xf-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.float-head .xf-btn { pointer-events: auto; }
+table.t tfoot tr.xt-totals td { background: #eef4ff; font-weight: 650; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink);
+  border-top: 2px solid var(--accent-2); white-space: nowrap; box-shadow: 0 -6px 12px -8px rgba(15, 35, 75, .25); }
+table.t tfoot tr.xt-totals td.sticky-col { background: #eef4ff; color: var(--accent-dark); z-index: 3; }
+table.t tfoot tr.xt-totals-off td { padding: 0; background: transparent; border-top: 0; }
+.xt-off-inner { position: sticky; left: 0; display: inline-block; padding: 0 8px; }
+.xt-toggle { border: 1px solid var(--line-strong); background: var(--panel); color: var(--accent-dark); font: inherit; font-size: 12px; font-weight: 600;
+  padding: 2px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+tr.xt-totals-off .xt-toggle { border-radius: 0 0 8px 8px; border-top: 0; margin-bottom: 0; box-shadow: 0 2px 6px rgba(15, 35, 75, .12); background: #eef4ff; }
+.xt-toggle:hover { border-color: var(--accent); color: var(--accent); }
+td.xt-hide { text-align: right; }
+
+/* Wide tables: while the bottom of the table is below the screen, its totals
+   row and sideways scrollbar are docked to the bottom of the screen. */
+.float-foot { position: fixed; bottom: 0; z-index: 15; background: var(--panel); border: 1px solid var(--line); border-bottom: 0;
+  box-shadow: 0 -4px 14px rgba(15, 35, 75, .12); }
+.float-foot .ff-rows { overflow: hidden; }
+.float-foot table.t { table-layout: fixed; min-width: 0; }
+.float-foot table.t tfoot td { position: static; }
+.float-foot table.t tfoot td.sticky-col { position: relative; z-index: 2; }
+.float-foot table.t tfoot tr.xt-totals td { box-shadow: none; border-top: 0; }
+.float-foot .ff-scroll { position: relative; height: 14px; margin: 2px 6px 3px; border-radius: 999px; background: var(--bg); cursor: pointer; touch-action: none; }
+.float-foot .ff-thumb { position: absolute; top: 2px; bottom: 2px; left: 0; border-radius: 999px; background: var(--scroll-thumb); cursor: grab; }
+.float-foot .ff-scroll:hover .ff-thumb, .float-foot .ff-thumb.dragging { background: var(--scroll-thumb-hover); }
+.float-foot .ff-thumb.dragging { cursor: grabbing; }
+.xf-menu { position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--panel);
+  border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 12px 32px rgba(15, 35, 75, .18); font-size: 13px; }
+.xf-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+.xf-sort { text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; font: inherit; }
+.xf-sort:hover:not(:disabled) { background: var(--accent-soft); }
+.xf-sort.on { color: var(--accent); font-weight: 600; }
+.xf-sort:disabled { color: var(--faint); cursor: default; }
+.xf-search { margin: 6px 0 4px; }
+.xf-list { flex: 1 1 auto; min-height: 80px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px 0; }
+.xf-item { display: flex; align-items: center; gap: 8px; padding: 3px 8px; cursor: pointer; }
+.xf-item:hover { background: var(--accent-soft); }
+.xf-item.xf-all { font-weight: 600; border-bottom: 1px solid var(--line); margin-bottom: 2px; padding-bottom: 5px; }
+.xf-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xf-count { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.xf-empty { padding: 8px; color: var(--faint); }
+.xf-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
+/* ---- Sales Detail: one bar for loading reports and adding lines ---- */
+.sales-toolbar { padding: 0; }
+.sales-toolbar .tb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; }
+.sales-toolbar .tb-body { border-top: 1px solid var(--line); padding: 12px; }
+.sales-toolbar .tb-body > .tablewrap { box-shadow: none; }
+.sales-toolbar .tb-title { display: flex; align-items: baseline; gap: 12px; margin: 0 0 10px; font-size: 15px; }
+.sales-toolbar .btn.on { background: var(--accent-soft); border-color: var(--accent-2); color: var(--accent-dark); }
+.dropzone.compact { gap: 10px; padding: 5px 14px 5px 6px; border-width: 1.5px; border-radius: 8px; }
+.dropzone.compact .dz-icon { width: 28px; height: 28px; border-radius: 6px; font-size: 16px; }
+.dropzone.compact > span:last-child { gap: 0; line-height: 1.2; font-size: 13px; }
+.dropzone.compact .small { font-size: 11.5px; }
+.sales-toolbar .grow, .tb-title .grow { flex: 1; }

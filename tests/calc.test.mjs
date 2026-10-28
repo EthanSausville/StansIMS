@@ -111,3 +111,36 @@ test('dashboard: sales and margin by month', () => {
   for (const s of data.sales) if (C.yearOf(s.date) === 2026) margin[C.monthOf(s.date) - 1] += X.sales[String(s.row)][3] ?? 0;
   margin.forEach((v, i) => close(d.byMonth[i].margin, v, `margin ${C.MONTHS[i]}`));
 });
+
+test('multi-level BOMs: a BOM inside a BOM inside a BOM', () => {
+  // Converted form gives the same costs as the original recipe / finished-good tables.
+  const { boms, lines } = C.bomData(data);
+  const converted = { ...data, boms, bom_lines: lines };
+  const a = C.costModel(data), b = C.costModel(converted);
+  for (const it of data.items) close(b.cost(it.item_no, 2026), a.cost(it.item_no, 2026), `converted item ${it.item_no}`);
+
+  // Add a "Spice Mix" sub-recipe (makes 10 c.) and use 2 c. of it per batch of Original.
+  const mix = { item_no: 30001, name: 'Spice Mix', type: 'Recipe', unit: 'c', sort: 999 };
+  const nested = { ...converted, items: [...data.items, mix],
+    boms: [...boms, { item_no: 30001, yield_qty: 10, yield_unit: 'c' }],
+    bom_lines: [...lines,
+      { id: 'm1', parent_item_no: 30001, item_no: 10003, qty: 4, uses_batch_minutes: false, sort: 1 },   // 4 c. pepper
+      { id: 'm2', parent_item_no: 30001, item_no: 10006, qty: 6, uses_batch_minutes: false, sort: 2 },   // 6 c. brown sugar
+      { id: 'm3', parent_item_no: 10021, item_no: 30001, qty: 2, uses_batch_minutes: false, sort: 99 }] };
+  const cm = C.costModel(nested);
+  const mixCost = (4 * 1.64 + 6 * 0.5) / 10;
+  close(cm.cost(30001, 2026), mixCost, 'spice mix per cup');
+  close(cm.cost(10021, 2026), a.cost(10021, 2026) + (2 * mixCost) / 3220, 'Original recipe per oz with the mix');
+  close(cm.cost(20001, 2026), a.cost(20001, 2026) + 168 * (2 * mixCost) / 3220, 'Original 7 oz case with the mix');
+
+  // Usage follows all three levels: pepper per case gains 168/3220 x 2 x 4/10 cups.
+  const before = C.perCaseUsage(converted).get(20001).get(10003);
+  const after = C.perCaseUsage(nested).get(20001).get(10003);
+  close(after - before, (168 / 3220) * 2 * (4 / 10), 'extra pepper per case');
+
+  // Loops are refused: the mix can't contain Original (Original already contains the mix).
+  assert.equal(C.wouldLoop(nested, 30001, 10021), true);
+  assert.equal(C.wouldLoop(nested, 30001, 20001), true);  // the 7 oz case contains Original, which contains the mix
+  assert.equal(C.wouldLoop(nested, 10021, 30001), false);
+  assert.equal(C.wouldLoop(nested, 30001, 30001), true);
+});

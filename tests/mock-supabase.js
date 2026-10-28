@@ -3,10 +3,10 @@
 // It supports the small part of the API the app uses.
 const KEYS = {
   items: ['item_no'], standard_costs: ['item_no', 'year'], standard_prices: ['item_no', 'year'], recipes: ['item_no'],
-  recipe_lines: ['id'], fg_lines: ['id'], settings: ['id'], year_settings: ['year'], purchase_settings: ['item_no'],
-  production: ['date', 'item_no'], goods_receipts: ['date', 'item_no'], cycle_counts: ['date', 'item_no'], sales: ['id'], profiles: ['user_id'],
+  recipe_lines: ['id'], fg_lines: ['id'], boms: ['item_no'], bom_lines: ['id'], settings: ['id'], year_settings: ['year'], purchase_settings: ['item_no'],
+  production: ['date', 'item_no'], goods_receipts: ['date', 'item_no'], cycle_counts: ['date', 'item_no'], sales: ['id'], profiles: ['user_id'], sales_imports: ['id'], qb_name_map: ['kind', 'qb_name'],
 };
-const ADMIN_ONLY = new Set(['items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines', 'settings', 'year_settings', 'purchase_settings']);
+const ADMIN_ONLY = new Set(['boms', 'bom_lines', 'items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines', 'settings', 'year_settings', 'purchase_settings']);
 
 export function createClient() {
   const db = window.__MOCK_DB__;
@@ -45,6 +45,15 @@ export function createClient() {
         for (const o of [...this.orders].reverse()) list = [...list].sort((a, b) => (a[o] < b[o] ? -1 : a[o] > b[o] ? 1 : 0));
         if (this.rng) list = list.slice(this.rng[0], this.rng[1] + 1);
         return out(list);
+      }
+      if ((this.op === 'insert' || this.op === 'upsert') && Array.isArray(this.payload)) {
+        const made = this.payload.map((p) => {
+          const row = { ...p }; if (keys[0] === 'id' && row.id === undefined) row.id = nextId++;
+          const i = this.op === 'upsert' ? rows.findIndex((r) => keys.every((k) => String(r[k]) === String(row[k]))) : -1;
+          if (i >= 0) { rows[i] = { ...rows[i], ...row }; return rows[i]; }
+          rows.push(row); return row;
+        });
+        return out(made);
       }
       if (this.op === 'insert' || this.op === 'upsert') {
         const row = { ...this.payload };

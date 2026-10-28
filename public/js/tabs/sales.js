@@ -1,8 +1,10 @@
-import { h, pageHead, money, qty, pct, toast, niceError, confirmDialog, todayIso, dateLabel, yearSelect } from '../ui.js';
+import { h, money, qty, toast, niceError, confirmDialog, todayIso } from '../ui.js';
 import { state, derived, insertRow, updateRow, deleteRow } from '../store.js';
 import { MONTHS, yearOf, evalEntry } from '../calc.js';
+import { loadButton, pendingPreview, historyTable, importCount } from './qbpanel.js';
+import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, setFilter, showValue } from '../xtable.js';
 
-const filt = { year: new Date().getFullYear(), month: 0, customer: '', product: '', q: '' };
+let open = null; // 'add' or 'history': what's open under the bar
 
 // The fields of one sale. Product picks a finished good (or "Other" for fees,
 // credits and promotions); price fills in from the standard price.
@@ -63,26 +65,64 @@ function editDialog(sale) {
   document.body.append(dlg); dlg.showModal();
 }
 
+const TID = 'sales-detail';
+const mdy = (d) => `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}`;
+const sum = (rows, k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+const blankOr = (v, f) => (v === null || v === undefined ? '' : f(v));
+// The workbook's SalesReport columns, in order. value = what sorts, text = what
+// the filter list shows, total = the totals row (filtered rows only).
+const COLUMNS = [
+  { key: 'date', label: 'Date', sticky: true, value: (r) => r.date, text: (r) => mdy(r.date),
+    cell: (r) => h('td', { class: 'sticky-col', title: r.import_id ? `Loaded from QuickBooks: ${r.qb_product || ''}${r.description ? ' · ' + r.description : ''}` : 'Entered by hand' }, mdy(r.date)) },
+  { key: 'invoice', label: 'Inv Num', value: (r) => r.invoice || '', cell: (r) => h('td', null, r.invoice || '') },
+  { key: 'quantity', label: 'Quantity', num: true, value: (r) => r.quantity, text: (r) => blankOr(r.quantity, qty),
+    cell: (r) => h('td', { class: 'num' }, blankOr(r.quantity, qty)), total: (rows) => qty(sum(rows, 'quantity')) },
+  { key: 'price', label: 'Sales price', num: true, value: (r) => r.price, text: (r) => blankOr(r.price, money),
+    cell: (r) => h('td', { class: 'num' }, blankOr(r.price, money)) },
+  { key: 'amount', label: 'Amount', num: true, value: (r) => Number(r.amount), text: (r) => money(r.amount),
+    cell: (r) => h('td', { class: 'num' + (r.amount < 0 ? ' neg' : '') }, money(r.amount)), total: (rows) => money(sum(rows, 'amount')) },
+  { key: 'customer', label: 'Customer', value: (r) => r.customer || '', cell: (r) => h('td', null, r.customer || '') },
+  { key: 'product', label: 'Product', value: (r) => r.product || '', cell: (r) => h('td', null, r.product || '') },
+  { key: 'month', label: 'Month', value: (r) => r.month, text: (r) => MONTHS[r.month - 1], cell: (r) => h('td', { class: 'calc' }, MONTHS[r.month - 1]) },
+  { key: 'year', label: 'Year', num: true, value: (r) => r.year, cell: (r) => h('td', { class: 'num calc' }, r.year) },
+  { key: 'oz', label: 'oz', num: true, value: (r) => r.oz || 0, text: (r) => (r.oz ? qty(r.oz, 0) : ''),
+    cell: (r) => h('td', { class: 'num calc' }, r.oz ? qty(r.oz, 0) : ''), total: (rows) => qty(sum(rows, 'oz'), 0) },
+  { key: 'stdPrice', label: 'Std Price', num: true, value: (r) => r.stdPrice || 0, text: (r) => (r.stdPrice ? money(r.stdPrice) : ''),
+    cell: (r) => h('td', { class: 'num calc' }, r.stdPrice ? money(r.stdPrice) : ''), total: (rows) => money(sum(rows, 'stdPrice')) },
+  { key: 'stdCost', label: 'Std Cost', num: true, value: (r) => r.stdCost || 0, text: (r) => (r.stdCost ? money(r.stdCost) : ''),
+    cell: (r) => h('td', { class: 'num calc' }, r.stdCost ? money(r.stdCost) : ''), total: (rows) => money(sum(rows, 'stdCost')) },
+  { key: 'stdMargin', label: 'Std Margin', num: true, value: (r) => (r.stdPrice || r.stdCost ? r.stdMargin : null), text: (r) => (r.stdPrice || r.stdCost ? money(r.stdMargin) : ''),
+    cell: (r) => h('td', { class: 'num calc' }, r.stdPrice || r.stdCost ? money(r.stdMargin) : ''), total: (rows) => money(sum(rows, 'stdMargin')) },
+];
+const DEFAULT_SORT = { key: 'date', dir: 'desc' };
+let startedYear = false;
+
+const actions = (r) => h('td', { class: 'row-actions' },
+  h('button', { class: 'btn icon-btn', title: 'Edit line', 'aria-label': `Edit ${r.product} line for ${r.customer || 'no customer'}`, onclick: () => editDialog(r) }, '✎'),
+  h('button', { class: 'btn icon-btn danger', title: 'Delete line', 'aria-label': `Delete ${r.product} line for ${r.customer || 'no customer'}`, onclick: async () => {
+    if (await confirmDialog(`Delete this ${r.product} line for ${r.customer || 'no customer'} (${money(r.amount)})?`)) {
+      try { await deleteRow('sales', 'id', r.id); toast('Line deleted.'); } catch (err) { toast(niceError(err), 'bad'); }
+    } } }, '×'));
+
 export default {
   id: 'sales',
-  label: 'Sales',
+  label: 'Sales Detail',
   render({ rerender }) {
     const rowsAll = derived.sales();
-    const years = [...new Set([...derived.years(), ...rowsAll.map((r) => r.year)])].sort((a, b) => a - b);
-    const customers = [...new Set(rowsAll.map((r) => r.customer).filter(Boolean))].sort();
-    const products = [...new Set(rowsAll.map((r) => r.product).filter(Boolean))].sort();
-    const q = filt.q.toLowerCase();
-    const rows = rowsAll.filter((r) => r.year === filt.year && (!filt.month || r.month === filt.month)
-      && (!filt.customer || r.customer === filt.customer) && (!filt.product || r.product === filt.product)
-      && (!q || `${r.invoice} ${r.customer} ${r.product}`.toLowerCase().includes(q)))
-      .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
-    const sum = (k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+    // Open on the latest year, the way the page always has; the Year filter clears it.
+    if (!startedYear && rowsAll.length) {
+      startedYear = true;
+      setFilter(TID, 'year', [String(Math.max(...rowsAll.map((r) => r.year)))]);
+    }
+    const rows = filteredRows({ id: TID, columns: COLUMNS, rows: rowsAll, defaultSort: DEFAULT_SORT });
+    const showTotals = prefTotals(TID);
+    const nFilters = activeFilterCount(TID);
 
     const add = saleFields();
     const addBtn = h('button', { class: 'btn primary', type: 'submit' }, 'Add sale');
     const addForm = h('form', { class: 'inline-form', onsubmit: async (e) => {
         e.preventDefault();
-        try { addBtn.disabled = true; const row = add.read(); await insertRow('sales', row); toast('Sale added.'); filt.year = yearOf(row.date); }
+        try { addBtn.disabled = true; const row = add.read(); await insertRow('sales', row); toast('Sale added.'); showValue(TID, 'year', String(yearOf(row.date))); }
         catch (err) { toast(niceError(err), 'bad'); } finally { addBtn.disabled = false; }
       } },
       h('label', { class: 'field' }, 'Date', add.f.date), h('label', { class: 'field' }, 'Invoice #', add.f.invoice),
@@ -90,35 +130,21 @@ export default {
       h('label', { class: 'field' }, 'Quantity', add.f.quantity), h('label', { class: 'field' }, 'Price', add.f.price),
       h('label', { class: 'field' }, 'Amount', add.f.amount), addBtn);
 
-    const select = (label, value, options, onChange) => h('label', { class: 'field' }, label,
-      h('select', { onchange: (e) => onChange(e.target.value) }, options.map(([v, l]) => h('option', { value: v, selected: String(v) === String(value) }, l))));
-
+    const flip = (which) => () => { open = open === which ? null : which; rerender(); };
+    const preview = pendingPreview(rerender);
+    const body = preview || (open === 'add' ? addForm : open === 'history' ? historyTable() : null);
+    // One bar: load a QuickBooks report, add a line by hand, see past loads.
     return h('div', null,
-      pageHead('Sales', 'Invoices by line. Standard price, cost and margin come from the Standard Price and Standard Cost tabs for the sale’s year.',
-        yearSelect(years, filt.year, (y) => { filt.year = y; rerender(); }),
-        select('Month', filt.month, [[0, 'All'], ...MONTHS.map((m, i) => [i + 1, m])], (v) => { filt.month = Number(v); rerender(); }),
-        select('Customer', filt.customer, [['', 'All'], ...customers.map((c) => [c, c])], (v) => { filt.customer = v; rerender(); }),
-        select('Product', filt.product, [['', 'All'], ...products.map((c) => [c, c])], (v) => { filt.product = v; rerender(); }),
-        h('label', { class: 'field' }, 'Search', h('input', { type: 'text', value: filt.q, 'data-k': 'sales-search', placeholder: 'Invoice, customer…', oninput: (e) => { filt.q = e.target.value; rerender(); } }))),
-      h('div', { class: 'panel' }, h('h2', null, 'Add a sale'), addForm),
-      h('div', { class: 'tablewrap tall', 'data-scroll': 'sales', style: { marginTop: '16px' } }, h('table', { class: 't' },
-        h('thead', null, h('tr', null, ['Date', 'Inv #', 'Customer', 'Product'].map((x, i) => h('th', { class: i === 0 ? 'sticky-col' : null }, x)),
-          ['Qty', 'Price', 'Amount', 'Oz', 'Std price', 'Std cost', 'Std margin', 'Margin %'].map((x) => h('th', { class: 'num' }, x)), h('th'))),
-        h('tbody', null, rows.length ? rows.map((r) => h('tr', null,
-          h('td', { class: 'sticky-col' }, dateLabel(r.date)), h('td', null, r.invoice || ''), h('td', null, r.customer || ''), h('td', null, r.product || ''),
-          h('td', { class: 'num' }, qty(r.quantity)), h('td', { class: 'num' }, money(r.price)), h('td', { class: 'num' + (r.amount < 0 ? ' neg' : '') }, money(r.amount)),
-          h('td', { class: 'num calc' }, r.oz ? qty(r.oz, 0) : ''), h('td', { class: 'num calc' }, r.stdPrice ? money(r.stdPrice) : ''),
-          h('td', { class: 'num calc' }, r.stdCost ? money(r.stdCost) : ''), h('td', { class: 'num calc' }, r.stdPrice ? money(r.stdMargin) : ''),
-          h('td', { class: 'num calc' }, r.stdPrice ? pct(r.stdMargin / r.stdPrice) : ''),
-          h('td', null, h('button', { class: 'btn ghost', onclick: () => editDialog(r) }, 'Edit'),
-            h('button', { class: 'btn ghost danger', onclick: async () => {
-              if (await confirmDialog(`Delete this ${r.product} line for ${r.customer || 'no customer'} (${money(r.amount)})?`)) {
-                try { await deleteRow('sales', 'id', r.id); toast('Sale deleted.'); } catch (err) { toast(niceError(err), 'bad'); }
-              } } }, 'Delete'))))
-          : h('tr', null, h('td', { colspan: 13, class: 'empty' }, 'No sales match these filters.'))),
-        h('tfoot', null, h('tr', null, h('td', { class: 'sticky-col' }, `${rows.length} lines`), h('td'), h('td'), h('td'),
-          h('td', { class: 'num' }, qty(sum('quantity'))), h('td'), h('td', { class: 'num' }, money(sum('amount'))), h('td', { class: 'num' }, qty(sum('oz'), 0)),
-          h('td', { class: 'num' }, money(sum('stdPrice'))), h('td', { class: 'num' }, money(sum('stdCost'))), h('td', { class: 'num' }, money(sum('stdMargin'))),
-          h('td', { class: 'num' }, sum('stdPrice') ? pct(sum('stdMargin') / sum('stdPrice')) : ''), h('td'))))));
+      h('section', { class: 'panel sales-toolbar' },
+        h('div', { class: 'tb-row' },
+          loadButton(rerender),
+          h('button', { class: 'btn' + (open === 'add' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'add'), onclick: flip('add') }, '+ Add a line by hand'),
+          importCount() ? h('button', { class: 'btn ghost' + (open === 'history' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'history'), onclick: flip('history') }, `Loaded reports (${importCount()})`) : null,
+          h('span', { class: 'grow' }),
+          nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(TID); rerender(); } }, `Clear filters (${nFilters})`) : null),
+        body ? h('div', { class: 'tb-body' }, body) : null),
+      h('div', { class: 'tablewrap tall', 'data-scroll': 'sales', style: { marginTop: '12px' } },
+        xtable({ id: TID, columns: COLUMNS, allRows: rowsAll, rows, rerender, defaultSort: DEFAULT_SORT, showTotals, onToggleTotals: (on) => { setPrefTotals(TID, on); rerender(); }, className: 'sales-report',
+          rowClass: (r) => (r.import_id ? 'from-qb' : null), extraCells: actions })));
   },
 };

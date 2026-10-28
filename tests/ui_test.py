@@ -15,10 +15,17 @@ inputs = json.load(open(ROOT / 'tests/fixtures/workbook.json'))['inputs']
 def mock_db():
     db = {k: v for k, v in inputs.items() if isinstance(v, list)}
     db['production'] = [dict(date=r['date'], item_no=r['item_no'], cases=r['cases']) for r in inputs['production']]
-    for t in ('recipe_lines', 'fg_lines'):
-        db[t] = [dict(r, id=i + 1) for i, r in enumerate(db[t])]
+    for t in ('recipes', 'recipe_lines', 'fg_lines'): db.pop(t, None)
+    db['boms'] = [dict(item_no=r['item_no'], yield_qty=r['batch_size'], yield_unit='oz') for r in inputs['recipes']]
+    db['boms'] += [dict(item_no=f, yield_qty=1, yield_unit='case') for f in dict.fromkeys(l['fg_item_no'] for l in inputs['fg_lines'])]
+    db['bom_lines'] = [dict(parent_item_no=l['recipe_item_no'], item_no=l['item_no'], qty=l['qty'], uses_batch_minutes=l['uses_batch_minutes'], sort=l['sort']) for l in inputs['recipe_lines']]
+    db['bom_lines'] += [dict(parent_item_no=l['fg_item_no'], item_no=l['item_no'], qty=l['qty'], uses_batch_minutes=False, sort=l['sort']) for l in inputs['fg_lines']]
+    db['bom_lines'] = [dict(l, id=i + 1) for i, l in enumerate(db['bom_lines'])]
     db['sales'] = [dict({k: v for k, v in r.items() if k != 'row'}, id=i + 1) for i, r in enumerate(inputs['sales'])]
     db['settings'] = [dict(inputs['settings'], id=1)]
+    db['sales_imports'] = []
+    nm = ROOT / 'tests/fixtures/qb-name-map.json'
+    db['qb_name_map'] = json.load(open(nm)) if nm.exists() else []
     db['profiles'] = [dict(user_id='u1', email='owner@stans.test', role='admin', created_at='2026-10-27T12:00:00Z'),
                       dict(user_id='u2', email='staff@stans.test', role='staff', created_at='2026-10-27T12:00:00Z')]
     return db
@@ -52,8 +59,9 @@ def shot(page, name):
 
 GROUPS = {
     'Dashboard': ['Dashboard'],
-    'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Purchase Demand', 'Sales'],
-    'Standard Cost': ['Standard Cost', 'Bill of Materials', 'Standard Price', 'Labor'],
+    'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Purchase Demand'],
+    'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
+    'Standard Cost': ['Standard Cost', 'BOMs', 'Create BOM', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
 ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
@@ -88,7 +96,7 @@ with sync_playwright() as p:
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'dashboard loads after sign-in')
     groups = page.locator('.groups .group').all_inner_texts()
     print('   groups:', ' | '.join(groups))
-    check(groups == ['Dashboard', 'Inventory', 'Standard Cost', 'Accounting'], 'four groups across the top')
+    check(groups == ['Dashboard', 'Inventory', 'Sales', 'Standard Cost', 'Accounting'], 'five sections across the top')
     check(page.locator('.tabs').is_hidden(), 'Dashboard has no second row of tabs')
     page.locator('.groups .group', has_text='Inventory').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
@@ -112,6 +120,43 @@ with sync_playwright() as p:
         bad = page.locator('.note.bad', has_text='Something went wrong').count()
         check(bad == 0, f'tab renders: {label}')
         shot(page, f'{i + 1:02d}-{re.sub(r"[^a-z]+", "-", label.lower())}')
+    # Scrolling: no area inside the page scrolls up and down on its own.
+    js_vert = """[...document.querySelectorAll('main *')].filter(e => { const s = getComputedStyle(e); return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1; }).length"""
+    for label in ALL_TABS:
+        tab(page, label)
+        n = page.evaluate(js_vert)
+        if n: check(False, f'{label}: {n} area(s) scroll up and down inside the page')
+    check(True, 'only the page scrolls up and down, on every tab')
+    tab(page, 'Sales Detail')
+    wraps = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.classList.contains('fits'))")
+    check(wraps and all(wraps), f'the Sales Detail table fits the screen, so it has no sideways scrollbar ({wraps})')
+    page.evaluate('window.scrollTo(0, 1500)'); page.wait_for_timeout(150)
+    top = page.evaluate("Math.round(document.querySelector('main .tablewrap thead th').getBoundingClientRect().top)")
+    bar = page.evaluate("Math.round(document.querySelector('.topbar').getBoundingClientRect().height)")
+    check(abs(top - bar) <= 1, f'Sales Detail column headings stay pinned under the site header ({top} vs {bar})')
+    shot(page, '32-sales-scrolled')
+    page.evaluate('window.scrollTo(0, 0)')
+    tab(page, 'Production')
+    side = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.scrollWidth > w.clientWidth)")
+    tab(page, 'Daily Inventory')
+    page.evaluate('window.scrollTo(0, 700)'); page.wait_for_timeout(200)
+    fh = page.evaluate("(() => { const f = document.querySelector('.float-head'); if (!f) return null; const r = f.getBoundingClientRect(); return [Math.round(r.top), f.textContent.includes('Cheese')]; })()")
+    check(fh is not None and abs(fh[0] - bar) <= 1 and fh[1], f'wide tables keep their column names under the site header too ({fh})')
+    page.evaluate("document.querySelector('main .tablewrap').scrollLeft = 300"); page.wait_for_timeout(150)
+    off = page.evaluate("(() => { const w = document.querySelector('main .tablewrap'); const real = w.querySelector('thead tr:nth-child(2) th:nth-child(5)').getBoundingClientRect().left; const copy = document.querySelector('.float-head thead tr:nth-child(2) th:nth-child(5)').getBoundingClientRect().left; return Math.round(real - copy); })()")
+    check(abs(off) <= 1, f'the floating header lines up with the columns after scrolling sideways (off by {off}px)')
+    page.evaluate('window.scrollTo(0, 0)'); page.wait_for_timeout(150)
+    dock = page.evaluate("(() => { const f = document.querySelector('.float-foot .ff-scroll'); if (!f) return null; return Math.round(innerHeight - f.getBoundingClientRect().bottom); })()")
+    check(dock is not None and 0 <= dock <= 4, f'wide tables have their sideways scrollbar docked at the bottom of the screen ({dock})')
+    page.evaluate("document.querySelector('main .tablewrap').scrollLeft = 0"); page.wait_for_timeout(150)
+    t = page.locator('.float-foot .ff-thumb').bounding_box()
+    page.mouse.move(t['x'] + 10, t['y'] + 5); page.mouse.down(); page.mouse.move(t['x'] + 210, t['y'] + 5, steps=5); page.mouse.up(); page.wait_for_timeout(150)
+    sl = page.evaluate("document.querySelector('main .tablewrap').scrollLeft")
+    t2 = page.locator('.float-foot .ff-thumb').bounding_box()
+    check(sl > 200 and abs(t2['x'] - t['x'] - 200) <= 2, f'dragging the docked scrollbar scrolls the table sideways (table at {sl}px, thumb moved {t2["x"] - t["x"]:.0f}px)')
+    shot(page, '36-wide-table-docked-scrollbar')
+    page.evaluate('window.scrollTo(0, 0)')
+
     check(not errors, 'no browser errors while visiting tabs' + (f': {errors[:3]}' if errors else ''))
 
     # ---- dashboard numbers (2026 through Dec) ----
@@ -164,7 +209,8 @@ with sync_playwright() as p:
     check(abs((a - b) - 3000) < 0.01, f'cheese inventory on 7/20 moves by the 3,000 lb delivery ({a} vs {b})')
 
     # ---- sales ----
-    tab(page, 'Sales')
+    tab(page, 'Sales Detail')
+    page.get_by_role('button', name='+ Add a line by hand').click(); page.wait_for_timeout(80)
     n0 = page.evaluate('window.__MOCK_DB__.sales.length')
     page.fill('form.inline-form input[type=date]', '2026-10-26')
     page.fill('form.inline-form input[placeholder="e.g. 14664"]', 'T-1')
@@ -181,9 +227,48 @@ with sync_playwright() as p:
     check(n1 == n0 + 1, 'adding a sale saves it')
     check(page.locator('tbody td', has_text='Test Market').count() == 1, 'new sale appears in the list')
     shot(page, '22-sales-added')
-    page.locator('tr', has_text='Test Market').get_by_role('button', name='Delete').click()
+    page.locator('tr', has_text='Test Market').get_by_role('button', name='Delete Original gallon line for Test Market').click()
     page.get_by_role('button', name='Delete', exact=True).last.click(); page.wait_for_timeout(300)
     check(page.evaluate('window.__MOCK_DB__.sales.length') == n0, 'deleting a sale removes it')
+
+    # ---- Sales Detail filters and sorts like an Excel table; totals at the top ----
+    money = lambda v: '-$' + '{:,.2f}'.format(-v) if v < 0 else '${:,.2f}'.format(v)
+    latest = max(int(s['date'][:4]) for s in inputs['sales'])
+    yr = [s for s in inputs['sales'] if s['date'].startswith(str(latest))]
+    page.evaluate('window.scrollTo(0, 400)'); page.wait_for_timeout(150)
+    gap = page.evaluate("Math.round(innerHeight - document.querySelector('main table.xtable tfoot tr.xt-totals td:nth-child(3)').getBoundingClientRect().bottom)")
+    check(abs(gap) <= 1, f'the totals row is pinned to the bottom of the screen ({gap}px from the bottom)')
+    shot(page, '35-sales-totals-bottom')
+    page.evaluate('window.scrollTo(0, 0)')
+    tot = lambda: page.locator('tfoot tr.xt-totals td').all_inner_texts()
+    t = tot()
+    check(t[0] == (f'{len(yr):,} lines' if len(yr) == len(inputs['sales']) else f'{len(yr):,} of {len(inputs["sales"]):,}') and t[4] == money(sum(s['amount'] or 0 for s in yr)),
+          f'it opens on {latest} and the totals add up that year ({t[0]}, {t[4]})')
+    cust = sorted({s['customer'] for s in yr if s['customer']})[0]
+    page.get_by_role('button', name='Filter and sort Customer').click(); page.wait_for_timeout(80)
+    menu = page.locator('.xf-menu')
+    menu.get_by_text('(Select all)').click()
+    menu.locator('label.xf-item', has=page.locator('.xf-val', has_text=re.compile('^' + re.escape(cust) + '$'))).locator('input').check()
+    shot(page, '33-sales-filter-menu')
+    menu.get_by_role('button', name='OK').click(); page.wait_for_timeout(150)
+    shown = set(page.locator('main table.xtable tbody td:nth-child(6)').all_inner_texts())
+    mine = [s for s in yr if s['customer'] == cust]
+    t = tot()
+    check(shown == {cust} and t[0].startswith(f'{len(mine):,} of') and t[4] == money(sum(s['amount'] or 0 for s in mine)),
+          f'filtering Customer to {cust} shows only those lines, and the totals follow ({t[0]}, {t[4]})')
+    check(page.get_by_role('button', name='Filter and sort Customer (filtered)').count() == 1, 'the filtered column’s button is highlighted')
+    page.get_by_role('button', name='Filter and sort Amount').click(); page.wait_for_timeout(80)
+    page.locator('.xf-menu').get_by_role('button', name='Sort largest to smallest').click(); page.wait_for_timeout(150)
+    amts = [float(x.replace('$', '').replace(',', '')) for x in page.locator('main table.xtable tbody td:nth-child(5)').all_inner_texts()]
+    check(amts == sorted(amts, reverse=True), 'Amount sorts largest to smallest')
+    shot(page, '34-sales-filtered')
+    page.get_by_role('button', name=re.compile('^Clear filters')).click(); page.wait_for_timeout(150)
+    check(tot()[0] == f'{len(inputs["sales"]):,} lines', 'Clear filters shows every line')
+    page.locator('tr.xt-totals').get_by_role('button', name='Hide').click(); page.wait_for_timeout(120)
+    check(page.locator('tr.xt-totals').count() == 0 and page.get_by_role('button', name='Show totals').count() == 1, 'the totals row can be hidden, leaving a Show totals tab')
+    check(page.evaluate("localStorage.getItem('xt-totals:sales-detail')") == 'off', 'turning totals off is remembered')
+    page.get_by_role('button', name='Show totals').click(); page.wait_for_timeout(120)
+    check(page.locator('tr.xt-totals').count() == 1, 'and shown again')
 
     # ---- admin edits a standard cost and recipe cost follows ----
     tab(page, 'Standard Cost')
@@ -196,31 +281,127 @@ with sync_playwright() as p:
     check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).inner_text() == rec, 'restoring cheese cost restores recipe cost')
     check(not errors, 'no browser errors during edits' + (f': {errors[:3]}' if errors else ''))
 
-    # ---- bill of materials ----
-    tab(page, 'Bill of Materials')
-    def money_val(t): return float(t.replace('$', '').replace(',', '') or 0)
-    for i in range(page.locator('table.bom-summary tbody tr').count()):
-        row = page.locator('table.bom-summary tbody tr').nth(i)
-        name = row.locator('td').first.inner_text(); want = money_val(row.locator('td').nth(3).inner_text())
-        row.click(); page.wait_for_timeout(120)
-        got = money_val(page.locator('table.bom tfoot td').nth(8).inner_text())
-        check(abs(got - want) < 0.005, f'expanded BOM adds up to the product cost: {name} ({got} vs {want})')
-    page.locator('table.bom-summary tbody tr', has_text='Original 7 oz').click(); page.wait_for_timeout(120)
-    levels = page.locator('table.bom .lvl-badge').all_inner_texts()
-    check(levels.count('0') == 1 and levels.count('1') >= 4 and levels.count('2') >= 8, f'BOM shows levels 0, 1 and 2 ({levels.count("1")} parts, {levels.count("2")} ingredients)')
-    before = page.locator('table.bom tfoot td').nth(8).inner_text()
-    cheese = page.locator('table.bom tr.bom-l2', has_text='Cheese').locator('input')
-    orig = cheese.input_value()
-    cheese.click(); cheese.fill(str(float(orig) + 10)); cheese.press('Tab'); page.wait_for_timeout(300)
-    after = page.locator('table.bom tfoot td').nth(8).inner_text()
-    check(before != after, f'changing cheese per batch updates the case cost ({before} -> {after})')
-    cheese = page.locator('table.bom tr.bom-l2', has_text='Cheese').locator('input')
-    cheese.click(); cheese.fill(orig); cheese.press('Tab'); page.wait_for_timeout(300)
-    check(page.locator('table.bom tfoot td').nth(8).inner_text() == before, 'restoring cheese restores the case cost')
-    page.locator('table.bom tr.bom-recipe button.twisty').click(); page.wait_for_timeout(100)
-    check(page.locator('table.bom tr.bom-l2').count() == 0, 'recipe ingredients collapse')
-    page.locator('table.bom tr.bom-recipe button.twisty').click(); page.wait_for_timeout(100)
-    shot(page, '26-bom')
+    # ---- sales summaries ----
+    tab(page, 'By Customer')
+    total = page.locator('table.t tfoot td').nth(-3).inner_text()
+    want = '${:,.0f}'.format(sum(s['amount'] or 0 for s in inputs['sales'] if s['date'].startswith('2026')))
+    check(total == want, f'By Customer total matches 2026 sales ({total} vs {want})')
+    custs = {s['customer'] for s in inputs['sales'] if s['date'].startswith('2026')}
+    check(page.locator('table.t tbody tr').count() == len(custs), f'one row per customer ({len(custs)})')
+    page.get_by_role('button', name='Cases').click(); page.wait_for_timeout(100)
+    cases = page.locator('table.t tfoot td').nth(-3).inner_text()
+    want_cases = '{:,.0f}'.format(sum(s['quantity'] or 0 for s in inputs['sales'] if s['date'].startswith('2026') and s['item_no']))
+    check(cases == want_cases, f'cases total ({cases} vs {want_cases})')
+    shot(page, '29-sales-by-customer')
+    tab(page, 'By Product')
+    prods = {s['product'] for s in inputs['sales'] if s['date'].startswith('2026')}
+    check(page.locator('table.t tbody tr').count() == len(prods), f'one row per product ({len(prods)})')
+
+    # ---- Sales Detail: the workbook is the baseline; load the QuickBooks report onto it ----
+    QB = ROOT / 'tests/fixtures/qb-sales-detail.xlsx'
+    if QB.exists():
+        tab(page, 'Sales Detail')
+        base = page.evaluate('window.__MOCK_DB__.sales.length')
+        page.set_input_files('#qb-file', str(QB)); page.wait_for_selector('.import-panel h3', timeout=10000)
+        vals = page.locator('.import-panel .stat .value').all_inner_texts()
+        check(vals == ['313', '19', '293', '1'], f'preview: 313 lines, 19 $0 left out, 293 already in Sales Detail, 1 new ({vals})')
+        check(page.locator('.confirm-names').count() == 0, 'no names to confirm: every QuickBooks name is on the saved list')
+        shot(page, '30-sales-detail-preview')
+        page.get_by_role('button', name='Add 1 line').click(); page.wait_for_timeout(400)
+        new = page.evaluate('window.__MOCK_DB__.sales.filter(s => s.import_id)')
+        check(len(new) == 1 and new[0]['amount'] < 0 and new[0]['txn_type'] == 'Credit Memo', 'the one missing line (a credit memo) is added')
+        newcust = new[0]['customer']
+        check(page.evaluate('window.__MOCK_DB__.sales.length') == base + 1, 'Sales Detail grows by one line')
+        page.set_input_files('#qb-file', str(QB)); page.wait_for_selector('.import-panel h3', timeout=10000)
+        vals = page.locator('.import-panel .stat .value').all_inner_texts()
+        check(vals[2:] == ['294', '0'] and page.get_by_text('Everything in this report is already in Sales Detail').is_visible(), f'loading it again adds nothing ({vals})')
+        page.get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100)
+        page.get_by_role('button', name=re.compile('^Loaded reports')).click(); page.wait_for_timeout(80)
+        page.get_by_role('button', name='Undo', exact=True).click(); page.get_by_role('button', name='Undo load').click(); page.wait_for_timeout(300)
+        check(page.evaluate('window.__MOCK_DB__.sales.length') == base, 'undoing the load removes the line it added')
+        # A customer QuickBooks name not on the saved list is offered for confirmation.
+        page.evaluate("window.__STANS_FORGET__ = true")
+        page.evaluate("""(() => { const m = window.__MOCK_DB__.qb_name_map; const i = m.findIndex(x => x.kind === 'customer' && x.name === %s); m.splice(i, 1); })()""" % json.dumps(newcust))
+        page.get_by_role('button', name='Refresh').click(); page.wait_for_timeout(500)
+        page.set_input_files('#qb-file', str(QB)); page.wait_for_selector('.import-panel h3', timeout=10000)
+        check(page.locator('.confirm-names tbody tr').count() == 1, 'an unknown QuickBooks customer is listed to confirm')
+        inp = page.locator('.confirm-names input'); check(inp.input_value() == newcust, 'suggested name matches an existing customer')
+        shot(page, '31-sales-detail-confirm')
+        page.get_by_role('button', name='Cancel').click()
+        bad = ROOT / 'tests/fixtures/not-a-report.csv'; bad.write_text('Name,Phone\nBob,555\n')
+        page.set_input_files('#qb-file', str(bad)); page.wait_for_timeout(300)
+        check(page.locator('.toast.bad', has_text='Transaction date').count() > 0, 'a file that is not the report is refused with a clear message')
+        bad.unlink()
+
+    # ---- BOMs tree ----
+    tab(page, 'BOMs')
+    rows = page.locator('table.tree-table tbody tr')
+    tops = rows.locator('.tree-name').all_inner_texts()
+    check(rows.count() == 8 and 'RECIPE: Original' in tops and 'RECIPE: Jalapeños' in tops, f'BOMs lists all 8 BOMs at top level, recipes included ({rows.count()} rows)')
+    check(tops.index('RECIPE: Original') > tops.index('Jalapeños gallon'), 'products are listed before recipes')
+    used = page.locator('tr.d0', has=page.locator('.tree-name', has_text='RECIPE: Original')).locator('td.used-in').inner_text()
+    check(used == '3 BOMs', f'recipe shows where it is used ({used})')
+    page.locator('tr', has=page.locator('.tree-name', has_text='Original 7 oz.')).first.click(); page.wait_for_timeout(120)
+    check(rows.count() == 8 + 6, f'clicking a product opens its next level ({rows.count() - 8} lines)')
+    recipe_row = page.locator('tr.d1', has=page.locator('.tree-name', has_text='RECIPE: Original'))
+    unit = float(recipe_row.locator('td').nth(7).inner_text().replace('$', '')); line = float(recipe_row.locator('td').nth(8).inner_text().replace('$', '').replace(',', ''))
+    check(abs(168 * unit - line) < 0.01, f'recipe line cost = 168 oz x unit cost ({line})')
+    recipe_row.locator('button.twisty').click(); page.wait_for_timeout(120)
+    check(page.locator('tr.d2').count() == 10, f'opening the recipe shows its 10 ingredients at level 2 ({page.locator("tr.d2").count()})')
+    check(page.locator('tr.d2 .guide.tee').count() == 9 and page.locator('tr.d2 .guide.elbow').count() == 1, 'tree lines: 9 branches and one last-elbow at level 2')
+    shot(page, '26-boms-tree')
+    page.get_by_role('button', name='Close all').click(); page.wait_for_timeout(80)
+    check(rows.count() == 8, 'Close all collapses back to top level')
+
+    # ---- Create BOM: a sub-recipe nested inside a recipe inside a product ----
+    tab(page, 'Create BOM')
+    cost_before = page.evaluate("1")
+    page.fill('#cb-name', 'Spice Mix'); page.locator('#cb-name').press('Tab')
+    page.select_option('#cb-type', 'Recipe'); page.wait_for_timeout(80)
+    page.fill('#cb-yield', '10'); page.locator('#cb-yield').press('Tab'); page.wait_for_timeout(60)
+    page.fill('#cb-yield-unit', 'c'); page.locator('#cb-yield-unit').press('Tab'); page.wait_for_timeout(60)
+    page.fill('#cb-unit', 'c'); page.locator('#cb-unit').press('Tab'); page.wait_for_timeout(60)
+    sel = page.locator('table.cb-lines tbody tr').nth(0).locator('select'); sel.select_option(label='Pepper'); page.wait_for_timeout(80)
+    q = page.locator('table.cb-lines tbody tr').nth(0).locator('input[type=text]'); q.fill('4'); q.press('Tab'); page.wait_for_timeout(80)
+    sel = page.locator('table.cb-lines tbody tr').nth(1).locator('select'); sel.select_option(label='Brown Sugar'); page.wait_for_timeout(80)
+    q = page.locator('table.cb-lines tbody tr').nth(1).locator('input[type=text]'); q.fill('6'); q.press('Tab'); page.wait_for_timeout(80)
+    total = page.locator('.cb-total').inner_text()
+    want_mix = (4 * 1.64 + 6 * 0.5) / 10
+    check(abs(float(total.split()[0].replace('$', '')) - want_mix) < 0.0001, f'live cost per cup of Spice Mix ({total})')
+    shot(page, '27-create-bom')
+    page.get_by_role('button', name='Save BOM').click(); page.wait_for_timeout(300)
+    mix = page.evaluate("window.__MOCK_DB__.items.find(i => i.name === 'Spice Mix')")
+    check(mix is not None and page.evaluate(f"window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === {mix['item_no']}).length") == 2, 'saving creates the item, its BOM and 2 lines')
+    # Put 2 c. of Spice Mix into the Original recipe.
+    page.get_by_role('button', name='Start a new BOM').click(); page.wait_for_timeout(60)
+    page.get_by_role('button', name='Existing item').click(); page.wait_for_timeout(60)
+    page.select_option('#cb-item', label=[o for o in page.locator('#cb-item option').all_inner_texts() if o.startswith('RECIPE: Original')][0]); page.wait_for_timeout(100)
+    n_lines = page.locator('table.cb-lines tbody tr').count()
+    check(n_lines == 10, f'editing an existing BOM loads its lines ({n_lines})')
+    page.get_by_role('button', name='+ Add line').click(); page.wait_for_timeout(60)
+    last = page.locator('table.cb-lines tbody tr').last
+    last.locator('select').select_option(label=[o for o in last.locator('select option').all_inner_texts() if o.startswith('Spice Mix')][0]); page.wait_for_timeout(80)
+    last = page.locator('table.cb-lines tbody tr').nth(10); q = last.locator('input[type=text]'); q.fill('2'); q.press('Tab'); page.wait_for_timeout(80)
+    page.get_by_role('button', name='Save changes').click(); page.wait_for_timeout(300)
+    # Loop protection: Spice Mix can no longer contain Original or any product.
+    page.get_by_role('button', name='Start a new BOM').click(); page.get_by_role('button', name='Existing item').click(); page.wait_for_timeout(60)
+    page.select_option('#cb-item', label=[o for o in page.locator('#cb-item option').all_inner_texts() if o.startswith('Spice Mix')][0]); page.wait_for_timeout(100)
+    opt = page.locator('table.cb-lines tbody tr').last.locator('option', has_text='RECIPE: Original')
+    check(opt.is_disabled() and 'contains this item' in opt.inner_text(), 'items that contain this BOM are blocked (no loops)')
+    # The tree now goes three levels deep under a product.
+    tab(page, 'BOMs')
+    page.get_by_role('button', name='Open all').click(); page.wait_for_timeout(150)
+    check(page.locator('tr.d3', has=page.locator('.tree-name', has_text='Pepper')).count() >= 3, 'Spice Mix ingredients show at level 3 under each Original product')
+    top_names = page.locator('table.tree-table tr.d0 .tree-name').all_inner_texts()
+    check('Spice Mix' in top_names, 'Spice Mix also has its own top-level row')
+    used = page.locator('tr.d0', has=page.locator('.tree-name', has_text='Spice Mix')).locator('td.used-in').inner_text()
+    check(used == 'RECIPE: Original', f'Spice Mix shows it is used in RECIPE: Original ({used})')
+    case = page.locator('tr.d0', has=page.locator('.tree-name', has_text='Original 7 oz.'))
+    got = float(case.locator('td').nth(7).inner_text().replace('$', ''))
+    want = 28.947849217391 + 168 * 2 * want_mix / 3220
+    check(abs(got - want) < 0.006, f'Original 7 oz case cost includes the Spice Mix ({got:.4f} vs {want:.4f})')
+    shot(page, '28-boms-three-levels')
+
     tab(page, 'T-Accounts')
     check(page.locator('.tacct').count() == 11, f'T-Accounts shows 11 accounts ({page.locator(".tacct").count()})')
     shot(page, '27-taccounts')

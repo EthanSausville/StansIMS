@@ -7,8 +7,10 @@ import counts from './tabs/counts.js';
 import inventory from './tabs/inventory.js';
 import demand from './tabs/demand.js';
 import sales from './tabs/sales.js';
+import { byCustomer, byProduct } from './tabs/salessummary.js';
 import costs from './tabs/costs.js';
 import bom from './tabs/bom.js';
+import createbom from './tabs/createbom.js';
 import taccounts from './tabs/taccounts.js';
 import prices from './tabs/prices.js';
 import labor from './tabs/labor.js';
@@ -19,8 +21,9 @@ import users from './tabs/users.js';
 // Users isn't in a group: admins reach it from the header.
 const GROUPS = [
   { id: 'overview', label: 'Dashboard', tabs: [dashboard] },
-  { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, demand, sales] },
-  { id: 'costing', label: 'Standard Cost', tabs: [costs, bom, prices, labor] },
+  { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, demand] },
+  { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
+  { id: 'costing', label: 'Standard Cost', tabs: [costs, bom, createbom, labor] },
   { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
 ];
 const TABS = [...GROUPS.flatMap((g) => g.tabs), users];
@@ -99,16 +102,18 @@ function shell() {
   const p = state.profile || {};
   app.replaceChildren(
     h('header', { class: 'topbar' },
-      h('div', { class: 'brandrow' }, brand(), groupBar, h('div', { class: 'spacer' }),
+      h('div', { class: 'brandrow' }, brand(), h('div', { class: 'spacer' }),
         h('div', { class: 'who' },
           h('span', null, p.email || state.user?.email || ''),
           h('span', { class: 'role' }, p.role || 'staff'),
           isAdmin() ? h('a', { class: 'btn ghost', href: '#users' }, 'Users') : null,
           h('button', { class: 'btn ghost', title: 'Reload data from the database', onclick: () => refresh(true) }, 'Refresh'),
           h('button', { class: 'btn', onclick: () => sb.auth.signOut() }, 'Sign out'))),
+      h('div', { class: 'grouprow' }, groupBar),
       tabBar),
     main);
   const bars = { groupBar, tabBar };
+  topbarObserver.observe(app.querySelector('.topbar'));
   renderTabs(bars);
   return { tabBar: bars, main };
 }
@@ -123,6 +128,7 @@ function renderTabs({ groupBar, tabBar }) {
   }, g.label)));
   const tabs = open && open.tabs.length > 1 ? open.tabs : [];
   tabBar.hidden = !tabs.length;
+  groupBar.closest('.topbar')?.classList.toggle('no-subtabs', !tabs.length);
   tabBar.replaceChildren(...tabs.map((t) =>
     h('button', { class: 'tab', role: 'tab', 'aria-selected': String(t.id === id), onclick: () => { location.hash = t.id; } }, t.label)));
 }
@@ -149,6 +155,9 @@ function render() {
   }
   current = id;
   if (tab.afterRender) tab.afterRender(ui.main);
+  fitTables();
+  pinWideHeaders();
+  dockWideFooters();
 }
 function schedule() { if (scheduled) return; scheduled = true; requestAnimationFrame(() => { scheduled = false; render(); }); }
 
@@ -173,6 +182,127 @@ async function start() {
 
 window.addEventListener('hashchange', () => { if (ui) { renderTabs(ui.tabBar); render(); window.scrollTo(0, 0); } });
 onChange(schedule);
+// Tables that fit the screen don't need their own sideways scrolling, so
+// they're marked .fits and their header row pins under the site header.
+function fitTables() {
+  if (!ui) return;
+  for (const w of ui.main.querySelectorAll('.tablewrap')) {
+    w.classList.remove('fits');
+    w.classList.toggle('fits', w.scrollWidth <= w.clientWidth + 1);
+  }
+}
+const topbarObserver = new ResizeObserver((entries) => {
+  for (const e of entries) document.documentElement.style.setProperty('--topbar-h', `${Math.round(e.target.getBoundingClientRect().height)}px`);
+});
+// Wide tables scroll sideways in their own box, where a normal pinned header
+// can't follow the page. While such a table's header is scrolled off, a copy
+// of it floats under the site header, with the same column widths and
+// following the table's sideways scroll.
+function pinWideHeaders() {
+  if (!ui) return;
+  const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 0;
+  for (const w of ui.main.querySelectorAll('.tablewrap')) {
+    const table = w.querySelector(':scope > table'); const head = table?.querySelector(':scope > thead');
+    let float = w._float;
+    const r = w.getBoundingClientRect();
+    const show = head && !w.classList.contains('fits') && r.top < top && r.bottom > top + head.offsetHeight + 24;
+    if (!show) { if (float) { float.remove(); w._float = null; } continue; }
+    if (!float || !float.isConnected) {
+      float = document.createElement('div'); float.className = 'float-head'; float.setAttribute('aria-hidden', 'true');
+      const copy = document.createElement('table'); copy.className = table.className;
+      const firstRow = table.querySelector(':scope > tbody > tr');
+      const widths = firstRow ? [...firstRow.children].map((td) => td.getBoundingClientRect().width) : [];
+      const cols = document.createElement('colgroup');
+      for (const wd of widths) { const col = document.createElement('col'); col.style.width = `${wd}px`; cols.append(col); }
+      copy.append(cols, head.cloneNode(true));
+      copy.style.width = `${table.getBoundingClientRect().width}px`;
+      for (const el of copy.querySelectorAll('[id]')) el.removeAttribute('id');
+      float.append(copy); document.body.append(float); w._float = float;
+      // Filter buttons in the floating copy open the real column's menu.
+      float.addEventListener('click', (e) => {
+        const b = e.target.closest('.xf-btn'); if (!b) return;
+        const real = head.querySelectorAll('.xf-btn')[[...copy.querySelectorAll('.xf-btn')].indexOf(b)];
+        if (real) { real._anchor = b; real.click(); }
+      });
+    }
+    float.style.top = `${top}px`; float.style.left = `${r.left}px`; float.style.width = `${w.clientWidth + 2}px`;
+    const copy = float.firstChild; const sl = w.scrollLeft;
+    copy.style.transform = `translateX(${-sl}px)`;
+    for (const th of copy.querySelectorAll('th.sticky-col')) th.style.transform = `translateX(${sl}px)`;
+  }
+  for (const f of document.querySelectorAll('body > .float-head')) if (![...ui.main.querySelectorAll('.tablewrap')].some((w) => w._float === f)) f.remove();
+}
+// Wide tables: while the bottom of the table is below the screen, a copy of
+// its footer (totals) and a sideways scrollbar are docked to the bottom of the
+// screen, kept in step with the table's own sideways scroll.
+function dockWideFooters() {
+  if (!ui) return;
+  const vh = window.innerHeight;
+  for (const w of ui.main.querySelectorAll('.tablewrap')) {
+    const table = w.querySelector(':scope > table'); const foot = table?.querySelector(':scope > tfoot');
+    const r = w.getBoundingClientRect();
+    const wide = !w.classList.contains('fits') && w.scrollWidth > w.clientWidth + 1;
+    const show = table && wide && r.bottom > vh && r.top < vh - 80;
+    let dock = w._dock;
+    if (!show) { if (dock) { dock.remove(); w._dock = null; } continue; }
+    if (!dock || !dock.isConnected) {
+      dock = document.createElement('div'); dock.className = 'float-foot';
+      const rows = document.createElement('div'); rows.className = 'ff-rows';
+      if (foot) {
+        const copy = document.createElement('table'); copy.className = table.className;
+        const firstRow = table.querySelector(':scope > tbody > tr');
+        const cols = document.createElement('colgroup');
+        for (const td of firstRow ? firstRow.children : []) { const col = document.createElement('col'); col.style.width = `${td.getBoundingClientRect().width}px`; cols.append(col); }
+        copy.append(cols, foot.cloneNode(true));
+        copy.style.width = `${table.getBoundingClientRect().width}px`;
+        rows.append(copy);
+        // Buttons in the copy (Hide / Show totals) press the real ones.
+        rows.addEventListener('click', (e) => {
+          const b = e.target.closest('button'); if (!b) return;
+          foot.querySelectorAll('button')[[...copy.querySelectorAll('button')].indexOf(b)]?.click();
+        });
+      }
+      // Drawn by hand rather than a browser scrollbar, so it's always visible
+      // (Macs hide scrollbars until you scroll) and matches the site.
+      const bar = document.createElement('div'); bar.className = 'ff-scroll'; bar.setAttribute('aria-hidden', 'true');
+      const thumb = document.createElement('div'); thumb.className = 'ff-thumb'; bar.append(thumb);
+      const range = () => ({ max: w.scrollWidth - w.clientWidth, travel: bar.clientWidth - thumb.offsetWidth });
+      thumb.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); thumb.setPointerCapture(e.pointerId); thumb.classList.add('dragging');
+        const x0 = e.clientX; const s0 = w.scrollLeft; const { max, travel } = range();
+        const move = (ev) => { w.scrollLeft = s0 + (ev.clientX - x0) * (travel > 0 ? max / travel : 0); };
+        const up = () => { thumb.classList.remove('dragging'); thumb.removeEventListener('pointermove', move); thumb.removeEventListener('pointerup', up); thumb.removeEventListener('pointercancel', up); };
+        thumb.addEventListener('pointermove', move); thumb.addEventListener('pointerup', up); thumb.addEventListener('pointercancel', up);
+      });
+      bar.addEventListener('pointerdown', (e) => {
+        if (e.target !== bar) return;
+        const t = thumb.getBoundingClientRect();
+        w.scrollBy({ left: (e.clientX < t.left ? -1 : 1) * w.clientWidth * 0.9, behavior: 'smooth' });
+      });
+      bar.addEventListener('wheel', (e) => { const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; w.scrollLeft += d; e.preventDefault(); }, { passive: false });
+      dock.append(rows, bar); document.body.append(dock); w._dock = dock;
+    }
+    dock.style.left = `${r.left}px`; dock.style.width = `${r.width}px`;
+    const [rows, bar] = dock.children;
+    const thumb = bar.firstChild; const track = bar.clientWidth;
+    const tw = Math.max(48, Math.round(track * w.clientWidth / w.scrollWidth));
+    const max = w.scrollWidth - w.clientWidth;
+    thumb.style.width = `${tw}px`;
+    thumb.style.transform = `translateX(${max > 0 ? Math.round((track - tw) * w.scrollLeft / max) : 0}px)`;
+    const copy = rows.firstChild;
+    if (copy) {
+      const sl = w.scrollLeft;
+      copy.style.transform = `translateX(${-sl}px)`;
+      for (const td of copy.querySelectorAll('td.sticky-col, .xt-off-inner')) td.style.transform = `translateX(${sl}px)`;
+    }
+  }
+  for (const f of document.querySelectorAll('body > .float-foot')) if (![...ui.main.querySelectorAll('.tablewrap')].some((w) => w._dock === f)) f.remove();
+}
+let pinQueued = false;
+// Capture catches both page scrolling and tables scrolling sideways.
+document.addEventListener('scroll', () => { if (pinQueued) return; pinQueued = true; requestAnimationFrame(() => { pinQueued = false; pinWideHeaders(); dockWideFooters(); }); }, { passive: true, capture: true });
+let fitTimer = null;
+window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); pinWideHeaders(); dockWideFooters(); }, 100); });
 let resizeTimer = null; let lastWidth = window.innerWidth;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (Math.abs(window.innerWidth - lastWidth) > 40 && routeId() === 'dashboard') { lastWidth = window.innerWidth; schedule(); } }, 200); });
 // Pick up other people's changes when coming back to the tab after a while.

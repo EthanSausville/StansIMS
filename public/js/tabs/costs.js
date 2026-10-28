@@ -27,7 +27,6 @@ function itemDialog(item) {
           const sort = Math.max(0, ...state.data.items.map((i) => i.sort)) + 1;
           const row = { item_no: Number(f.item_no.value), name: f.name.value.trim(), type: f.type.value, unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null, sort };
           await insertRow('items', row);
-          if (row.type === 'Recipe') await insertRow('recipes', { item_no: row.item_no, name: row.name.replace(/^RECIPE:\s*/i, ''), batch_size: state.data.settings.production_batch_size || 1 });
           toast(`${row.name} added.`);
         } else {
           await updateRow('items', 'item_no', item.item_no, { name: f.name.value.trim(), unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null });
@@ -40,7 +39,7 @@ function itemDialog(item) {
     h('div', { class: 'row' }, h('label', { class: 'field' }, 'Item #', f.item_no), h('label', { class: 'field' }, 'Type', f.type)),
     h('label', { class: 'field' }, 'Name', f.name),
     h('div', { class: 'row' }, h('label', { class: 'field' }, 'Unit', f.unit), h('label', { class: 'field' }, 'Pack size note', f.pack_note)),
-    isNew ? h('p', { class: 'small muted', style: { margin: 0 } }, 'New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory. New finished goods appear on Production; build their parts on the Bill of Materials tab. A new recipe starts empty; add it to a product there, then add its ingredients.') : null,
+    isNew ? h('p', { class: 'small muted', style: { margin: 0 } }, 'New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory. New finished goods appear on Production. Build what any item is made of on the Create BOM tab.') : null,
     h('div', { class: 'actions' },
       !isNew ? h('button', { class: 'btn danger', value: 'delete', formnovalidate: true, style: { marginRight: 'auto' } }, 'Delete item') : null,
       h('button', { class: 'btn', value: 'cancel', formnovalidate: true }, 'Cancel'), h('button', { class: 'btn primary', value: 'save' }, isNew ? 'Add' : 'Save'))));

@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "echo \"No build step: the site in ./public is served as-is.\"",
+    "build": "node tools/migrate.mjs",
     "deploy": "wrangler deploy",
-    "test": "node --test tests/calc.test.mjs"
+    "test": "node --test tests/calc.test.mjs",
+    "migrate": "node tools/migrate.mjs"
   }
 }

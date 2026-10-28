@@ -1,5 +1,7 @@
 -- Stans IMS database schema.
 -- Run once in Supabase: SQL Editor -> New query -> paste this file -> Run.
+-- After that, every Cloudflare deploy re-applies it (tools/migrate.mjs), so
+-- it must stay safe to run again: create/alter only what's missing, never drop data.
 -- Then run seed.sql to load the data from Stans.xlsm.
 --
 -- Security model
@@ -95,6 +97,28 @@ create table if not exists public.fg_lines (     -- finished goods bill of mater
   sort       int not null default 0
 );
 
+-- Multi-level bills of materials. A BOM belongs to the item it makes and says
+-- how much one run makes (yield_qty, e.g. 1 case or a 3,220 oz batch). Lines
+-- can be any item, including one that has its own BOM, to any depth.
+-- (recipes / recipe_lines / fg_lines above are the older layout; the app now
+-- uses these tables, and existing rows are copied in at the end of this file.)
+create table if not exists public.boms (
+  item_no    int primary key references public.items (item_no) on update cascade on delete cascade,
+  yield_qty  numeric not null default 1 check (yield_qty > 0),
+  yield_unit text
+);
+
+create table if not exists public.bom_lines (
+  id                 bigint generated always as identity primary key,
+  parent_item_no     int not null references public.boms (item_no) on update cascade on delete cascade,
+  item_no            int not null references public.items (item_no) on update cascade,
+  qty                numeric,                         -- per run of the parent BOM
+  uses_batch_minutes boolean not null default false,  -- labor/overhead: qty = minutes per batch setting
+  sort               int not null default 0,
+  check (parent_item_no <> item_no)
+);
+create index if not exists bom_lines_parent_idx on public.bom_lines (parent_item_no);
+
 create table if not exists public.settings (
   id                    int primary key default 1 check (id = 1),
   salaried_count        numeric not null default 0,
@@ -165,6 +189,37 @@ create table if not exists public.sales (
 );
 create index if not exists sales_date_idx on public.sales (date);
 
+-- Sales Detail (public.sales) can be loaded from QuickBooks "Sales by
+-- Product/Service Detail" reports. Each load is recorded so it can be undone,
+-- and loaded rows keep the QuickBooks names they came from.
+create table if not exists public.sales_imports (
+  id            bigint generated always as identity primary key,
+  file_name     text,
+  period        text,              -- as printed on the report, e.g. "February-July, 2026"
+  date_from     date,
+  date_to       date,
+  lines_added   int not null default 0,
+  lines_skipped int not null default 0,
+  created_at    timestamptz not null default now(),
+  created_by    uuid default auth.uid()
+);
+alter table public.sales add column if not exists txn_type    text;  -- Invoice, Credit Memo, ...
+alter table public.sales add column if not exists description text;
+alter table public.sales add column if not exists qb_product  text;  -- QuickBooks product/service
+alter table public.sales add column if not exists qb_customer text;  -- QuickBooks customer full name
+alter table public.sales add column if not exists import_id   bigint references public.sales_imports (id) on delete cascade;
+
+-- How QuickBooks names become Sales Detail names, e.g.
+-- customer "Grocer Corporate:Grocer, Inc - Springfield" -> "Grocer (Springfield)",
+-- product "14 oz Case - Original Pimento Cheese (24)" -> a finished good, or "Other".
+create table if not exists public.qb_name_map (
+  kind    text not null check (kind in ('customer', 'product')),
+  qb_name text not null,
+  name    text not null,
+  primary key (kind, qb_name)
+);
+
+
 do $$
 declare t text;
 begin
@@ -185,7 +240,7 @@ declare t text;
 begin
   -- Setup tables: everyone signed in reads, admins write.
   foreach t in array array['items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines',
-                           'settings', 'year_settings', 'purchase_settings'] loop
+                           'boms', 'bom_lines', 'settings', 'year_settings', 'purchase_settings'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "read" on public.%I', t);
     execute format('drop policy if exists "admins write" on public.%I', t);
@@ -193,7 +248,7 @@ begin
     execute format('create policy "admins write" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())', t);
   end loop;
   -- Activity tables: everyone signed in reads and writes.
-  foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales'] loop
+  foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales', 'sales_imports', 'qb_name_map'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "signed in" on public.%I', t);
     execute format('create policy "signed in" on public.%I for all to authenticated using (true) with check (true)', t);
@@ -222,3 +277,39 @@ begin
 end $$;
 drop trigger if exists keep_an_admin on public.profiles;
 create trigger keep_an_admin before update on public.profiles for each row execute function public.keep_an_admin();
+
+-- Refuses a BOM line that would make a loop (an item inside itself, at any depth).
+create or replace function public.bom_no_loops() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if exists (
+    with recursive below(item_no) as (
+      select new.item_no
+      union
+      select l.item_no from public.bom_lines l join below b on l.parent_item_no = b.item_no
+    )
+    select 1 from below where item_no = new.parent_item_no
+  ) then
+    raise exception 'That would put an item inside itself.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists bom_no_loops on public.bom_lines;
+create trigger bom_no_loops before insert or update on public.bom_lines for each row execute function public.bom_no_loops();
+
+-- One-time copy of the older recipe / finished-good layout into the BOM tables.
+-- Runs only while the BOM tables are empty, so running this file again is safe.
+do $$
+begin
+  if not exists (select 1 from public.boms) and not exists (select 1 from public.bom_lines) then
+    insert into public.boms (item_no, yield_qty, yield_unit)
+      select item_no, batch_size, 'oz' from public.recipes;
+    insert into public.boms (item_no, yield_qty, yield_unit)
+      select distinct fg_item_no, 1, 'case' from public.fg_lines
+      on conflict (item_no) do nothing;
+    insert into public.bom_lines (parent_item_no, item_no, qty, uses_batch_minutes, sort)
+      select recipe_item_no, item_no, qty, uses_batch_minutes, sort from public.recipe_lines;
+    insert into public.bom_lines (parent_item_no, item_no, qty, uses_batch_minutes, sort)
+      select fg_item_no, item_no, qty, false, sort from public.fg_lines;
+  end if;
+end $$;

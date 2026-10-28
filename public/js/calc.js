@@ -48,16 +48,61 @@ export function evalEntry(text) {
   return v;
 }
 
+// ---------- Bills of materials ----------
+// A BOM says what an item is made of. `boms` holds one row per item that has a
+// BOM, with how much one run of it makes (yield_qty, e.g. 1 case or a 3,220 oz
+// batch). `bom_lines` lists what goes into one run; a line can be any item,
+// including one that has its own BOM, to any depth. A line flagged
+// uses_batch_minutes takes its quantity from the Labor tab's minutes per batch.
+//
+// Data from before multi-level BOMs (recipes / recipe_lines / fg_lines) is
+// converted here, so older exports still calculate the same way.
+export function bomData(data) {
+  if (Array.isArray(data.boms) && Array.isArray(data.bom_lines)) return { boms: data.boms, lines: data.bom_lines };
+  const boms = []; const lines = [];
+  for (const r of data.recipes || []) boms.push({ item_no: r.item_no, yield_qty: r.batch_size, yield_unit: 'oz' });
+  for (const l of data.recipe_lines || []) lines.push({ id: `r${lines.length}`, parent_item_no: l.recipe_item_no, item_no: l.item_no, qty: l.qty, uses_batch_minutes: !!l.uses_batch_minutes, sort: l.sort });
+  for (const fg of new Set((data.fg_lines || []).map((l) => l.fg_item_no))) boms.push({ item_no: fg, yield_qty: 1, yield_unit: 'case' });
+  for (const l of data.fg_lines || []) lines.push({ id: `f${lines.length}`, parent_item_no: l.fg_item_no, item_no: l.item_no, qty: l.qty, uses_batch_minutes: false, sort: l.sort });
+  return { boms, lines };
+}
+
 // ---------- lookups ----------
 export function index(data) {
   const items = new Map(data.items.map((i) => [i.item_no, i]));
   const byType = (t) => data.items.filter((i) => i.type === t).sort((a, b) => a.sort - b.sort);
-  const fgCaseOz = new Map(); // finished good -> oz of recipe per case (Production row 2)
-  const fgRecipe = new Map();
-  for (const l of data.fg_lines) {
-    if (items.get(l.item_no)?.type === 'Recipe') { fgCaseOz.set(l.fg_item_no, n(l.qty)); fgRecipe.set(l.fg_item_no, l.item_no); }
+  const { boms, lines } = bomData(data);
+  const bom = new Map(boms.map((b) => [b.item_no, b]));
+  const linesOf = new Map();
+  for (const l of [...lines].sort((a, b) => n(a.sort) - n(b.sort))) {
+    if (!linesOf.has(l.parent_item_no)) linesOf.set(l.parent_item_no, []);
+    linesOf.get(l.parent_item_no).push(l);
   }
-  return { items, byType, fgCaseOz, fgRecipe };
+  const children = (itemNo) => linesOf.get(itemNo) || [];
+  const yieldOf = (itemNo) => n(bom.get(itemNo)?.yield_qty) || 1;
+  // Oz of recipe in one case of a finished good (Production row 2).
+  const fgCaseOz = new Map();
+  for (const b of boms) {
+    if (items.get(b.item_no)?.type !== 'Finished Good') continue;
+    const oz = children(b.item_no).filter((l) => items.get(l.item_no)?.type === 'Recipe').reduce((s, l) => s + n(l.qty), 0) / yieldOf(b.item_no);
+    if (oz) fgCaseOz.set(b.item_no, oz);
+  }
+  // Items that appear inside another BOM are not top-level.
+  const usedIn = new Map();
+  for (const l of lines) { if (!usedIn.has(l.item_no)) usedIn.set(l.item_no, new Set()); usedIn.get(l.item_no).add(l.parent_item_no); }
+  return { items, byType, bom, children, yieldOf, fgCaseOz, usedIn };
+}
+
+// True when putting `child` into `parent`'s BOM would make a loop
+// (the child already contains the parent somewhere beneath it).
+export function wouldLoop(data, parent, child, ix = index(data)) {
+  if (parent === child) return true;
+  const seen = new Set(); const stack = [child];
+  while (stack.length) {
+    const it = stack.pop(); if (seen.has(it)) continue; seen.add(it);
+    for (const l of ix.children(it)) { if (l.item_no === parent) return true; stack.push(l.item_no); }
+  }
+  return false;
 }
 
 // ---------- Labor Scenarios ----------
@@ -98,22 +143,20 @@ export function costModel(data) {
     const key = `${itemNo}|${year}`;
     if (memo.has(key)) return memo.get(key);
     const item = ix.items.get(itemNo);
+    memo.set(key, 0); // guards against a BOM loop
     let v = 0;
     if (!item) v = 0;
-    else if (itemNo === LABOR_ITEM) {
+    else if (ix.bom.has(itemNo)) {
+      // Built from its BOM: cost of one run divided by what one run makes.
+      v = ix.children(itemNo).reduce((s, l) => s + cost(l.item_no, year) * lineQty(l), 0) / ix.yieldOf(itemNo);
+    } else if (itemNo === LABOR_ITEM) {
       const sc = scenarioByYear.get(year);
       v = sc ? scenarios[sc - 1].ratePerMin : 0;
-    } else if (item.type === 'Recipe') {
-      const recipe = data.recipes.find((r) => r.item_no === itemNo);
-      const batch = n(recipe?.batch_size);
-      v = batch ? data.recipe_lines.filter((l) => l.recipe_item_no === itemNo)
-        .reduce((s, l) => s + cost(l.item_no, year) * (l.uses_batch_minutes ? minutes : n(l.qty)), 0) / batch : 0;
-    } else if (item.type === 'Finished Good') {
-      v = data.fg_lines.filter((l) => l.fg_item_no === itemNo).reduce((s, l) => s + cost(l.item_no, year) * n(l.qty), 0);
     } else v = entered.get(key) ?? 0;
     memo.set(key, v);
     return v;
   }
+  const lineQty = (l) => (l.uses_batch_minutes ? minutes : n(l.qty));
   // "Latest Cost": the last year with a non-zero cost.
   const latest = (itemNo) => { for (let i = years.length - 1; i >= 0; i--) { const v = cost(itemNo, years[i]); if (v) return v; } return 0; };
   // Cost for a year, falling back to the nearest year that has standards.
@@ -122,7 +165,7 @@ export function costModel(data) {
     const ys = years.filter((y) => cost(itemNo, y)).sort((a, b) => Math.abs(a - year) - Math.abs(b - year) || a - b);
     return ys.length ? cost(itemNo, ys[0]) : 0;
   };
-  return { years, cost, latest, nearest, scenarios, ix };
+  return { years, cost, latest, nearest, scenarios, ix, lineQty };
 }
 
 // Price per case, with the same nearest-year fallback.
@@ -169,25 +212,24 @@ export function productionDays(data) {
 }
 
 // ---------- Consumption (hidden sheet) ----------
-// How much of each raw material / component one case of a finished good uses.
+// How much of each raw material and packaging item one unit of a finished good
+// uses, following its BOM down through every level. Labor and overhead are
+// costs, not stock, so they are skipped.
 export function perCaseUsage(data) {
   const ix = index(data); const out = new Map();
-  for (const fg of ix.byType('Finished Good')) {
-    const m = new Map();
-    const recipeNo = ix.fgRecipe.get(fg.item_no);
-    const caseOz = ix.fgCaseOz.get(fg.item_no) || 0;
-    const recipe = data.recipes.find((r) => r.item_no === recipeNo);
-    if (recipe && n(recipe.batch_size)) {
-      for (const l of data.recipe_lines.filter((x) => x.recipe_item_no === recipeNo)) {
-        if (l.uses_batch_minutes || ix.items.get(l.item_no)?.type !== 'Raw Material') continue;
-        m.set(l.item_no, (m.get(l.item_no) || 0) + (n(l.qty) / n(recipe.batch_size)) * caseOz);
-      }
+  const minutes = n(data.settings.minutes_per_batch);
+  const expand = (itemNo, per, m, path) => {
+    if (path.has(itemNo)) return; path.add(itemNo);
+    for (const l of ix.children(itemNo)) {
+      if (l.uses_batch_minutes) continue;
+      const q = (n(l.qty) * per) / ix.yieldOf(itemNo);
+      const child = ix.items.get(l.item_no);
+      if (ix.bom.has(l.item_no)) expand(l.item_no, q, m, path);
+      else if (child?.type === 'Raw Material' || child?.type === 'Component') m.set(l.item_no, (m.get(l.item_no) || 0) + q);
     }
-    for (const l of data.fg_lines.filter((x) => x.fg_item_no === fg.item_no)) {
-      if (ix.items.get(l.item_no)?.type === 'Component') m.set(l.item_no, (m.get(l.item_no) || 0) + n(l.qty));
-    }
-    out.set(fg.item_no, m);
-  }
+    path.delete(itemNo);
+  };
+  for (const fg of ix.byType('Finished Good')) { const m = new Map(); expand(fg.item_no, 1, m, new Set()); out.set(fg.item_no, m); }
   return out;
 }
 

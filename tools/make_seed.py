@@ -50,6 +50,26 @@ for table, rows, cols in [('recipe_lines', data['recipe_lines'], ['recipe_item_n
     out.append(',\n'.join(lines))
     out.append(f') as v ({", ".join(cols)})\nwhere not exists (select 1 from public.{table});\n')
 
+# Multi-level BOM tables (what the app uses), built from the same recipes and
+# finished goods. Loaded only into empty tables.
+boms = [dict(item_no=r['item_no'], yield_qty=r['batch_size'], yield_unit='oz') for r in data['recipes']]
+boms += [dict(item_no=f, yield_qty=1, yield_unit='case') for f in dict.fromkeys(l['fg_item_no'] for l in data['fg_lines'])]
+bom_lines = [dict(parent_item_no=l['recipe_item_no'], item_no=l['item_no'], qty=l['qty'], uses_batch_minutes=l['uses_batch_minutes'], sort=l['sort']) for l in data['recipe_lines']]
+bom_lines += [dict(parent_item_no=l['fg_item_no'], item_no=l['item_no'], qty=l['qty'], uses_batch_minutes=False, sort=l['sort']) for l in data['fg_lines']]
+out.append('insert into public.boms (item_no, yield_qty, yield_unit)\nselect * from (values')
+out.append(',\n'.join(('  (%s::int, %s::numeric, %s::text)' if i == 0 else '  (%s, %s, %s)') % (lit(b['item_no']), lit(b['yield_qty']), lit(b['yield_unit'])) for i, b in enumerate(boms)))
+out.append(') as v (item_no, yield_qty, yield_unit)\nwhere not exists (select 1 from public.boms);\n')
+out.append('insert into public.bom_lines (parent_item_no, item_no, qty, uses_batch_minutes, sort)\nselect * from (values')
+out.append(',\n'.join(('  (%s::int, %s::int, %s::numeric, %s::boolean, %s::int)' if i == 0 else '  (%s, %s, %s, %s, %s)') % tuple(lit(l[k]) for k in ('parent_item_no', 'item_no', 'qty', 'uses_batch_minutes', 'sort')) for i, l in enumerate(bom_lines)))
+out.append(') as v (parent_item_no, item_no, qty, uses_batch_minutes, sort)\nwhere not exists (select 1 from public.bom_lines);\n')
+
+# QuickBooks name list (customer and product names), if one has been saved
+# next to the fixture. Kept out of the repository like the rest of the data.
+import os
+qb_map = os.path.join(os.path.dirname(sys.argv[1]), 'qb-name-map.json')
+if os.path.exists(qb_map):
+    insert('qb_name_map', json.load(open(qb_map)), ['kind', 'qb_name', 'name'])
+
 insert('production', [dict(r, cases=r['cases']) for r in data['production']], ['date', 'item_no', 'cases'])
 insert('goods_receipts', data['goods_receipts'], ['date', 'item_no', 'qty'])
 insert('cycle_counts', data['cycle_counts'], ['date', 'item_no', 'qty'])

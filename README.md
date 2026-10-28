@@ -4,8 +4,9 @@ A web version of the Stans production, inventory and costing workbook, with sign
 Tabs are grouped across the top:
 
 - **Dashboard**
-- **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Purchase Demand, Sales
-- **Standard Cost:** Standard Cost, Bill of Materials (recipes and finished goods in one expanded BOM), Standard Price, Labor
+- **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Purchase Demand
+- **Sales:** Sales Detail (the workbook's SalesReport; load QuickBooks reports onto it), By Customer, By Product, Standard Price
+- **Standard Cost:** Standard Cost, BOMs (every bill of materials as an expandable tree), Create BOM (build or edit a BOM; BOMs can contain other BOMs to any depth), Labor
 - **Accounting:** Journals, T-Accounts
 - **Users** (admins, from the header)
 
@@ -30,7 +31,7 @@ The first account created becomes an admin; later accounts are staff. There is a
 
 ### 1. Supabase
 
-1. **SQL Editor → New query:** paste `supabase/schema.sql`, Run. Then paste `seed.sql` (kept outside the repo), Run.
+1. **SQL Editor → New query:** paste `supabase/schema.sql`, Run (later changes are applied automatically; see *Automatic database updates*). Then paste `seed.sql` (kept outside the repo), Run.
 2. **Authentication → Sign In / Providers → Email:** turn off **Allow new users to sign up**, so only people you invite can get in.
 3. **Authentication → URL Configuration:** set **Site URL** to the site's address (e.g. `https://inventory.example.com`) and add it under **Redirect URLs**. Invite and password-reset links go there.
 4. **Authentication → Users → Add user → Create new user:** your own email and a password, with **Auto Confirm User** on. Being first, you're the admin.
@@ -40,9 +41,20 @@ The first account created becomes an admin; later accounts are staff. There is a
 
 The Worker is built from this repository (Workers & Pages → the `stansims` Worker → Settings → Build):
 
-- Build command: `npm run build` (does nothing; there is no build step) or leave empty
+- Build command: `npm run build`. This brings the database up to date with `supabase/schema.sql` before every deploy (see below).
 - Deploy command: `npx wrangler deploy`
 - The Worker's name must match `"name"` in `wrangler.jsonc` (`stansims`). If yours is named differently, change that line.
+
+#### Automatic database updates
+
+So you never have to paste `schema.sql` into Supabase again, give the build a Supabase access token:
+
+1. Supabase → your account (top right) → **Account preferences → Access Tokens → Generate new token**. Name it `Cloudflare build`, choose an expiry, copy it.
+2. Cloudflare → the `stansims` Worker → **Settings → Build → Variables and secrets → Add**: type **Secret**, name `SUPABASE_ACCESS_TOKEN`, paste the token, Save. (This is the *Build* section, not the Worker's runtime variables, so the token never reaches the website.)
+
+Every deploy then runs `tools/migrate.mjs`, which sends `schema.sql` to the project named in `wrangler.jsonc`. The file only creates or changes what's missing and never deletes data; it runs as one transaction, so if anything fails nothing changes and the deploy stops (the build log says why). Without the secret the step is skipped. The token can manage your whole Supabase account, so keep it only in that Cloudflare secret, and give it an expiry you'll remember to renew.
+
+`seed.sql` is different: it's a one-time load of the workbook data and stays out of the repository, so it's never run automatically.
 
 Under **Settings → Variables and Secrets** (runtime variables, type *Text*), add:
 
@@ -65,6 +77,20 @@ python3 tools/make_seed.py tests/fixtures/workbook.json supabase/seed.sql
 
 `seed.sql` only fills empty tables and skips rows that already exist, so it won't overwrite data entered on the site.
 
+## Loading QuickBooks sales detail
+
+**Sales → Sales Detail** is the workbook's SalesReport sheet (date, invoice #, quantity, sales price, amount, customer, product, plus standard price, cost and margin). Its starting rows come from the workbook via `seed.sql`.
+
+To add new sales, run **Reports → Sales by Product/Service Detail** in QuickBooks for any date range, export it to Excel (.xlsx) or CSV, and drop it onto the tab. Each QuickBooks line is converted the way the workbook was built:
+
+- **Customer:** QuickBooks full names become your short names using a saved name list (`qb_name_map`). Names not on the list are shown with a suggestion to confirm, and your choice is remembered.
+- **Product:** the finished good with the same size and flavor; fees, deductions, coupons and credits become "Other". A "(1/1)" single-unit item sold below half the standard case price is "Other" (single units, not cases).
+- **$0 lines** (voided memos, notes, no-charge lines) are left out.
+
+The table works like an Excel table: the ▾ button on each column heading sorts the column or filters it to the values you tick (with a search box). The totals row stays pinned to the bottom of the screen and adds up only the lines left showing; its **Hide** button tucks it away (a small **Show totals** tab brings it back), and the choice is remembered on that computer. Tables too wide for the screen keep their sideways scrollbar docked at the bottom of the screen as well.
+
+A line is skipped when Sales Detail already has one with the same date, invoice #, customer, product and amount, so overlapping date ranges are safe, and lines typed by hand count too. Each load is listed under **Loaded QuickBooks reports** and can be undone.
+
 ## Tests
 
 ```sh
@@ -76,7 +102,8 @@ Database rules can be checked on a local Postgres with `tests/supabase_stub.sql`
 
 ## How the numbers work
 
-- **Standard cost:** raw materials, packaging and overhead are entered per year. Direct labor per minute comes from the labor scenario chosen for that year. A recipe's cost per oz = Σ(ingredient cost × qty per batch) ÷ batch size. A finished good's cost = Σ(part cost × qty).
+- **Standard cost:** raw materials, packaging and overhead are entered per year. Direct labor per minute comes from the labor scenario chosen for that year. Anything with a BOM costs Σ(line cost × qty per run) ÷ what one run makes, following nested BOMs down every level. A recipe that makes 3,220 oz per batch costs its batch ÷ 3,220 per oz; a product that makes 1 case costs the sum of its lines.
+- **BOM storage:** `boms` (what each BOM makes per run) and `bom_lines` (what goes into one run). The older `recipes`, `recipe_lines` and `fg_lines` tables are kept but no longer used; running `schema.sql` copies them into the BOM tables once. A database trigger refuses any line that would put an item inside itself.
 - **Production:** oz = Σ cases × oz per case; batches = oz ÷ batch size, rounded up; estimated loss = leftover oz in the last batch × that year's average price per oz.
 - **Usage:** each case uses (recipe qty ÷ batch size × oz per case) of every raw material, plus its packaging.
 - **Daily inventory:** starts at each item's first cycle count. Each day = (that day's count, or yesterday's balance) + receipts − usage. Finished goods add cases produced and subtract cases sold.

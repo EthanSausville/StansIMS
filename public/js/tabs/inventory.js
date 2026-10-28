@@ -9,7 +9,7 @@ let show = 'qty';
 
 export default {
   id: 'inventory',
-  label: 'Inventory',
+  label: 'Daily Inventory',
   render({ rerender }) {
     const ix = derived.ix(); const inv = derived.inventory();
     const tracked = [...ix.byType('Raw Material'), ...ix.byType('Component'), ...ix.byType('Finished Good')];

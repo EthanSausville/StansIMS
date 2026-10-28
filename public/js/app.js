@@ -15,9 +15,16 @@ import labor from './tabs/labor.js';
 import journals from './tabs/journals.js';
 import users from './tabs/users.js';
 
-// Tabs across the top, in workbook order. null draws a divider.
-const TABS = [dashboard, production, receipts, counts, inventory, demand, sales, null,
-  costs, recipes, finished, prices, labor, journals, null, users];
+// Groups across the top; the open group's tabs show in the row beneath.
+// Users isn't in a group: admins reach it from the header.
+const GROUPS = [
+  { id: 'overview', label: 'Dashboard', tabs: [dashboard] },
+  { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, demand, sales] },
+  { id: 'costing', label: 'Standard Cost', tabs: [costs, recipes, finished, prices, labor, journals] },
+];
+const TABS = [...GROUPS.flatMap((g) => g.tabs), users];
+const groupOf = (id) => GROUPS.find((g) => g.tabs.some((t) => t.id === id));
+const lastInGroup = new Map(); // remembers the tab you were on in each group
 const app = document.getElementById('app');
 let current = null;
 
@@ -85,28 +92,38 @@ function notConfigured() {
 function routeId() { const id = location.hash.slice(1).split('?')[0]; return TABS.find((t) => t && t.id === id && (!t.adminOnly || isAdmin())) ? id : 'dashboard'; }
 
 function shell() {
-  const tabBar = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': 'Sections' });
+  const groupBar = h('nav', { class: 'groups', 'aria-label': 'Sections' });
+  const tabBar = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': 'Pages' });
   const main = h('main', { id: 'main', role: 'tabpanel' });
   const p = state.profile || {};
   app.replaceChildren(
     h('header', { class: 'topbar' },
-      h('div', { class: 'brandrow' }, brand(), h('div', { class: 'spacer' }),
+      h('div', { class: 'brandrow' }, brand(), groupBar, h('div', { class: 'spacer' }),
         h('div', { class: 'who' },
           h('span', null, p.email || state.user?.email || ''),
           h('span', { class: 'role' }, p.role || 'staff'),
+          isAdmin() ? h('a', { class: 'btn ghost', href: '#users' }, 'Users') : null,
           h('button', { class: 'btn ghost', title: 'Reload data from the database', onclick: () => refresh(true) }, 'Refresh'),
           h('button', { class: 'btn', onclick: () => sb.auth.signOut() }, 'Sign out'))),
       tabBar),
     main);
-  renderTabs(tabBar);
-  return { tabBar, main };
+  const bars = { groupBar, tabBar };
+  renderTabs(bars);
+  return { tabBar: bars, main };
 }
 
-function renderTabs(tabBar) {
+function renderTabs({ groupBar, tabBar }) {
   const id = routeId();
-  tabBar.replaceChildren(...TABS.filter((t) => t === null || !t.adminOnly || isAdmin()).map((t) => t === null
-    ? h('span', { class: 'sep', 'aria-hidden': 'true' })
-    : h('button', { class: 'tab', role: 'tab', 'aria-selected': String(t.id === id), onclick: () => { location.hash = t.id; } }, t.label)));
+  const open = groupOf(id);
+  if (open) lastInGroup.set(open.id, id);
+  groupBar.replaceChildren(...GROUPS.map((g) => h('button', {
+    class: 'group', 'aria-current': g === open ? 'true' : null,
+    onclick: () => { location.hash = lastInGroup.get(g.id) || g.tabs[0].id; },
+  }, g.label)));
+  const tabs = open && open.tabs.length > 1 ? open.tabs : [];
+  tabBar.hidden = !tabs.length;
+  tabBar.replaceChildren(...tabs.map((t) =>
+    h('button', { class: 'tab', role: 'tab', 'aria-selected': String(t.id === id), onclick: () => { location.hash = t.id; } }, t.label)));
 }
 
 let ui = null;

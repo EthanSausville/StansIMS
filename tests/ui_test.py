@@ -50,8 +50,21 @@ def open_app(browser, role='admin', signed_in=True, viewport=(1440, 900)):
 def shot(page, name):
     if SHOTS: SHOTS.mkdir(parents=True, exist_ok=True); page.screenshot(path=str(SHOTS / f'{name}.png'), full_page=False)
 
+GROUPS = {
+    'Dashboard': ['Dashboard'],
+    'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Purchase Demand', 'Sales'],
+    'Standard Cost': ['Standard Cost', 'Recipes', 'Finished Goods', 'Standard Price', 'Labor', 'Journals'],
+}
+ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
+
 def tab(page, label):
-    page.get_by_role('tab', name=label, exact=True).click()
+    if label == 'Users':
+        page.locator('.who a', has_text='Users').click()
+    else:
+        group = next(g for g, ts in GROUPS.items() if label in ts)
+        page.locator('.groups .group', has_text=group).first.click(); page.wait_for_timeout(80)
+        if label != 'Dashboard':
+            page.get_by_role('tab', name=label, exact=True).click()
     page.wait_for_timeout(150)
 
 def cell(page, key):
@@ -70,11 +83,24 @@ with sync_playwright() as p:
     check(page.get_by_text('don’t match').is_visible(), 'wrong password shows an error')
     shot(page, '00-signin')
     page.fill('input[type=password]', 'correct-horse'); page.click('button[type=submit]')
-    page.wait_for_selector('.tabs .tab')
+    page.wait_for_selector('.groups .group')
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'dashboard loads after sign-in')
-    tabs = page.locator('.tabs .tab').all_inner_texts()
-    print('   tabs:', ' | '.join(tabs))
-    check('Users' in tabs and len(tabs) == 14, 'admin sees all 14 tabs including Users')
+    groups = page.locator('.groups .group').all_inner_texts()
+    print('   groups:', ' | '.join(groups))
+    check(groups == ['Dashboard', 'Inventory', 'Standard Cost'], 'three groups across the top')
+    check(page.locator('.tabs').is_hidden(), 'Dashboard has no second row of tabs')
+    page.locator('.groups .group', has_text='Inventory').click(); page.wait_for_timeout(100)
+    sub = page.locator('.tabs .tab').all_inner_texts()
+    check(sub == GROUPS['Inventory'], f'Inventory group shows its tabs ({sub})')
+    page.locator('.groups .group', has_text='Standard Cost').click(); page.wait_for_timeout(100)
+    sub = page.locator('.tabs .tab').all_inner_texts()
+    check(sub == GROUPS['Standard Cost'], f'Standard Cost group shows its tabs ({sub})')
+    page.get_by_role('tab', name='Recipes', exact=True).click(); page.wait_for_timeout(80)
+    page.locator('.groups .group', has_text='Dashboard').click(); page.wait_for_timeout(80)
+    page.locator('.groups .group', has_text='Standard Cost').click(); page.wait_for_timeout(100)
+    check(page.locator('h1', has_text='Recipes').is_visible(), 'returning to a group reopens the last tab used there')
+    check(page.locator('.who a', has_text='Users').is_visible(), 'admin sees the Users link')
+    tabs = ALL_TABS
 
     # ---- every tab renders without errors ----
     for i, label in enumerate(tabs):
@@ -117,18 +143,18 @@ with sync_playwright() as p:
     shot(page, '21-production-july')
 
     # ---- inventory reacts to a delivery ----
-    tab(page, 'Inventory')
+    tab(page, 'Daily Inventory')
     before = page.evaluate("1")
     tab(page, 'Goods Receipt')
     c = cell(page, 'goods_receipts|2026-07-20|10001'); c.click(); c.fill('30*100'); c.press('Enter'); page.wait_for_timeout(300)
     stored = page.evaluate("window.__MOCK_DB__.goods_receipts.find(r => r.date==='2026-07-20' && r.item_no===10001)")
     check(stored and stored['qty'] == 3000, 'goods receipt of 30*100 lb cheese saved as 3000')
-    tab(page, 'Inventory')
+    tab(page, 'Daily Inventory')
     row = page.locator('tbody tr', has=page.locator('td.sticky-col', has_text='7/20/2026'))
     vals = row.locator('td').all_inner_texts()
     tab(page, 'Goods Receipt')
     c = cell(page, 'goods_receipts|2026-07-20|10001'); c.click(); c.fill(''); c.press('Enter'); page.wait_for_timeout(300)
-    tab(page, 'Inventory')
+    tab(page, 'Daily Inventory')
     vals2 = page.locator('tbody tr', has=page.locator('td.sticky-col', has_text='7/20/2026')).locator('td').all_inner_texts()
     a = float(vals[1].replace(',', '')); b = float(vals2[1].replace(',', ''))
     check(abs((a - b) - 3000) < 0.01, f'cheese inventory on 7/20 moves by the 3,000 lb delivery ({a} vs {b})')
@@ -177,9 +203,8 @@ with sync_playwright() as p:
         'window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
         f'window.__MOCK_DB__={json.dumps(dict(mock_db(), profiles=[dict(user_id="u1", email="owner@stans.test", role="staff")]))};'
         'window.__MOCK_ROLE__="staff";window.__MOCK_SIGNED_IN__=true;')))
-    page.goto(BASE + '/#costs'); page.wait_for_selector('.tabs .tab')
-    tabs = page.locator('.tabs .tab').all_inner_texts()
-    check('Users' not in tabs, 'staff does not see the Users tab')
+    page.goto(BASE + '/#costs'); page.wait_for_selector('.groups .group')
+    check(page.locator('.who a', has_text='Users').count() == 0, 'staff does not see the Users link')
     check(cell(page, 'sc|10001|2026').is_disabled(), 'staff cannot edit standard costs')
     tab(page, 'Production')
     check(not cell(page, 'production|' + page.evaluate("(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01'})()") + '|20001').is_disabled(), 'staff can enter production')
@@ -191,7 +216,7 @@ with sync_playwright() as p:
 
     # ---- phone width ----
     ctx, page, errors = open_app(browser, viewport=(390, 844))
-    page.goto(BASE + '/'); page.wait_for_selector('.tabs .tab'); page.wait_for_timeout(200)
+    page.goto(BASE + '/'); page.wait_for_selector('.groups .group'); page.wait_for_timeout(200)
     overflow = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
     check(overflow <= 0, f'no sideways page scroll on a phone (overflow {overflow}px)')
     shot(page, '24-phone-dashboard')

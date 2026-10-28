@@ -1,0 +1,11 @@
+# Company data: never commit (this repository is public).
+*.xlsx
+*.xlsm
+*.xls
+tests/fixtures/
+supabase/seed.sql
+
+node_modules/
+.wrangler/
+.dev.vars
+.DS_Store

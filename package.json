@@ -1,0 +1,10 @@
+{
+  "name": "stansims",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo \"No build step: the site in ./public is served as-is.\"",
+    "deploy": "wrangler deploy",
+    "test": "node --test tests/calc.test.mjs"
+  }
+}

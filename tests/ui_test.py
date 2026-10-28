@@ -61,14 +61,14 @@ GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Purchase Demand'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
-    'Standard Cost': ['Standard Cost', 'BOMs', 'Create BOM', 'Labor'],
+    'Standards': ['Standard Cost', 'BOMs', 'Create BOM', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
 ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
 
 def tab(page, label):
     if label == 'Users':
-        page.locator('.who a', has_text='Users').click()
+        page.locator('.gear').click(); page.locator('.gear-menu a', has_text='Users').click()
     else:
         group = next(g for g, ts in GROUPS.items() if label in ts)
         page.locator('.groups .group', has_text=group).first.click(); page.wait_for_timeout(80)
@@ -96,22 +96,25 @@ with sync_playwright() as p:
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'dashboard loads after sign-in')
     groups = page.locator('.groups .group').all_inner_texts()
     print('   groups:', ' | '.join(groups))
-    check(groups == ['Dashboard', 'Inventory', 'Sales', 'Standard Cost', 'Accounting'], 'five sections across the top')
+    check(groups == ['Dashboard', 'Accounting', 'Sales', 'Inventory', 'Standards'], 'five sections across the top, in order')
+    check(page.locator('.brandrow').count() == 0 or page.locator('.brandrow').is_hidden(), 'no gray bar')
     check(page.locator('.tabs').is_hidden(), 'Dashboard has no second row of tabs')
     page.locator('.groups .group', has_text='Inventory').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
     check(sub == GROUPS['Inventory'], f'Inventory group shows its tabs ({sub})')
-    page.locator('.groups .group', has_text='Standard Cost').click(); page.wait_for_timeout(100)
+    page.locator('.groups .group', has_text='Standards').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
-    check(sub == GROUPS['Standard Cost'], f'Standard Cost group shows its tabs ({sub})')
+    check(sub == GROUPS['Standards'], f'Standards group shows its tabs ({sub})')
     page.get_by_role('tab', name='Labor', exact=True).click(); page.wait_for_timeout(80)
     page.locator('.groups .group', has_text='Dashboard').click(); page.wait_for_timeout(80)
-    page.locator('.groups .group', has_text='Standard Cost').click(); page.wait_for_timeout(100)
-    check(page.locator('.toolbar[aria-label="Labor Scenarios"]').is_visible(), 'returning to a group reopens the last tab used there')
+    page.locator('.groups .group', has_text='Standards').click(); page.wait_for_timeout(100)
+    check(page.locator('.about-slot summary[aria-label="About Labor Scenarios"]').is_visible(), 'returning to a group reopens the last tab used there')
     page.locator('.groups .group', has_text='Accounting').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
     check(sub == GROUPS['Accounting'], f'Accounting group shows Journals and T-Accounts ({sub})')
-    check(page.locator('.who a', has_text='Users').is_visible(), 'admin sees the Users link')
+    page.locator('.gear').click(); page.wait_for_timeout(80)
+    check(page.locator('.gear-menu a', has_text='Users').is_visible(), 'admin sees Users in the gear menu')
+    page.keyboard.press('Escape')
     tabs = ALL_TABS
 
     # ---- every tab renders without errors ----
@@ -128,6 +131,11 @@ with sync_playwright() as p:
         if n: check(False, f'{label}: {n} area(s) scroll up and down inside the page')
     check(True, 'only the page scrolls up and down, on every tab')
     tab(page, 'Sales Detail')
+    side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
+    check(abs(side_w - 288) <= 2, f'the side bar starts at about 20% of the width ({side_w}px)')
+    page.locator('.side-fold').click(); page.wait_for_timeout(200)
+    side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
+    check(side_w == 10, f'the side bar folds to a 10px strip ({side_w}px)')
     wraps = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.classList.contains('fits'))")
     check(wraps and all(wraps), f'the Sales Detail table fits the screen, so it has no sideways scrollbar ({wraps})')
     page.evaluate('window.scrollTo(0, 1500)'); page.wait_for_timeout(150)
@@ -136,6 +144,14 @@ with sync_playwright() as p:
     check(abs(top - bar) <= 1, f'Sales Detail column headings stay pinned under the site header ({top} vs {bar})')
     shot(page, '32-sales-scrolled')
     page.evaluate('window.scrollTo(0, 0)')
+    page.locator('.side-fold').click(); page.wait_for_timeout(200)
+    g = page.locator('.side-grip').bounding_box()
+    page.mouse.move(g['x'] + 4, g['y'] + 200); page.mouse.down(); page.mouse.move(g['x'] + 104, g['y'] + 200, steps=4); page.mouse.up(); page.wait_for_timeout(150)
+    side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
+    check(abs(side_w - 388) <= 3, f'dragging the edge resizes the side bar ({side_w}px)')
+    edge = page.evaluate("[Math.round(document.querySelector('.sidebar').getBoundingClientRect().right), Math.round(document.querySelector('main .tablewrap').getBoundingClientRect().left)]")
+    check(edge[1] >= edge[0], f'the table and its scrolling sit to the right of the side bar ({edge})')
+    page.evaluate("localStorage.removeItem('side:w')")
     tab(page, 'Production')
     side = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.scrollWidth > w.clientWidth)")
     tab(page, 'Daily Inventory')
@@ -232,6 +248,7 @@ with sync_playwright() as p:
     check(page.evaluate('window.__MOCK_DB__.sales.length') == n0, 'deleting a sale removes it')
 
     # ---- Sales Detail filters and sorts like an Excel table; totals at the top ----
+    if not page.evaluate("document.querySelector('.sidebar').classList.contains('folded')"): page.locator('.side-fold').click(); page.wait_for_timeout(200)
     money = lambda v: '-$' + '{:,.2f}'.format(-v) if v < 0 else '${:,.2f}'.format(v)
     latest = max(int(s['date'][:4]) for s in inputs['sales'])
     yr = [s for s in inputs['sales'] if s['date'].startswith(str(latest))]
@@ -262,13 +279,14 @@ with sync_playwright() as p:
     amts = [float(x.replace('$', '').replace(',', '')) for x in page.locator('main table.xtable tbody td:nth-child(5)').all_inner_texts()]
     check(amts == sorted(amts, reverse=True), 'Amount sorts largest to smallest')
     shot(page, '34-sales-filtered')
+    page.locator('.side-fold').click(); page.wait_for_timeout(150)
     page.get_by_role('button', name=re.compile('^Clear filters')).click(); page.wait_for_timeout(150)
     check(tot()[0] == f'{len(inputs["sales"]):,} lines', 'Clear filters shows every line')
-    page.locator('tr.xt-totals').get_by_role('button', name='Hide').click(); page.wait_for_timeout(120)
-    check(page.locator('tr.xt-totals').count() == 0 and page.get_by_role('button', name='Show totals').count() == 1, 'the totals row can be hidden, leaving a Show totals tab')
+    page.locator('main tr.xt-totals').get_by_role('button', name='Hide').click(); page.wait_for_timeout(120)
+    check(page.locator('main tr.xt-totals').count() == 0 and page.locator('main').get_by_role('button', name='Show totals').count() == 1, 'the totals row can be hidden, leaving a Show totals tab')
     check(page.evaluate("localStorage.getItem('xt-totals:sales-detail')") == 'off', 'turning totals off is remembered')
-    page.get_by_role('button', name='Show totals').click(); page.wait_for_timeout(120)
-    check(page.locator('tr.xt-totals').count() == 1, 'and shown again')
+    page.locator('main').get_by_role('button', name='Show totals').click(); page.wait_for_timeout(120)
+    check(page.locator('main tr.xt-totals').count() == 1, 'and shown again')
 
     # ---- admin edits a standard cost and recipe cost follows ----
     tab(page, 'Standard Cost')
@@ -322,7 +340,7 @@ with sync_playwright() as p:
         # A customer QuickBooks name not on the saved list is offered for confirmation.
         page.evaluate("window.__STANS_FORGET__ = true")
         page.evaluate("""(() => { const m = window.__MOCK_DB__.qb_name_map; const i = m.findIndex(x => x.kind === 'customer' && x.name === %s); m.splice(i, 1); })()""" % json.dumps(newcust))
-        page.get_by_role('button', name='Refresh').click(); page.wait_for_timeout(500)
+        page.locator('.gear').click(); page.get_by_role('menuitem', name='Refresh data').click(); page.wait_for_timeout(500)
         page.set_input_files('#qb-file', str(QB)); page.wait_for_selector('.import-panel h3', timeout=10000)
         check(page.locator('.confirm-names tbody tr').count() == 1, 'an unknown QuickBooks customer is listed to confirm')
         inp = page.locator('.confirm-names input'); check(inp.input_value() == newcust, 'suggested name matches an existing customer')
@@ -407,7 +425,7 @@ with sync_playwright() as p:
     shot(page, '27-taccounts')
 
     # ---- sign out ----
-    page.get_by_role('button', name='Sign out').click(); page.wait_for_selector('form input[type=email]')
+    page.locator('.gear').click(); page.get_by_role('menuitem', name='Sign out').click(); page.wait_for_selector('form input[type=email]')
     check(True, 'sign out returns to sign-in')
     ctx.close()
 
@@ -418,7 +436,9 @@ with sync_playwright() as p:
         f'window.__MOCK_DB__={json.dumps(dict(mock_db(), profiles=[dict(user_id="u1", email="owner@stans.test", role="staff")]))};'
         'window.__MOCK_ROLE__="staff";window.__MOCK_SIGNED_IN__=true;')))
     page.goto(BASE + '/#costs'); page.wait_for_selector('.groups .group')
-    check(page.locator('.who a', has_text='Users').count() == 0, 'staff does not see the Users link')
+    page.locator('.gear').click(); page.wait_for_timeout(80)
+    check(page.locator('.gear-menu a', has_text='Users').count() == 0, 'staff does not see Users in the gear menu')
+    page.keyboard.press('Escape')
     check(cell(page, 'sc|10001|2026').is_disabled(), 'staff cannot edit standard costs')
     tab(page, 'Production')
     check(not cell(page, 'production|' + page.evaluate("(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01'})()") + '|20001').is_disabled(), 'staff can enter production')

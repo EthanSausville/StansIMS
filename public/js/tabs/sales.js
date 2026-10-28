@@ -1,4 +1,4 @@
-import { h, money, qty, toast, niceError, confirmDialog, todayIso } from '../ui.js';
+import { h, pageHead, money, qty, toast, niceError, confirmDialog, todayIso } from '../ui.js';
 import { state, derived, insertRow, updateRow, deleteRow } from '../store.js';
 import { MONTHS, yearOf, evalEntry } from '../calc.js';
 import { loadButton, pendingPreview, historyTable, importCount } from './qbpanel.js';
@@ -133,16 +133,14 @@ export default {
     const flip = (which) => () => { open = open === which ? null : which; rerender(); };
     const preview = pendingPreview(rerender);
     const body = preview || (open === 'add' ? addForm : open === 'history' ? historyTable() : null);
-    // One bar: load a QuickBooks report, add a line by hand, see past loads.
+    // Side bar: load a QuickBooks report, add a line by hand, see past loads.
     return h('div', null,
-      h('section', { class: 'panel toolbar sales-toolbar' },
-        h('div', { class: 'tb-row' },
-          loadButton(rerender),
-          h('button', { class: 'btn' + (open === 'add' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'add'), onclick: flip('add') }, '+ Add a line by hand'),
-          importCount() ? h('button', { class: 'btn ghost' + (open === 'history' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'history'), onclick: flip('history') }, `Loaded reports (${importCount()})`) : null,
-          h('span', { class: 'grow' }),
-          nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(TID); rerender(); } }, `Clear filters (${nFilters})`) : null),
-        body ? h('div', { class: 'tb-body' }, body) : null),
+      pageHead('Sales Detail', 'Every invoice line, as on the workbook’s SalesReport sheet. Use the ▾ button on any column heading to filter or sort, like an Excel table; the totals at the bottom of the screen add up the lines showing. Load a QuickBooks Sales by Product/Service Detail export to add new lines (lines already here are skipped), or add one by hand.',
+        loadButton(rerender),
+        h('button', { class: 'btn' + (open === 'add' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'add'), onclick: flip('add') }, '+ Add a line by hand'),
+        importCount() ? h('button', { class: 'btn ghost' + (open === 'history' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'history'), onclick: flip('history') }, `Loaded reports (${importCount()})`) : null,
+        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(TID); rerender(); } }, `Clear filters (${nFilters})`) : null),
+      body ? h('section', { class: 'panel sales-body' }, body) : null,
       h('div', { class: 'tablewrap tall', 'data-scroll': 'sales' },
         xtable({ id: TID, columns: COLUMNS, allRows: rowsAll, rows, rerender, defaultSort: DEFAULT_SORT, showTotals, onToggleTotals: (on) => { setPrefTotals(TID, on); rerender(); }, className: 'sales-report',
           rowClass: (r) => (r.import_id ? 'from-qb' : null), extraCells: actions })));

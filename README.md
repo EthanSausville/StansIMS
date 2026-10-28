@@ -4,11 +4,13 @@ A web version of the Stans production, inventory and costing workbook, with sign
 Tabs are grouped across the top:
 
 - **Dashboard**
-- **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Purchase Demand
-- **Sales:** Sales Detail (the workbook's SalesReport; load QuickBooks reports onto it), By Customer, By Product, Standard Price
-- **Standard Cost:** Standard Cost, BOMs (every bill of materials as an expandable tree), Create BOM (build or edit a BOM; BOMs can contain other BOMs to any depth), Labor
 - **Accounting:** Journals, T-Accounts
-- **Users** (admins, from the header)
+- **Sales:** Sales Detail (the workbook's SalesReport; load QuickBooks reports onto it), By Customer, By Product, Standard Price
+- **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Purchase Demand
+- **Standards:** Standard Cost, BOMs (every bill of materials as an expandable tree), Create BOM (build or edit a BOM; BOMs can contain other BOMs to any depth), Labor
+- **Users** (admins, from the gear menu at the right of the blue bar)
+
+On table tabs, the actions (loading a report, month and year pickers, Add item, Clear filters …) are in a side bar on the left. Drag its edge to resize it, or fold it away with the ‹ button; both are remembered. The (i) at the right of the page tabs explains the page.
 
 - **Site:** plain HTML/CSS/JavaScript in `public/` (no build step), served by a Cloudflare Worker (`src/worker.js`, `wrangler.jsonc`).
 - **Data and sign-in:** Supabase (Postgres + Auth). Schema and access rules are in `supabase/schema.sql`.

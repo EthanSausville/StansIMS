@@ -18,13 +18,13 @@ import journals from './tabs/journals.js';
 import users from './tabs/users.js';
 
 // Groups across the top; the open group's tabs show in the row beneath.
-// Users isn't in a group: admins reach it from the header.
+// Users isn't in a group: admins reach it from the gear menu.
 const GROUPS = [
   { id: 'overview', label: 'Dashboard', tabs: [dashboard] },
-  { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, demand] },
-  { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
-  { id: 'costing', label: 'Standard Cost', tabs: [costs, bom, createbom, labor] },
   { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
+  { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
+  { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, demand] },
+  { id: 'costing', label: 'Standards', tabs: [costs, bom, createbom, labor] },
 ];
 const TABS = [...GROUPS.flatMap((g) => g.tabs), users];
 const groupOf = (id) => GROUPS.find((g) => g.tabs.some((t) => t.id === id));
@@ -32,7 +32,6 @@ const lastInGroup = new Map(); // remembers the tab you were on in each group
 const app = document.getElementById('app');
 let current = null;
 
-function brand() { return h('span', { class: 'brand' }, 'Stan’s ', h('span', null, 'IMS')); }
 
 // ---------- sign-in screens ----------
 function signInScreen(message) {
@@ -95,27 +94,83 @@ function notConfigured() {
 // ---------- the app ----------
 function routeId() { const id = location.hash.slice(1).split('?')[0]; return TABS.find((t) => t && t.id === id && (!t.adminOnly || isAdmin())) ? id : 'dashboard'; }
 
+// The account menu behind the gear at the right of the blue bar.
+function gearMenu() {
+  const p = state.profile || {};
+  const menu = h('div', { class: 'gear-menu', role: 'menu', hidden: true },
+    h('div', { class: 'gear-who' }, h('div', { class: 'gear-email' }, p.email || state.user?.email || ''), h('span', { class: 'role' }, p.role || 'staff')),
+    isAdmin() ? h('a', { class: 'gear-item', role: 'menuitem', href: '#users', onclick: () => close() }, 'Users') : null,
+    h('button', { class: 'gear-item', role: 'menuitem', title: 'Reload data from the database', onclick: () => { close(); refresh(true); } }, 'Refresh data'),
+    h('button', { class: 'gear-item', role: 'menuitem', onclick: () => sb.auth.signOut() }, 'Sign out'));
+  const btn = h('button', { class: 'gear', 'aria-label': 'Account and settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Account and settings',
+    onclick: (e) => { e.stopPropagation(); menu.hidden ? openMenu() : close(); } });
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.6 7.6 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.3.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>';
+  function openMenu() { menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); document.addEventListener('mousedown', outside); }
+  function close() { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); document.removeEventListener('mousedown', outside); }
+  function outside(e) { if (!menu.contains(e.target) && !btn.contains(e.target)) close(); }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { close(); btn.focus(); } });
+  return h('div', { class: 'gear-wrap' }, btn, menu);
+}
+
+// The left side bar that holds a tab's actions. It can be dragged wider or
+// narrower and folded away to a thin strip; both are remembered.
+const pref = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* not saved */ } } };
+function sideBar() {
+  const inner = h('div', { class: 'side-inner' });
+  const side = h('aside', { class: 'sidebar', 'aria-label': 'Actions' });
+  const fold = h('button', { class: 'side-fold', type: 'button' });
+  const grip = h('div', { class: 'side-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the side bar', tabindex: 0 });
+  const setWidth = (px) => { const w = Math.round(Math.max(170, Math.min(px, window.innerWidth * 0.5))); side.style.setProperty('--side-w', `${w}px`); return w; };
+  const setFolded = (f) => {
+    side.classList.toggle('folded', f); pref.set('side:folded', f ? '1' : '0');
+    fold.textContent = f ? '›' : '‹';
+    fold.setAttribute('aria-label', f ? 'Show the side bar' : 'Hide the side bar'); fold.title = f ? 'Show the side bar' : 'Hide the side bar';
+    fold.setAttribute('aria-expanded', String(!f));
+    requestAnimationFrame(() => { fitTables(); pinWideHeaders(); dockWideFooters(); });
+  };
+  const saved = Number(pref.get('side:w', 0));
+  if (saved) setWidth(saved);
+  fold.addEventListener('click', () => setFolded(!side.classList.contains('folded')));
+  side.addEventListener('click', (e) => { if (side.classList.contains('folded') && e.target === side) setFolded(false); });
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); grip.setPointerCapture(e.pointerId); side.classList.add('resizing');
+    const left = side.getBoundingClientRect().left;
+    const move = (ev) => { setWidth(ev.clientX - left); fitTables(); pinWideHeaders(); dockWideFooters(); };
+    const up = () => { side.classList.remove('resizing'); pref.set('side:w', String(side.getBoundingClientRect().width)); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up);
+  });
+  grip.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault(); const w = setWidth(side.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 20 : -20)); pref.set('side:w', String(w));
+    fitTables(); pinWideHeaders(); dockWideFooters();
+  });
+  side.append(inner, fold, grip);
+  setFolded(pref.get('side:folded', '0') === '1');
+  return { side, inner };
+}
+
 function shell() {
   const groupBar = h('nav', { class: 'groups', 'aria-label': 'Sections' });
   const tabBar = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': 'Pages' });
-  const main = h('main', { id: 'main', role: 'tabpanel' });
-  const p = state.profile || {};
+  const about = h('div', { class: 'about-slot' });
+  const { side, inner } = sideBar();
+  const content = h('div', { class: 'content' });
+  const main = h('main', { id: 'main', role: 'tabpanel' }, h('div', { class: 'layout' }, side, content));
   app.replaceChildren(
     h('header', { class: 'topbar' },
-      h('div', { class: 'brandrow' }, brand(), h('div', { class: 'spacer' }),
-        h('div', { class: 'who' },
-          h('span', null, p.email || state.user?.email || ''),
-          h('span', { class: 'role' }, p.role || 'staff'),
-          isAdmin() ? h('a', { class: 'btn ghost', href: '#users' }, 'Users') : null,
-          h('button', { class: 'btn ghost', title: 'Reload data from the database', onclick: () => refresh(true) }, 'Refresh'),
-          h('button', { class: 'btn', onclick: () => sb.auth.signOut() }, 'Sign out'))),
-      h('div', { class: 'grouprow' }, groupBar),
-      tabBar),
+      h('div', { class: 'grouprow' }, groupBar, h('span', { class: 'spacer' }), gearMenu()),
+      h('div', { class: 'tabrow' }, tabBar, h('span', { class: 'spacer' }), about)),
     main);
   const bars = { groupBar, tabBar };
   topbarObserver.observe(app.querySelector('.topbar'));
   renderTabs(bars);
-  return { tabBar: bars, main };
+  return { tabBar: bars, main, content, side, sideInner: inner, about };
+}
+
+function aboutButton(title, description) {
+  return h('details', { class: 'tb-info' },
+    h('summary', { title: 'About this page', 'aria-label': `About ${title}` }, h('span', { 'aria-hidden': 'true' }, 'i')),
+    h('div', { class: 'tb-info-pop' }, h('strong', null, title), h('p', null, description)));
 }
 
 function renderTabs({ groupBar, tabBar }) {
@@ -128,6 +183,7 @@ function renderTabs({ groupBar, tabBar }) {
   }, g.label)));
   const tabs = open && open.tabs.length > 1 ? open.tabs : [];
   tabBar.hidden = !tabs.length;
+  tabBar.parentElement?.classList.toggle('only-about', !tabs.length);
   groupBar.closest('.topbar')?.classList.toggle('no-subtabs', !tabs.length);
   tabBar.replaceChildren(...tabs.map((t) =>
     h('button', { class: 'tab', role: 'tab', 'aria-selected': String(t.id === id), onclick: () => { location.hash = t.id; } }, t.label)));
@@ -146,7 +202,16 @@ function render() {
   const pageY = current === id ? window.scrollY : 0;
   let content;
   try { content = tab.render({ rerender: schedule }); } catch (e) { console.error(e); content = h('div', { class: 'note bad' }, 'Something went wrong showing this page: ' + e.message); }
-  ui.main.replaceChildren(content);
+  // A tab's bar of controls moves to the side bar; its description goes
+  // behind the (i) at the right of the page-tab row.
+  const bar = content.querySelector?.(':scope > .toolbar');
+  const controls = bar ? [...bar.querySelector('.tb-row').children] : [];
+  if (bar) bar.remove();
+  ui.sideInner.replaceChildren(...controls);
+  ui.side.hidden = !controls.length;
+  const info = bar?._about || content._about;
+  ui.about.replaceChildren(info?.description ? aboutButton(info.title, info.description) : '');
+  ui.content.replaceChildren(content);
   for (const [k, top, left] of scrolls) { const el = ui.main.querySelector(`[data-scroll="${k}"]`); if (el) { el.scrollTop = top; el.scrollLeft = left; } }
   if (current === id) window.scrollTo(0, pageY);
   if (focusKey) {
@@ -170,7 +235,7 @@ async function start() {
   try {
     await loadProfile();
     ui = shell();
-    ui.main.replaceChildren(h('div', { class: 'boot' }, 'Loading data…'));
+    ui.content.replaceChildren(h('div', { class: 'boot' }, 'Loading data…'));
     await loadAll();
     render();
   } catch (e) {

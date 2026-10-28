@@ -138,18 +138,14 @@ export function confirmDialog(message, okLabel = 'Delete') {
   });
 }
 
-// The bar at the top of a tab: its controls in one compact row, like the
-// Sales Detail bar. The tab's name is already in the tab row, so the title is
-// only used to label the bar; the description sits behind an "About" button.
+// A tab's actions and controls. The app moves them into the left side bar;
+// the title and description go behind the (i) in the page-tab row.
 // (The Dashboard keeps a full heading: bigHead.)
 export function pageHead(title, description, ...controls) {
   const items = controls.flat(Infinity).filter(Boolean);
-  return h('section', { class: 'panel toolbar', 'aria-label': title },
-    h('div', { class: 'tb-row' }, items,
-      h('span', { class: 'grow' }),
-      description ? h('details', { class: 'tb-info' },
-        h('summary', { title: 'About this tab', 'aria-label': `About ${title}` }, h('span', { 'aria-hidden': 'true' }, 'i')),
-        h('div', { class: 'tb-info-pop' }, h('strong', null, title), h('p', null, description))) : null));
+  const bar = h('section', { class: 'panel toolbar', 'aria-label': title }, h('div', { class: 'tb-row' }, items));
+  bar._about = { title, description };
+  return bar;
 }
 export function bigHead(title, description, ...controls) {
   return h('div', { class: 'pagehead' },

@@ -53,7 +53,8 @@ def shot(page, name):
 GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Purchase Demand', 'Sales'],
-    'Standard Cost': ['Standard Cost', 'Recipes', 'Finished Goods', 'Standard Price', 'Labor', 'Journals'],
+    'Standard Cost': ['Standard Cost', 'Bill of Materials', 'Standard Price', 'Labor'],
+    'Accounting': ['Journals', 'T-Accounts'],
 }
 ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
 
@@ -87,7 +88,7 @@ with sync_playwright() as p:
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'dashboard loads after sign-in')
     groups = page.locator('.groups .group').all_inner_texts()
     print('   groups:', ' | '.join(groups))
-    check(groups == ['Dashboard', 'Inventory', 'Standard Cost'], 'three groups across the top')
+    check(groups == ['Dashboard', 'Inventory', 'Standard Cost', 'Accounting'], 'four groups across the top')
     check(page.locator('.tabs').is_hidden(), 'Dashboard has no second row of tabs')
     page.locator('.groups .group', has_text='Inventory').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
@@ -95,10 +96,13 @@ with sync_playwright() as p:
     page.locator('.groups .group', has_text='Standard Cost').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
     check(sub == GROUPS['Standard Cost'], f'Standard Cost group shows its tabs ({sub})')
-    page.get_by_role('tab', name='Recipes', exact=True).click(); page.wait_for_timeout(80)
+    page.get_by_role('tab', name='Labor', exact=True).click(); page.wait_for_timeout(80)
     page.locator('.groups .group', has_text='Dashboard').click(); page.wait_for_timeout(80)
     page.locator('.groups .group', has_text='Standard Cost').click(); page.wait_for_timeout(100)
-    check(page.locator('h1', has_text='Recipes').is_visible(), 'returning to a group reopens the last tab used there')
+    check(page.locator('h1', has_text='Labor Scenarios').is_visible(), 'returning to a group reopens the last tab used there')
+    page.locator('.groups .group', has_text='Accounting').click(); page.wait_for_timeout(100)
+    sub = page.locator('.tabs .tab').all_inner_texts()
+    check(sub == GROUPS['Accounting'], f'Accounting group shows Journals and T-Accounts ({sub})')
     check(page.locator('.who a', has_text='Users').is_visible(), 'admin sees the Users link')
     tabs = ALL_TABS
 
@@ -191,6 +195,35 @@ with sync_playwright() as p:
     c = cell(page, 'sc|10001|2026'); c.click(); c.fill(orig); c.press('Tab'); page.wait_for_timeout(300)
     check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).inner_text() == rec, 'restoring cheese cost restores recipe cost')
     check(not errors, 'no browser errors during edits' + (f': {errors[:3]}' if errors else ''))
+
+    # ---- bill of materials ----
+    tab(page, 'Bill of Materials')
+    def money_val(t): return float(t.replace('$', '').replace(',', '') or 0)
+    for i in range(page.locator('table.bom-summary tbody tr').count()):
+        row = page.locator('table.bom-summary tbody tr').nth(i)
+        name = row.locator('td').first.inner_text(); want = money_val(row.locator('td').nth(3).inner_text())
+        row.click(); page.wait_for_timeout(120)
+        got = money_val(page.locator('table.bom tfoot td').nth(8).inner_text())
+        check(abs(got - want) < 0.005, f'expanded BOM adds up to the product cost: {name} ({got} vs {want})')
+    page.locator('table.bom-summary tbody tr', has_text='Original 7 oz').click(); page.wait_for_timeout(120)
+    levels = page.locator('table.bom .lvl-badge').all_inner_texts()
+    check(levels.count('0') == 1 and levels.count('1') >= 4 and levels.count('2') >= 8, f'BOM shows levels 0, 1 and 2 ({levels.count("1")} parts, {levels.count("2")} ingredients)')
+    before = page.locator('table.bom tfoot td').nth(8).inner_text()
+    cheese = page.locator('table.bom tr.bom-l2', has_text='Cheese').locator('input')
+    orig = cheese.input_value()
+    cheese.click(); cheese.fill(str(float(orig) + 10)); cheese.press('Tab'); page.wait_for_timeout(300)
+    after = page.locator('table.bom tfoot td').nth(8).inner_text()
+    check(before != after, f'changing cheese per batch updates the case cost ({before} -> {after})')
+    cheese = page.locator('table.bom tr.bom-l2', has_text='Cheese').locator('input')
+    cheese.click(); cheese.fill(orig); cheese.press('Tab'); page.wait_for_timeout(300)
+    check(page.locator('table.bom tfoot td').nth(8).inner_text() == before, 'restoring cheese restores the case cost')
+    page.locator('table.bom tr.bom-recipe button.twisty').click(); page.wait_for_timeout(100)
+    check(page.locator('table.bom tr.bom-l2').count() == 0, 'recipe ingredients collapse')
+    page.locator('table.bom tr.bom-recipe button.twisty').click(); page.wait_for_timeout(100)
+    shot(page, '26-bom')
+    tab(page, 'T-Accounts')
+    check(page.locator('.tacct').count() == 11, f'T-Accounts shows 11 accounts ({page.locator(".tacct").count()})')
+    shot(page, '27-taccounts')
 
     # ---- sign out ----
     page.get_by_role('button', name='Sign out').click(); page.wait_for_selector('form input[type=email]')

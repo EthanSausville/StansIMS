@@ -1,9 +1,13 @@
 # Stan's IMS
 
 A web version of the Stans production, inventory and costing workbook, with sign-in.
-Tabs across the top follow the workbook: Dashboard, Production, Goods Receipt, Cycle Counts,
-Inventory, Purchase Demand, Sales, Standard Cost, Recipes, Finished Goods, Standard Price,
-Labor, Journals, and Users (admins only).
+Tabs are grouped across the top:
+
+- **Dashboard**
+- **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Purchase Demand, Sales
+- **Standard Cost:** Standard Cost, Bill of Materials (recipes and finished goods in one expanded BOM), Standard Price, Labor
+- **Accounting:** Journals, T-Accounts
+- **Users** (admins, from the header)
 
 - **Site:** plain HTML/CSS/JavaScript in `public/` (no build step), served by a Cloudflare Worker (`src/worker.js`, `wrangler.jsonc`).
 - **Data and sign-in:** Supabase (Postgres + Auth). Schema and access rules are in `supabase/schema.sql`.

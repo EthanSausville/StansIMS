@@ -8,8 +8,8 @@ import inventory from './tabs/inventory.js';
 import demand from './tabs/demand.js';
 import sales from './tabs/sales.js';
 import costs from './tabs/costs.js';
-import recipes from './tabs/recipes.js';
-import finished from './tabs/finished.js';
+import bom from './tabs/bom.js';
+import taccounts from './tabs/taccounts.js';
 import prices from './tabs/prices.js';
 import labor from './tabs/labor.js';
 import journals from './tabs/journals.js';
@@ -20,7 +20,8 @@ import users from './tabs/users.js';
 const GROUPS = [
   { id: 'overview', label: 'Dashboard', tabs: [dashboard] },
   { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, demand, sales] },
-  { id: 'costing', label: 'Standard Cost', tabs: [costs, recipes, finished, prices, labor, journals] },
+  { id: 'costing', label: 'Standard Cost', tabs: [costs, bom, prices, labor] },
+  { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
 ];
 const TABS = [...GROUPS.flatMap((g) => g.tabs), users];
 const groupOf = (id) => GROUPS.find((g) => g.tabs.some((t) => t.id === id));

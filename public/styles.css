@@ -240,3 +240,39 @@ table.t td.cell.entry input:focus { background: var(--entry-focus); }
 @media (max-width: 760px) {
   .groups { order: 3; flex-basis: 100%; margin-left: 0; overflow-x: auto; scrollbar-width: none; }
 }
+
+/* ---------- Bill of Materials ---------- */
+table.bom-summary tr.pick { cursor: pointer; }
+table.bom-summary tr.pick:focus-visible td { outline: 2px solid var(--focus); outline-offset: -2px; }
+table.bom-summary tr.picked td, table.bom-summary tr.picked td.sticky-col { background: var(--accent-soft); font-weight: 600; }
+table.bom td.lvl { width: 52px; }
+.lvl-badge { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+.lvl-badge.l0 { background: var(--accent); color: #fff; }
+.lvl-badge.l1 { background: var(--accent-soft); color: var(--accent-dark); }
+.lvl-badge.l2 { background: transparent; color: var(--muted); border: 1px solid var(--line-strong); }
+table.bom td.bom-name.l0 { font-weight: 700; }
+table.bom td.bom-name.l1 { padding-left: 22px; font-weight: 600; }
+table.bom td.bom-name.l2 { padding-left: 46px; color: #2b3b52; }
+table.bom tr.bom-l0 td { background: #f1f6ff; }
+table.bom tr.bom-l0 td.sticky-col { background: #f1f6ff; }
+table.bom tr.bom-recipe td { border-top: 1px solid var(--line-strong); }
+.twisty { appearance: none; border: 0; background: none; cursor: pointer; color: var(--accent); font-size: 13px; width: 18px; padding: 0; }
+table.bom tr.bom-add td { background: var(--panel); }
+.bom-addform { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 2px 0; }
+.bom-addform select, .bom-addform input { background: var(--entry); border-color: #e6d58a; }
+.bom-addform input { width: 120px; }
+
+/* ---------- T-Accounts ---------- */
+.tgroup + .tgroup { margin-top: 22px; }
+.tgroup-title { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; }
+.taccts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; }
+.tacct { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.tacct h3 { margin: 0; padding: 10px 14px 8px; font-size: 15px; text-align: center; border-bottom: 2px solid var(--ink); }
+.tacct .tbody { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
+.tside { padding: 8px 12px 12px; display: grid; align-content: start; gap: 8px; min-width: 0; }
+.tside + .tside { border-left: 2px solid var(--ink); }
+.tside-label { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); font-weight: 700; }
+.tentry { font-size: 13px; line-height: 1.3; }
+.tentry strong { display: block; font-weight: 600; }
+.tentry span { color: var(--muted); }
+.tentry.empty-side { color: var(--faint); }

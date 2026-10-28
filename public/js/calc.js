@@ -108,9 +108,10 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
 // ---------- Labor rate calculator ----------
 // Pay groups (salaried or hourly, with a headcount) and production scenarios
 // (days a week, hours a day, weeks a year, productive share). For a scenario:
-//   salaried cost  = headcount x annual salary x (1 + fringe)   (the same however
-//                    few days production runs, so fewer days = a higher rate)
-//   hourly cost    = headcount x hours worked x rate x (1 + fringe)
+//   salaried cost  = headcount x (annual salary + annual fixed cost)   (the same
+//                    however few days production runs, so fewer days = a higher rate)
+//   hourly cost    = headcount x (hours worked x hourly rate + monthly fringe x 12)
+//                    (the fringe is fixed too; only the wages follow the hours)
 //   labor minutes  = every person's paid production hours x 60 x productive %
 //   rate per labor minute = total cost / labor minutes
 // A "labor minute" is one person working one minute, which is how BOMs count
@@ -121,9 +122,9 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
 export function laborData(data) {
   const s = data.settings || {};
   const groups = (data.labor_groups || []).length ? [...data.labor_groups].sort((a, b) => a.sort - b.sort || a.id - b.id) : [
-    { id: -1, name: 'Salaried', pay_type: 'salaried', headcount: n(s.salaried_count), annual_salary: n(s.salaried_wage), fringe_pct: 0 },
-    { id: -2, name: 'Hourly (A)', pay_type: 'hourly', headcount: n(s.hourly_a_count), hourly_rate: n(s.hourly_a_rate), fringe_pct: 0 },
-    { id: -3, name: 'Hourly (B)', pay_type: 'hourly', headcount: n(s.hourly_b_count), hourly_rate: n(s.hourly_b_rate), fringe_pct: 0 },
+    { id: -1, name: 'Salaried', pay_type: 'salaried', headcount: n(s.salaried_count), annual_salary: n(s.salaried_wage), annual_fixed: 0 },
+    { id: -2, name: 'Hourly (A)', pay_type: 'hourly', headcount: n(s.hourly_a_count), hourly_rate: n(s.hourly_a_rate), monthly_fringe: 0 },
+    { id: -3, name: 'Hourly (B)', pay_type: 'hourly', headcount: n(s.hourly_b_count), hourly_rate: n(s.hourly_b_rate), monthly_fringe: 0 },
   ];
   const scenarios = (data.labor_scenarios || []).length ? [...data.labor_scenarios].sort((a, b) => a.id - b.id)
     : [1, 2, 3, 4, 5].map((k) => ({ id: k, name: `${k} day${k > 1 ? 's' : ''} a week`, days_per_week: k, hours_per_day: 8, weeks_per_year: 52, productive_pct: 100 }));
@@ -140,21 +141,24 @@ export function laborScenario(data, sc, override = {}) {
   const byGroup = groups.map((g) => {
     const people = heads.get(`${sc.id}|${g.id}`) ?? n(g.headcount);
     const hours = people * days * n(hrs) * n(weeks);
-    const pay = g.pay_type === 'salaried' ? people * n(g.annual_salary) : hours * n(g.hourly_rate);
-    const cost = pay * (1 + n(g.fringe_pct) / 100);
-    return { group: g, people, hours, pay, cost, minutes: hours * 60 * productive, overridden: heads.has(`${sc.id}|${g.id}`) };
+    const sal = g.pay_type === 'salaried';
+    const pay = sal ? people * n(g.annual_salary) : hours * n(g.hourly_rate);
+    const fixed = people * (sal ? n(g.annual_fixed) : n(g.monthly_fringe) * 12);
+    const cost = pay + fixed;
+    return { group: g, people, hours, pay, fixed, cost, minutes: hours * 60 * productive, overridden: heads.has(`${sc.id}|${g.id}`) };
   });
   const sum = (f) => byGroup.reduce((t, x) => t + f(x), 0);
   const hours = sum((x) => x.hours); const minutes = sum((x) => x.minutes);
   const salaried = sum((x) => (x.group.pay_type === 'salaried' ? x.cost : 0));
   const hourly = sum((x) => (x.group.pay_type === 'salaried' ? 0 : x.cost));
   const total = salaried + hourly;
+  const wages = sum((x) => x.pay); const fixedCosts = sum((x) => x.fixed);
   const ratePerMin = minutes ? total / minutes : 0;
   const perBatchMin = n(data.settings?.minutes_per_batch);
   const batchOz = n(data.settings?.production_batch_size);
   const totalBatches = perBatchMin ? minutes / perBatchMin : 0;
   return { scenario: s.id, id: s.id, name: s.name, days, hoursPerDay: n(hrs), weeks: n(weeks), productivePct: productive * 100,
-    byGroup, productionDays: days * n(weeks), hours, minutes, salaried, hourly, total,
+    byGroup, productionDays: days * n(weeks), hours, minutes, salaried, hourly, total, wages, fixedCosts,
     avgHourly: hours ? total / hours : 0, ratePerMin, perBatch: ratePerMin * perBatchMin, perOz: batchOz ? (ratePerMin * perBatchMin) / batchOz : 0,
     salariedShare: total ? salaried / total : 0, totalBatches, monthlyBatches: totalBatches / 12 };
 }

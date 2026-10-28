@@ -2,7 +2,7 @@
 // production days, and the standard labor cost per minute for each year.
 import { h, pageHead, numberCell, money, qty, fmt, pct, toast, niceError, confirmDialog, longDate } from '../ui.js';
 import { state, derived, isAdmin, saveSettings, saveCell, saveRow, insertRow, updateRow, deleteLabor } from '../store.js';
-import { laborModel, laborScenario } from '../calc.js';
+import { laborModel, laborScenario, evalEntry } from '../calc.js';
 
 let whatIf = null; // scenario id for the "what if production days change" table
 
@@ -30,6 +30,72 @@ function caseSizes() {
   return [...sizes].sort((a, b) => a[0] - b[0]).map(([oz, names]) => ({ oz, names }));
 }
 
+// Every detail of one pay group, with what it costs in each scenario.
+function groupDialog(g, lm, data, can) {
+  const f = {
+    name: h('input', { type: 'text', required: true, value: g.name, disabled: !can }),
+    pay_type: h('select', { disabled: !can }, h('option', { value: 'hourly', selected: g.pay_type !== 'salaried' }, 'Hourly'), h('option', { value: 'salaried', selected: g.pay_type === 'salaried' }, 'Salaried')),
+    headcount: h('input', { type: 'text', inputmode: 'decimal', value: g.headcount ?? '', disabled: !can }),
+    hourly_rate: h('input', { type: 'text', inputmode: 'decimal', value: g.hourly_rate ?? '', disabled: !can, placeholder: '0.00' }),
+    monthly_fringe: h('input', { type: 'text', inputmode: 'decimal', value: g.monthly_fringe ?? '', disabled: !can, placeholder: '0.00' }),
+    annual_salary: h('input', { type: 'text', inputmode: 'decimal', value: g.annual_salary ?? '', disabled: !can, placeholder: '0.00' }),
+    annual_fixed: h('input', { type: 'text', inputmode: 'decimal', value: g.annual_fixed ?? '', disabled: !can, placeholder: '0.00' }),
+    notes: h('textarea', { rows: 3, disabled: !can, placeholder: 'What the fixed cost covers, who is in the group…' }, g.notes || ''),
+  };
+  const num = (el) => { const v = el.value.trim(); if (!v) return null; const x = evalEntry(v); return x; };
+  const hourlyBox = h('div', { class: 'row' }, h('label', { class: 'field' }, 'Hourly rate (per person)', f.hourly_rate), h('label', { class: 'field' }, 'Monthly fringe cost (per person)', f.monthly_fringe));
+  const salariedBox = h('div', { class: 'row' }, h('label', { class: 'field' }, 'Annual salary (per person)', f.annual_salary), h('label', { class: 'field' }, 'Annual fixed cost (per person)', f.annual_fixed));
+  const summary = h('div', { class: 'gd-summary' });
+  const draft = () => {
+    const out = { ...g, name: f.name.value.trim() || g.name, pay_type: f.pay_type.value, notes: f.notes.value.trim() || null };
+    for (const k of ['headcount', 'hourly_rate', 'monthly_fringe', 'annual_salary', 'annual_fixed']) { try { out[k] = num(f[k]); } catch { out[k] = g[k]; } }
+    out.headcount = out.headcount ?? 0;
+    return out;
+  };
+  const refresh = () => {
+    const x = draft(); const sal = x.pay_type === 'salaried';
+    hourlyBox.hidden = sal; salariedBox.hidden = !sal;
+    const per = sal ? n(x.annual_salary) + n(x.annual_fixed) : n(x.monthly_fringe) * 12;
+    const trial = { ...data, labor_groups: data.labor_groups.map((y) => (y.id === g.id ? x : y)) };
+    summary.replaceChildren(
+      h('div', { class: 'gd-cards' },
+        h('div', null, h('span', null, 'Fixed per person per year'), h('strong', null, money(per, 0))),
+        h('div', null, h('span', null, 'Fixed for the group per year'), h('strong', null, money(per * n(x.headcount), 0))),
+        h('div', null, h('span', null, sal ? 'Paid whatever the schedule' : 'Wages per hour worked (group)'), h('strong', null, sal ? '—' : money(n(x.hourly_rate) * n(x.headcount))))),
+      h('table', { class: 't gd-table' },
+        h('thead', null, h('tr', null, h('th', null, 'Scenario'), h('th', { class: 'num' }, 'People'), h('th', { class: 'num' }, 'Hours a year'),
+          h('th', { class: 'num' }, sal ? 'Salaries' : 'Wages'), h('th', { class: 'num' }, sal ? 'Fixed costs' : 'Fringe'), h('th', { class: 'num' }, 'Group cost'), h('th', { class: 'num' }, 'Cost per labor min'))),
+        h('tbody', null, lm.scenarios.map((sc) => {
+          const r = laborScenario(trial, sc); const b = r.byGroup.find((y) => y.group.id === g.id);
+          return h('tr', null, h('td', null, sc.name), h('td', { class: 'num' }, qty(b.people, 2)), h('td', { class: 'num' }, fmt(b.hours)),
+            h('td', { class: 'num' }, money(b.pay, 0)), h('td', { class: 'num' }, money(b.fixed, 0)), h('td', { class: 'num strong' }, money(b.cost, 0)),
+            h('td', { class: 'num' }, b.minutes ? '$' + qty(b.cost / b.minutes, 4) : '—'));
+        }))));
+  };
+  for (const el of Object.values(f)) el.addEventListener('input', refresh);
+  const dlg = h('dialog', { class: 'group-dialog' }, h('form', { method: 'dialog', onsubmit: async (e) => {
+      if (e.submitter?.value !== 'save') return;
+      e.preventDefault();
+      try {
+        const patch = { name: f.name.value.trim(), pay_type: f.pay_type.value, notes: f.notes.value.trim() || null };
+        if (!patch.name) throw new Error('Give the group a name.');
+        for (const k of ['headcount', 'hourly_rate', 'monthly_fringe', 'annual_salary', 'annual_fixed']) patch[k] = num(f[k]);
+        patch.headcount = patch.headcount ?? 0;
+        await updateRow('labor_groups', 'id', g.id, patch); dlg.close(); toast(`${patch.name} saved.`);
+      } catch (err) { toast(niceError(err), 'bad'); }
+    } },
+    h('h3', null, `Pay group: ${g.name}`),
+    h('div', { class: 'row' }, h('label', { class: 'field' }, 'Name', f.name), h('label', { class: 'field' }, 'Paid', f.pay_type), h('label', { class: 'field' }, 'People', f.headcount)),
+    hourlyBox, salariedBox,
+    h('label', { class: 'field' }, 'Notes', f.notes),
+    summary,
+    h('div', { class: 'actions' }, h('button', { class: 'btn', value: 'cancel', formnovalidate: true }, can ? 'Cancel' : 'Close'),
+      can ? h('button', { class: 'btn primary', value: 'save' }, 'Save') : null)));
+  dlg.addEventListener('close', () => dlg.remove());
+  refresh();
+  document.body.append(dlg); dlg.showModal();
+}
+
 export default {
   id: 'labor',
   label: 'Labor',
@@ -43,7 +109,7 @@ export default {
     if (!whatIf || !lm.byId.has(whatIf)) whatIf = lm.years.get(new Date().getFullYear())?.labor_scenario || lm.results[0]?.id;
 
     const addGroup = async () => {
-      try { await insertRow('labor_groups', { name: 'New group', pay_type: 'hourly', headcount: 1, hourly_rate: 0, fringe_pct: 0, sort: Math.max(0, ...d.labor_groups.map((g) => g.sort)) + 1 }); }
+      try { await insertRow('labor_groups', { name: 'New group', pay_type: 'hourly', headcount: 1, hourly_rate: 0, monthly_fringe: 0, sort: Math.max(0, ...d.labor_groups.map((g) => g.sort)) + 1 }); }
       catch (err) { toast(niceError(err), 'bad'); }
     };
     const addScenario = async () => {
@@ -88,29 +154,40 @@ export default {
         h('tbody', null, yearRows))));
 
     // ---------- 2. pay groups ----------
+    const na = () => h('td', { class: 'num blank' }, '—');
+    const money2 = (v) => (v === null || v === undefined || v === '' ? '' : money(n(v)));
     const groups = h('section', { class: 'panel' },
       h('h2', null, h('span', { class: 'grow' }, 'Pay groups'), can ? h('button', { class: 'btn ghost', onclick: addGroup }, '+ Add pay group') : null),
-      h('p', { class: 'panel-note' }, 'Salaried pay is a yearly cost however many days production runs. Hourly pay follows the hours worked in each scenario. Fringe covers payroll taxes and benefits.'),
-      h('div', { class: 'tablewrap flat' }, h('table', { class: 't' },
-        h('thead', null, h('tr', null, h('th', null, 'Group'), h('th', null, 'Paid'), h('th', { class: 'num' }, 'People'), h('th', { class: 'num' }, 'Annual salary (each)'),
-          h('th', { class: 'num' }, 'Hourly rate'), h('th', { class: 'num' }, 'Fringe %'), h('th', { class: 'num' }, 'Cost'), h('th'))),
+      h('p', { class: 'panel-note' }, 'Hourly groups: an hourly rate plus a monthly fringe cost. Salaried groups: an annual salary plus an annual fixed cost. Amounts are per person. Salaries and fixed costs are paid whatever the schedule; hourly wages follow the hours worked in each scenario. Use Details for the full breakdown.'),
+      h('div', { class: 'tablewrap flat' }, h('table', { class: 't pay-groups' },
+        h('thead', null,
+          h('tr', { class: 'group' }, h('th'), h('th'), h('th'), h('th', { colspan: 2 }, 'Hourly · per person'), h('th', { colspan: 2 }, 'Salaried · per person'), h('th', { colspan: 2 }, 'Whole group'), h('th')),
+          h('tr', null, h('th', null, 'Group'), h('th', null, 'Paid'), h('th', { class: 'num' }, 'People'),
+            h('th', { class: 'num' }, 'Hourly rate'), h('th', { class: 'num' }, 'Monthly fringe'),
+            h('th', { class: 'num' }, 'Annual salary'), h('th', { class: 'num' }, 'Annual fixed cost'),
+            h('th', { class: 'num' }, 'Fixed per year'), h('th', { class: 'num' }, 'Wages per hour worked'), h('th'))),
         h('tbody', null, lm.groups.map((g) => {
-          const sal = g.pay_type === 'salaried'; const f = 1 + n(g.fringe_pct) / 100;
+          const sal = g.pay_type === 'salaried'; const people = n(g.headcount);
+          const fixedYear = people * (sal ? n(g.annual_salary) + n(g.annual_fixed) : n(g.monthly_fringe) * 12);
           return h('tr', null,
             textCell(g.name, saveGroup(g, 'name'), { disabled: !can, label: 'Group name', key: `lg|${g.id}|name` }),
             h('td', null, h('select', { disabled: !can, 'aria-label': `How ${g.name} is paid`, onchange: (e) => saveGroup(g, 'pay_type')(e.target.value).catch((err) => toast(niceError(err), 'bad')) },
-              h('option', { value: 'salaried', selected: sal }, 'Salaried'), h('option', { value: 'hourly', selected: !sal }, 'Hourly'))),
-            numberCell(n(g.headcount), saveGroup(g, 'headcount'), { disabled: !can, digits: 2, key: `lg|${g.id}|heads`, title: `${g.name}: people` }),
-            sal ? numberCell(g.annual_salary ?? null, saveGroup(g, 'annual_salary'), { disabled: !can, digits: 2, key: `lg|${g.id}|sal`, title: `${g.name}: annual salary each` }) : h('td', { class: 'num blank' }, '—'),
-            sal ? h('td', { class: 'num blank' }, '—') : numberCell(g.hourly_rate ?? null, saveGroup(g, 'hourly_rate'), { disabled: !can, digits: 2, key: `lg|${g.id}|rate`, title: `${g.name}: hourly rate` }),
-            numberCell(n(g.fringe_pct), saveGroup(g, 'fringe_pct'), { disabled: !can, digits: 2, key: `lg|${g.id}|fringe`, title: `${g.name}: fringe %` }),
-            h('td', { class: 'num calc' }, sal ? `${dollars(n(g.headcount) * n(g.annual_salary) * f)} / yr` : `${money(n(g.headcount) * n(g.hourly_rate) * f)} / hr`),
-            h('td', null, can ? h('button', { class: 'btn icon-btn danger', title: 'Remove group', 'aria-label': `Remove ${g.name}`, onclick: async () => {
-              if (await confirmDialog(`Remove the ${g.name} pay group from every scenario?`, 'Remove')) deleteLabor('group', g.id).catch((err) => toast(niceError(err), 'bad'));
-            } }, '×') : null));
+              h('option', { value: 'hourly', selected: !sal }, 'Hourly'), h('option', { value: 'salaried', selected: sal }, 'Salaried'))),
+            numberCell(people, saveGroup(g, 'headcount'), { disabled: !can, digits: 2, key: `lg|${g.id}|heads`, title: `${g.name}: people` }),
+            sal ? na() : numberCell(g.hourly_rate ?? null, saveGroup(g, 'hourly_rate'), { disabled: !can, digits: 4, key: `lg|${g.id}|rate`, title: `${g.name}: hourly rate per person` }),
+            sal ? na() : numberCell(g.monthly_fringe ?? null, saveGroup(g, 'monthly_fringe'), { disabled: !can, digits: 2, key: `lg|${g.id}|mfringe`, title: `${g.name}: monthly fringe cost per person` }),
+            sal ? numberCell(g.annual_salary ?? null, saveGroup(g, 'annual_salary'), { disabled: !can, digits: 2, key: `lg|${g.id}|sal`, title: `${g.name}: annual salary per person` }) : na(),
+            sal ? numberCell(g.annual_fixed ?? null, saveGroup(g, 'annual_fixed'), { disabled: !can, digits: 2, key: `lg|${g.id}|afixed`, title: `${g.name}: annual fixed cost per person` }) : na(),
+            h('td', { class: 'num calc' }, dollars(fixedYear)),
+            h('td', { class: 'num calc' }, sal ? '—' : money(people * n(g.hourly_rate))),
+            h('td', { class: 'row-actions' },
+              h('button', { class: 'btn ghost', onclick: () => groupDialog(g, lm, d, can) }, can ? 'Details' : 'View'),
+              can ? h('button', { class: 'btn icon-btn danger', title: 'Remove group', 'aria-label': `Remove ${g.name}`, onclick: async () => {
+                if (await confirmDialog(`Remove the ${g.name} pay group from every scenario?`, 'Remove')) deleteLabor('group', g.id).catch((err) => toast(niceError(err), 'bad'));
+              } }, '×') : null));
         })))));
 
-    const batch = h('section', { class: 'panel' },
+    const batch = h('section', { class: 'panel batch-panel' },
       h('h2', null, 'Batch assumptions'),
       h('table', { class: 't batch-table' }, h('tbody', null,
         h('tr', null, h('td', null, 'Labor minutes per batch', h('div', { class: 'small muted' }, 'All people’s minutes added up (3 people × 40 min = 120)')),
@@ -148,10 +225,11 @@ export default {
           outRow('Production days a year', (r) => fmt(r.productionDays, 1)),
           outRow('Paid production hours', (r) => fmt(r.hours)),
           outRow('Productive labor minutes', (r) => fmt(r.minutes)),
-          outRow('Salaried cost', (r) => dollars(r.salaried)),
-          outRow('Hourly cost', (r) => dollars(r.hourly)),
+          outRow('Hourly wages', (r) => dollars(r.byGroup.reduce((t, x) => t + (x.group.pay_type === 'salaried' ? 0 : x.pay), 0))),
+          outRow('Salaries', (r) => dollars(r.byGroup.reduce((t, x) => t + (x.group.pay_type === 'salaried' ? x.pay : 0), 0))),
+          outRow('Fixed costs (fringe, benefits…)', (r) => dollars(r.fixedCosts)),
           outRow('Total labor cost', (r) => dollars(r.total), 'strong-row'),
-          outRow('Salaried share of cost', (r) => pct(r.salariedShare)),
+          outRow('Fixed share of cost', (r) => pct(r.total ? (r.total - r.byGroup.reduce((t, x) => t + (x.group.pay_type === 'salaried' ? 0 : x.pay), 0)) / r.total : 0)),
           outRow('Average cost per paid hour', (r) => money(r.avgHourly)),
           outRow('Cost per labor minute', (r) => perMin(r.ratePerMin), 'key-row'),
           outRow(`Labor per batch (${fmt(s.minutes_per_batch)} min)`, (r) => money(r.perBatch)),
@@ -195,7 +273,7 @@ export default {
         can ? h('button', { class: 'btn', onclick: addScenario }, '+ Add scenario') : null,
         h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor calculator yet, so these figures come from the old staffing settings and can’t be edited. They become editable after the next deploy to main.') : null),
-      standards, h('div', { class: 'grid2 labor-grid' }, groups, batch), scenarios, whatPanel);
+      standards, groups, batch, scenarios, whatPanel);
   },
 };
 

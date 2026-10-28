@@ -297,21 +297,25 @@ with sync_playwright() as p:
 
     # ---- labor rate: every year set up on its own; all paid time in the rate ----
     st = inputs['settings']
-    def want(line_hours=16, sal_fixed=0, a_fringe=0, salary=None, hourly_week=None, a_rate_f=1):
+    def want(line_hours=16, sal_fixed=0, a_fringe=0, salary=None, a_rate_f=1):
+        # everyone on the line whenever it runs; hourly paid for those hours, salaried their salary
         salary = st['salaried_wage'] if salary is None else salary
-        hw = line_hours if hourly_week is None else hourly_week
-        hw = min(hw, 40)
-        sal = st['salaried_count'] * (salary + sal_fixed)
-        sal_line = st['salaried_count'] * min(40, line_hours) * 52
-        ha = st['hourly_a_count'] * hw * 52; hb = st['hourly_b_count'] * hw * 52
-        cost = sal + (ha * st['hourly_a_rate'] + hb * st['hourly_b_rate']) * a_rate_f + st['hourly_a_count'] * a_fringe * 12
-        return cost / ((sal_line + min(ha, st['hourly_a_count'] * line_hours * 52) + min(hb, st['hourly_b_count'] * line_hours * 52)) * 60)
+        heads = st['salaried_count'] + st['hourly_a_count'] + st['hourly_b_count']
+        ha = st['hourly_a_count'] * line_hours * 52; hb = st['hourly_b_count'] * line_hours * 52
+        cost = st['salaried_count'] * (salary + sal_fixed) + (ha * st['hourly_a_rate'] + hb * st['hourly_b_rate']) * a_rate_f + st['hourly_a_count'] * a_fringe * 12
+        return cost / (heads * line_hours * 52 * 60)
     rate_now = lambda: float(page.locator('.labor-cards .stat.key .value').inner_text().strip('$'))
     tab(page, 'Labor')
     side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
     check(abs(side_w - 504) <= 3, f'the Labor side bar takes 35% of the width ({side_w}px)')
     ok = page.evaluate("(() => { const box = document.querySelector('.side-inner'); return ['table.side-years', 'table.side-people'].map(sel => { const t = document.querySelector('.sidebar ' + sel); return t && t.scrollWidth <= box.clientWidth && [...t.querySelectorAll('td, th')].every(c => { const r = c.getBoundingClientRect(); return [...c.querySelectorAll('*:not(option)')].every(e => e.getBoundingClientRect().right <= r.right + 1) && (c.querySelector('input, select') || c.scrollWidth <= c.clientWidth + 1); }); }); })()")
     check(ok == [True, True], f'the year and people tables fit the side bar without wrapping or scrolling ({ok})')
+    heads = page.locator('table.side-people thead th').all_inner_texts()
+    check(heads[:4] == ['Position', 'Pay', 'Fringe', '#'], f'people columns: Position, Pay, Fringe, # ({heads})')
+    check(page.evaluate("getComputedStyle(document.querySelector('table.side-people .pos-input')).textAlign") in ('left', 'start'), 'position names are left aligned')
+    pay = page.locator('input[data-k="lp|1|annual_salary"]').input_value()
+    check(pay == '$' + '{:,.0f}'.format(st['salaried_wage']), f'pay shows with $ and commas ({pay})')
+    check(page.locator('table.side-people input[data-k$="paid_hours_week"]').count() == 0, 'no hours-per-week column')
     yrs = [t[:4] for t in page.locator('table.side-years tbody tr td:first-child').all_inner_texts()]
     import datetime
     check(yrs == [str(y) for y in range(2026, datetime.date.today().year + 2)], f'years run from 2026 to next year ({yrs})')
@@ -323,7 +327,7 @@ with sync_playwright() as p:
     check(abs(rate_now() - want(sal_fixed=20000, a_fringe=450)) < 1e-4, f'annual fixed cost (salaried) and monthly fringe (hourly) are added ({rate_now()})')
     check(page.locator('text=Line efficiency').count() == 0, 'there is no line efficiency setting (100% assumed)')
     c = cell(page, 'ly|2026|labor_line_hours'); c.click(); c.fill('24'); c.press('Tab'); page.wait_for_timeout(250)
-    check(abs(rate_now() - want(24, sal_fixed=20000, a_fringe=450, hourly_week=16)) < 1e-4, f'running the line 24 hours a week puts salaried people on it longer ({rate_now()})')
+    check(abs(rate_now() - want(24, sal_fixed=20000, a_fringe=450)) < 1e-4, f'running the line 24 hours a week puts everyone on it longer ({rate_now()})')
     check(page.evaluate("window.__MOCK_DB__.year_settings.find(y => y.year === 2026).labor_line_hours") == 24, 'production hours a week are saved for the year')
     c = cell(page, 'ly|2026|labor_line_hours'); c.click(); c.fill('16'); c.press('Tab'); page.wait_for_timeout(250)
     rec_row = page.locator('table.recipes-labor tbody tr').first

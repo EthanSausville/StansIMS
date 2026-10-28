@@ -651,9 +651,10 @@ button.linkish { border: 0; background: none; padding: 0; font: inherit; font-we
 .side-sep { margin-top: 6px; }
 table.side-people { width: 100%; font-size: 13px; table-layout: fixed; }
 table.side-people th, table.side-people td { padding: 5px 5px; white-space: nowrap; }
-table.side-people th:nth-child(1) { width: 27%; } table.side-people th:nth-child(2) { width: 11%; }
-table.side-people th:nth-child(3) { width: 19%; } table.side-people th:nth-child(4) { width: 15%; }
-table.side-people th:nth-child(5) { width: 12%; } table.side-people th:nth-child(6) { width: 16%; }
+table.side-people th:nth-child(1) { width: 34%; } table.side-people th:nth-child(2) { width: 23%; }
+table.side-people th:nth-child(3) { width: 19%; } table.side-people th:nth-child(4) { width: 10%; }
+table.side-people th:nth-child(5) { width: 14%; }
+table.side-people th.pos-h, table.side-people td.pos, table.t.side-people td.pos.cell input.pos-input { text-align: left; }
 table.side-people .row-actions .icon-btn { min-width: 0; }
 table.side-people td.cell input { width: 100%; padding: 5px 4px; }
 table.side-people .pos-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }

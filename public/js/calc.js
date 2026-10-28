@@ -25,7 +25,7 @@ const n = (v) => (v === null || v === undefined || v === '' || Number.isNaN(Numb
 // Returns a number, null for an empty cell, or throws on anything else.
 export function evalEntry(text) {
   if (text === null || text === undefined) return null;
-  let s = String(text).trim().replace(/,/g, '');
+  let s = String(text).trim().replace(/[,$]/g, '');
   if (s.startsWith('=')) s = s.slice(1);
   if (s === '') return null;
   let i = 0;
@@ -116,11 +116,10 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
 //      + fixed benefits (monthly for hourly people, annual for salaried).
 //      Hourly people are paid for the hours they work in the weeks the line
 //      runs (no paid time off); salaried people are paid all 52 weeks.
-//   2. Line hours: the line runs the year's production hours a week. Someone
-//      who works the line is on it while it runs, up to their paid hours.
-//   3. Labor rate = all paid labor cost / minutes on the line. All paid time
-//      is included, so a salaried person paid 40 hours who is on a 16-hour
-//      line has 40 hours of pay spread over 16 hours of minutes.
+//   2. Line hours: the line runs the year's production hours a week, and
+//      everyone who works the line is on it whenever it runs.
+//   3. Labor rate = all labor cost / minutes on the line. A salaried
+//      person's whole salary is spread over the minutes they're on the line.
 // A labor minute is one person working one minute, as BOMs count minutes per batch.
 
 export const LABOR_FIRST_YEAR = 2026;
@@ -130,23 +129,21 @@ export const laborYears = (now = new Date().getFullYear()) => Array.from({ lengt
 const laborPlant = (y = {}) => ({ paidWeeks: 52, prodWeeks: y.labor_prod_weeks ?? 52, lineHours: n(y.labor_line_hours) });
 
 // One position for the year. `lineHours` overrides the production hours a
-// week (what-ifs): hourly people who only work the line then work the line's
-// hours, up to 40 a week.
+// week (what-ifs). Everyone who works the line is on it whenever it runs:
+// hourly people are paid for those hours; salaried people are paid their
+// salary whatever the hours.
 export function laborPosition(p, plant, lineHours) {
   const people = n(p.headcount); const sal = p.pay_type === 'salaried';
   const onLine = p.on_line !== false;
-  let week = n(p.paid_hours_week ?? 40);
   const H = lineHours ?? plant.lineHours;
-  if (!sal && onLine && lineHours !== undefined && week <= plant.lineHours) week = Math.min(lineHours, 40);
-  const lineWeek = onLine ? Math.min(week, H) : 0;
-  const paidHours = people * week * (sal ? plant.paidWeeks : plant.prodWeeks);
+  const lineWeek = onLine ? H : 0;
   const lineHrs = people * lineWeek * plant.prodWeeks;
-  const base = sal ? people * n(p.annual_salary) : paidHours * n(p.hourly_rate);
+  const hourlyHours = onLine ? lineHrs : people * n(p.paid_hours_week) * plant.prodWeeks;
+  const base = sal ? people * n(p.annual_salary) : hourlyHours * n(p.hourly_rate);
   const tax = base * n(p.payroll_tax_pct) / 100;
   const benefits = people * (sal ? n(p.annual_fixed) : n(p.monthly_fringe) * 12);
   const burdened = base + tax + benefits;
-  return { position: p, people, salaried: sal, onLine, week, lineWeek, paidHours, lineHours: lineHrs, base, tax, benefits, burdened,
-    share: paidHours ? lineHrs / paidHours : 0, minutes: lineHrs * 60, perPaidHour: paidHours ? burdened / paidHours : 0 };
+  return { position: p, people, salaried: sal, onLine, lineWeek, lineHours: lineHrs, base, tax, benefits, burdened, minutes: lineHrs * 60 };
 }
 
 // A year's labor setup. A year with its own people uses them; a year without
@@ -191,7 +188,7 @@ export function laborRate(data, { year, lineHours } = {}) {
   }) : [];
   const H = lineHours ?? plant.lineHours;
   return { year, setup, plant, lineHoursWeek: H, crew: H ? sum((r) => r.people * r.lineWeek) / H : 0, rows, recipes, burdened, base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
-    minutes, lineHours: sum((r) => r.lineHours), paidHours: sum((r) => r.paidHours), rate };
+    minutes, lineHours: sum((r) => r.lineHours), rate };
 }
 
 // The workbook's Labor Scenarios sheet: scenario k = k days a week for everyone,

@@ -88,11 +88,14 @@ export const typePill = (type) => h('span', { class: 'pill ' + ({ 'Raw Material'
 
 // A number input that accepts arithmetic ("175*45"), saves on change, and
 // shows saving / saved / error states. save(value|null) must return a promise.
-export function numberCell(value, save, { disabled = false, digits = 4, title, wide = false, placeholder, key, cls } = {}) {
-  const shown = (v) => (v === null || v === undefined ? '' : qty(v, digits).replace(/,/g, ''));
+// `display(v)` formats the value while the cell isn't being edited (e.g. $1,250.00).
+export function numberCell(value, save, { disabled = false, digits = 4, title, wide = false, placeholder, key, cls, display } = {}) {
+  const raw = (v) => (v === null || v === undefined ? '' : qty(v, digits).replace(/,/g, ''));
+  const shown = (v) => (v === null || v === undefined ? '' : display ? display(v) : raw(v));
   const input = h('input', { type: 'text', inputmode: 'decimal', value: shown(value), disabled, title, placeholder, class: wide ? 'wide' : null, 'aria-label': title, 'data-k': key });
   let last = value ?? null;
-  input.addEventListener('focus', () => { input.select(); });
+  input.addEventListener('focus', () => { if (display) input.value = raw(last); input.select(); });
+  if (display) input.addEventListener('blur', () => { if (!input.classList.contains('error') && !input.classList.contains('saving')) setTimeout(() => { if (document.activeElement !== input && !input.classList.contains('error')) input.value = shown(last); }, 0); });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); moveFocus(input, e.key === 'ArrowUp' ? -1 : 1); }
     if (e.key === 'Escape') { input.value = shown(last); input.blur(); }

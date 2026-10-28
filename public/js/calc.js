@@ -149,11 +149,38 @@ export function laborPosition(p, plant, lineHours) {
     share: paidHours ? lineHrs / paidHours : 0, minutes: lineHrs * 60, perPaidHour: paidHours ? burdened / paidHours : 0 };
 }
 
-export function laborRate(data, { year, lineHours } = {}) {
+// A year's labor setup. A year with its own people uses them; a year without
+// starts from the year before (its own or forecast setup), with pay and fixed
+// costs raised by the year's inflation adjustment %. Line hours and weeks
+// carry over unless the year sets its own.
+export const PAY_FIELDS = ['hourly_rate', 'monthly_fringe', 'annual_salary', 'annual_fixed'];
+export function laborSetup(data, year, now = new Date().getFullYear()) {
   const ys = (data.year_settings || []).find((y) => y.year === year) || {};
-  const plant = laborPlant(ys);
-  const rows = (data.labor_positions || []).filter((p) => year === undefined || p.year === year)
-    .sort((a, b) => n(a.sort) - n(b.sort) || n(a.id) - n(b.id)).map((p) => laborPosition(p, plant, lineHours));
+  const own = (data.labor_positions || []).filter((p) => p.year === year);
+  let out;
+  if (own.length || year <= LABOR_FIRST_YEAR) {
+    out = { year, positions: own, settings: ys, fromYear: null, inflation: 0, own: own.length > 0 };
+  } else {
+    const prev = laborSetup(data, year - 1, now);
+    const infl = n(ys.labor_inflation_pct);
+    const f = 1 + infl / 100;
+    out = { year, fromYear: year - 1, inflation: infl, own: false,
+      positions: prev.positions.map((p) => ({ ...p, id: `f${year}-${p.sourceId ?? p.id}`, sourceId: p.sourceId ?? p.id, year, forecast: true,
+        ...Object.fromEntries(PAY_FIELDS.map((k) => [k, p[k] === null || p[k] === undefined ? p[k] : Math.round(n(p[k]) * f * 10000) / 10000])) })),
+      settings: { ...ys, labor_line_hours: ys.labor_line_hours ?? prev.settings.labor_line_hours, labor_prod_weeks: ys.labor_prod_weeks ?? prev.settings.labor_prod_weeks } };
+  }
+  // A forecast until the year begins. A year that has begun without its own
+  // people is still the forecast, and needs review.
+  out.forecast = year > now || !out.own;
+  out.needsReview = year <= now && !out.own && out.positions.length > 0;
+  return out;
+}
+
+export function laborRate(data, { year, lineHours } = {}) {
+  const setup = year === undefined ? { positions: data.labor_positions || [], settings: {} } : laborSetup(data, year);
+  const plant = laborPlant(setup.settings);
+  const rows = [...setup.positions].sort((a, b) => n(a.sort) - n(b.sort) || String(a.sourceId ?? a.id).localeCompare(String(b.sourceId ?? b.id), undefined, { numeric: true }))
+    .map((p) => laborPosition(p, plant, lineHours));
   const sum = (f) => rows.reduce((t, r) => t + f(r), 0);
   const burdened = sum((r) => r.burdened); const minutes = sum((r) => r.minutes);
   const rate = minutes ? burdened / minutes : 0;
@@ -163,7 +190,7 @@ export function laborRate(data, { year, lineHours } = {}) {
     return { item: r, batchOz, minutesPer, perBatch: rate * minutesPer, perOz: batchOz ? (rate * minutesPer) / batchOz : 0, batchesPerYear: minutesPer ? minutes / minutesPer : 0 };
   }) : [];
   const H = lineHours ?? plant.lineHours;
-  return { year, plant, lineHoursWeek: H, crew: H ? sum((r) => r.people * r.lineWeek) / H : 0, rows, recipes, burdened, base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
+  return { year, setup, plant, lineHoursWeek: H, crew: H ? sum((r) => r.people * r.lineWeek) / H : 0, rows, recipes, burdened, base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
     minutes, lineHours: sum((r) => r.lineHours), paidHours: sum((r) => r.paidHours), rate };
 }
 
@@ -197,7 +224,8 @@ export function laborModel(data) {
   const years = new Map((data.year_settings || []).map((y) => [y.year, y]));
   const cache = new Map();
   const forYear = (year) => { if (!cache.has(year)) cache.set(year, laborRate(data, { year })); return cache.get(year); };
-  const rateFor = (year) => (hasPositions ? forYear(year).rate : legacy[(years.get(year)?.labor_scenario || 0) - 1]?.ratePerMin ?? 0);
+  const last = laborYears().at(-1);
+  const rateFor = (year) => (hasPositions ? (year <= last ? forYear(year).rate : 0) : legacy[(years.get(year)?.labor_scenario || 0) - 1]?.ratePerMin ?? 0);
   return { hasPositions, years, forYear, rateFor };
 }
 

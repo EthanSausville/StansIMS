@@ -174,6 +174,7 @@ alter table public.year_settings drop constraint if exists year_settings_labor_s
 alter table public.year_settings alter column labor_scenario drop not null;
 alter table public.year_settings add column if not exists labor_prod_weeks numeric; -- weeks the line runs (blank = 52)
 alter table public.year_settings add column if not exists labor_line_hours numeric; -- production hours a week
+alter table public.year_settings add column if not exists labor_inflation_pct numeric; -- a year without its own people starts from the year before, raised by this %
 
 -- First time: the earliest standards year's people, from the old staffing
 -- settings. The line ran that year's workbook scenario days x 8 hours a week;

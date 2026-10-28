@@ -297,25 +297,24 @@ with sync_playwright() as p:
 
     # ---- labor rate: every year set up on its own; all paid time in the rate ----
     st = inputs['settings']
-    def want(line_hours=16, sal_fixed=0, a_fringe=0, salary=None, hourly_week=None):
+    def want(line_hours=16, sal_fixed=0, a_fringe=0, salary=None, hourly_week=None, a_rate_f=1):
         salary = st['salaried_wage'] if salary is None else salary
         hw = line_hours if hourly_week is None else hourly_week
         hw = min(hw, 40)
         sal = st['salaried_count'] * (salary + sal_fixed)
         sal_line = st['salaried_count'] * min(40, line_hours) * 52
         ha = st['hourly_a_count'] * hw * 52; hb = st['hourly_b_count'] * hw * 52
-        cost = sal + ha * st['hourly_a_rate'] + hb * st['hourly_b_rate'] + st['hourly_a_count'] * a_fringe * 12
+        cost = sal + (ha * st['hourly_a_rate'] + hb * st['hourly_b_rate']) * a_rate_f + st['hourly_a_count'] * a_fringe * 12
         return cost / ((sal_line + min(ha, st['hourly_a_count'] * line_hours * 52) + min(hb, st['hourly_b_count'] * line_hours * 52)) * 60)
     rate_now = lambda: float(page.locator('.labor-cards .stat.key .value').inner_text().strip('$'))
     tab(page, 'Labor')
     side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
     check(abs(side_w - 504) <= 3, f'the Labor side bar takes 35% of the width ({side_w}px)')
-    ok = page.evaluate("(() => { const box = document.querySelector('.side-inner'); return ['table.side-years', 'table.side-people'].map(sel => { const t = document.querySelector('.sidebar ' + sel); return t && t.scrollWidth <= box.clientWidth && [...t.querySelectorAll('td, th')].every(c => c.scrollWidth <= c.clientWidth + 1); }); })()")
+    ok = page.evaluate("(() => { const box = document.querySelector('.side-inner'); return ['table.side-years', 'table.side-people'].map(sel => { const t = document.querySelector('.sidebar ' + sel); return t && t.scrollWidth <= box.clientWidth && [...t.querySelectorAll('td, th')].every(c => { const r = c.getBoundingClientRect(); return [...c.querySelectorAll('*:not(option)')].every(e => e.getBoundingClientRect().right <= r.right + 1) && (c.querySelector('input, select') || c.scrollWidth <= c.clientWidth + 1); }); }); })()")
     check(ok == [True, True], f'the year and people tables fit the side bar without wrapping or scrolling ({ok})')
-    yrs = page.locator('table.side-years tbody tr td:first-child').all_inner_texts()
+    yrs = [t[:4] for t in page.locator('table.side-years tbody tr td:first-child').all_inner_texts()]
     import datetime
     check(yrs == [str(y) for y in range(2026, datetime.date.today().year + 2)], f'years run from 2026 to next year ({yrs})')
-    check('Not set up' in page.locator('table.side-years tbody tr').last.inner_text(), 'next year starts empty')
     shot(page, '37-labor')
     check(abs(rate_now() - want()) < 1e-4, f'all paid time is in the labor rate: the 2-day rate matches the workbook ({rate_now()} vs {want():.4f})')
     check(page.get_by_label('Paid time off the line goes to').count() == 0, 'there is no option to leave paid time out')
@@ -344,26 +343,39 @@ with sync_playwright() as p:
     shot(page, '38-position-details')
     dlg.get_by_role('button', name='Save').click(); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.labor_positions.find(p => p.id === 2).notes") == 'Line crew', 'details save notes')
-    # next year: empty until set up; start it from this year's people, then change its pay
+    # next year: a forecast from this year + inflation until it has its own people
     nxt = datetime.date.today().year + 1
+    this_rate = rate_now()
+    check('forecast' in page.locator('table.side-years tbody tr').last.inner_text(), f'{nxt} is marked as a forecast')
     page.get_by_role('button', name=f'Show {nxt}').click(); page.wait_for_timeout(200)
-    check(page.get_by_text(f'{nxt} isn’t set up yet').is_visible(), f'{nxt} must be set up on its own')
+    check(abs(rate_now() - this_rate) < 1e-4, f'{nxt} starts from {nxt - 1}’s people ({rate_now()})')
+    c = cell(page, f'ly|{nxt}|labor_inflation_pct'); c.click(); c.fill('3'); c.press('Tab'); page.wait_for_timeout(250)
+    check(abs(rate_now() - this_rate * 1.03) < 1e-4, f'a 3% inflation adjustment raises the {nxt} forecast 3% ({rate_now()})')
+    check(page.locator('table.side-people.is-forecast').count() == 1 and page.locator('table.side-people input[data-k*="headcount"]').first.is_disabled(), 'forecast people are shown read-only')
+    shot(page, '39-labor-forecast')
     tab(page, 'Standard Cost')
     col = 5 + (nxt - 2026)
-    lab_next = page.locator('tr', has_text='Direct Labor').locator('td').nth(col).inner_text()
-    check(lab_next in ('', '—', '$0.00'), f'Standard Cost has no labor cost for a year that isn’t set up ({lab_next!r})')
+    lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).inner_text().strip('$'))
+    check(abs(lab_next - this_rate * 1.03) < 1e-4, f'Standard Cost uses the {nxt} forecast rate ({lab_next})')
     tab(page, 'Labor')
-    page.locator('main').get_by_role('button', name=f'Start from {nxt - 1}’s people').click(); page.wait_for_timeout(400)
-    n_next = page.evaluate(f"window.__MOCK_DB__.labor_positions.filter(p => p.year === {nxt}).length")
-    check(n_next == 3, f'starting {nxt} copies {nxt - 1}’s people ({n_next})')
-    sid = page.evaluate(f"window.__MOCK_DB__.labor_positions.find(p => p.year === {nxt} && p.pay_type === 'salaried').id")
+    page.locator('.sidebar').get_by_role('button', name=f'Give {nxt} its own people').click(); page.wait_for_timeout(400)
+    rows_next = page.evaluate(f"window.__MOCK_DB__.labor_positions.filter(p => p.year === {nxt})")
+    sal_next = next(p for p in rows_next if p['pay_type'] == 'salaried')
+    check(len(rows_next) == 3 and abs(sal_next['annual_salary'] - st['salaried_wage'] * 1.03) < 0.01, f'giving {nxt} its own people copies the forecast, inflation included ({sal_next["annual_salary"]})')
+    sid = sal_next['id']
     c = cell(page, f'lp|{sid}|annual_salary'); c.click(); c.fill('84000'); c.press('Tab'); page.wait_for_timeout(300)
     r_next = rate_now()
-    check(abs(r_next - want(sal_fixed=20000, a_fringe=450, salary=84000)) < 1e-4, f'{nxt} has its own pay ({r_next})')
+    check(abs(r_next - want(sal_fixed=20000 * 1.03, a_fringe=450 * 1.03, salary=84000, a_rate_f=1.03)) < 1e-4, f'{nxt} has its own pay ({r_next})')
+    hid = next(p for p in rows_next if p['name'] == 'Hourly (B)')['id']
+    c = cell(page, f'lp|{hid}|name'); c.click(); c.fill('Line lead'); c.press('Tab'); page.wait_for_timeout(250)
+    page.get_by_label('How Line lead is paid').select_option('salaried'); page.wait_for_timeout(250)
+    pb = page.evaluate(f"window.__MOCK_DB__.labor_positions.find(p => p.id === {hid})")
+    check(pb['name'] == 'Line lead' and pb['pay_type'] == 'salaried', f'a position can be renamed and switched to salaried in place ({pb["name"]}, {pb["pay_type"]})')
+    page.get_by_label('How Line lead is paid').select_option('hourly'); page.wait_for_timeout(250)
     tab(page, 'Standard Cost')
     lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(5).inner_text().strip('$'))
     lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).inner_text().strip('$'))
-    check(abs(lab_next - r_next) < 1e-4 and abs(lab_this - want(sal_fixed=20000, a_fringe=450)) < 1e-4, f'Standard Cost uses each year’s own labor rate ({lab_this}, {lab_next})')
+    check(abs(lab_next - r_next) < 1e-4 and abs(lab_this - this_rate) < 1e-4, f'Standard Cost uses each year’s own labor rate ({lab_this}, {lab_next})')
     tab(page, 'Labor')
     page.get_by_role('button', name='Show 2026').click(); page.wait_for_timeout(200)
     # Put the workbook's numbers back for the BOM checks below.

@@ -120,7 +120,15 @@ function sideBar() {
   const side = h('aside', { class: 'sidebar', 'aria-label': 'Actions' });
   const fold = h('button', { class: 'side-fold', type: 'button' });
   const grip = h('div', { class: 'side-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the side bar', tabindex: 0 });
-  const setWidth = (px) => { const w = Math.round(Math.max(170, Math.min(px, window.innerWidth * 0.5))); side.style.setProperty('--side-w', `${w}px`); return w; };
+  // Each tab can ask for its own starting width (a share of the window);
+  // a width you drag to is remembered for that tab.
+  let key = 'side:w'; let frac = 0.2;
+  const setWidth = (px) => { const w = Math.round(Math.max(170, Math.min(px, window.innerWidth * 0.6))); side.style.setProperty('--side-w', `${w}px`); return w; };
+  const useTab = (tab) => {
+    frac = tab?.sideWidth || 0.2; key = tab?.sideWidth ? `side:w:${tab.id}` : 'side:w';
+    const saved = Number(pref.get(key, 0));
+    if (saved) setWidth(saved); else side.style.setProperty('--side-w', `${Math.round(frac * 100)}vw`);
+  };
   const setFolded = (f) => {
     side.classList.toggle('folded', f); pref.set('side:folded', f ? '1' : '0');
     fold.textContent = f ? '›' : '‹';
@@ -128,32 +136,31 @@ function sideBar() {
     fold.setAttribute('aria-expanded', String(!f));
     requestAnimationFrame(() => { fitTables(); pinWideHeaders(); dockWideFooters(); });
   };
-  const saved = Number(pref.get('side:w', 0));
-  if (saved) setWidth(saved);
+  useTab(null);
   fold.addEventListener('click', () => setFolded(!side.classList.contains('folded')));
   side.addEventListener('click', (e) => { if (side.classList.contains('folded') && e.target === side) setFolded(false); });
   grip.addEventListener('pointerdown', (e) => {
     e.preventDefault(); grip.setPointerCapture(e.pointerId); side.classList.add('resizing');
     const left = side.getBoundingClientRect().left;
     const move = (ev) => { setWidth(ev.clientX - left); fitTables(); pinWideHeaders(); dockWideFooters(); };
-    const up = () => { side.classList.remove('resizing'); pref.set('side:w', String(side.getBoundingClientRect().width)); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); };
+    const up = () => { side.classList.remove('resizing'); pref.set(key, String(side.getBoundingClientRect().width)); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); };
     grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up);
   });
   grip.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault(); const w = setWidth(side.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 20 : -20)); pref.set('side:w', String(w));
+    e.preventDefault(); const w = setWidth(side.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 20 : -20)); pref.set(key, String(w));
     fitTables(); pinWideHeaders(); dockWideFooters();
   });
   side.append(inner, fold, grip);
   setFolded(pref.get('side:folded', '0') === '1');
-  return { side, inner };
+  return { side, inner, useTab };
 }
 
 function shell() {
   const groupBar = h('nav', { class: 'groups', 'aria-label': 'Sections' });
   const tabBar = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': 'Pages' });
   const about = h('div', { class: 'about-slot' });
-  const { side, inner } = sideBar();
+  const { side, inner, useTab } = sideBar();
   const content = h('div', { class: 'content' });
   const main = h('main', { id: 'main', role: 'tabpanel' }, h('div', { class: 'layout' }, side, content));
   app.replaceChildren(
@@ -164,7 +171,7 @@ function shell() {
   const bars = { groupBar, tabBar };
   topbarObserver.observe(app.querySelector('.topbar'));
   renderTabs(bars);
-  return { tabBar: bars, main, content, side, sideInner: inner, about };
+  return { tabBar: bars, main, content, side, sideInner: inner, about, useTab };
 }
 
 function aboutButton(title, description) {
@@ -209,6 +216,7 @@ function render() {
   if (bar) bar.remove();
   ui.sideInner.replaceChildren(...controls);
   ui.side.hidden = !controls.length;
+  ui.useTab(tab);
   const info = bar?._about || content._about;
   ui.about.replaceChildren(info?.description ? aboutButton(info.title, info.description) : '');
   ui.content.replaceChildren(content);

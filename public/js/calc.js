@@ -108,29 +108,28 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
   return false;
 }
 
-// ---------- Labor rate (standard direct labor cost per minute) ----------
-// Built the way manufacturers usually set a standard labor rate:
+// ---------- Labor rate (standard labor cost per minute) ----------
+// Set fresh every year from that year's people:
 //   1. Fully burdened cost of each position for the year:
 //        base pay (hourly rate x paid hours, or annual salary)
 //      + employer payroll taxes (% of base pay)
 //      + fixed benefits (monthly for hourly people, annual for salaried).
-//   2. Split it by how the paid time is spent. Hours on the production line are
-//      DIRECT labor; paid time off the line (a salaried person paid for 5 days
-//      who works 2 on the line) is INDIRECT labor, which belongs in overhead,
-//      not in the labor rate. (A setting can fold it into the labor rate.)
-//   3. Productive minutes = line hours x 60 x efficiency %, the share of line
-//      time spent actually making product (after setup, cleaning and breaks).
-//   4. Standard direct labor rate = direct labor cost / productive minutes.
+//      Hourly people are paid for the days they work in the weeks the line
+//      runs (no paid time off); salaried people are paid all 52 weeks.
+//   2. All of that paid cost goes into the labor rate, including paid time
+//      off the line (a salaried person paid for 5 days who is on the line 2).
+//   3. Productive minutes = hours on the line x 60 x line efficiency %.
+//   4. Labor rate = total burdened cost / productive minutes.
 // A labor minute is one person working one minute, as BOMs count minutes per batch.
 
-// No paid time off for people on the line: hourly people are paid for the
-// hours they work, in the weeks the line runs. Salaried people are paid all
-// 52 weeks, so weeks the line is down are indirect labor too.
-const laborPlant = (s = {}) => ({
+export const LABOR_FIRST_YEAR = 2026;
+// The years shown on the Labor tab: 2026 through next year.
+export const laborYears = (now = new Date().getFullYear()) => Array.from({ length: Math.max(1, now + 2 - LABOR_FIRST_YEAR) }, (_, i) => LABOR_FIRST_YEAR + i);
+
+const laborPlant = (y = {}) => ({
   paidWeeks: 52,
-  prodWeeks: s.labor_prod_weeks ?? 52,
-  efficiency: (s.labor_efficiency_pct ?? 100) / 100,
-  idleTo: s.labor_idle_to || 'overhead',
+  prodWeeks: y.labor_prod_weeks ?? 52,
+  efficiency: (y.labor_efficiency_pct ?? 100) / 100,
 });
 
 // One position for the year. `days` overrides the line days a week (what-ifs).
@@ -148,32 +147,25 @@ export function laborPosition(p, plant, days) {
   const tax = base * n(p.payroll_tax_pct) / 100;
   const benefits = people * (sal ? n(p.annual_fixed) : n(p.monthly_fringe) * 12);
   const burdened = base + tax + benefits;
-  const share = paidHours ? lineHours / paidHours : 0;
-  const direct = burdened * share;
   return { position: p, people, salaried: sal, paidDays: paidDaysUsed, lineDays, paidHours, lineHours, base, tax, benefits, burdened,
-    share, direct, indirect: burdened - direct, minutes: lineHours * 60 * plant.efficiency,
-    perPaidHour: paidHours ? burdened / paidHours : 0 };
+    share: paidHours ? lineHours / paidHours : 0, minutes: lineHours * 60 * plant.efficiency, perPaidHour: paidHours ? burdened / paidHours : 0 };
 }
 
-export function laborRate(data, { days } = {}) {
-  const s = data.settings || {}; const plant = laborPlant(s);
-  const rows = [...(data.labor_positions || [])].sort((a, b) => n(a.sort) - n(b.sort) || n(a.id) - n(b.id)).map((p) => laborPosition(p, plant, days));
+export function laborRate(data, { year, days } = {}) {
+  const ys = (data.year_settings || []).find((y) => y.year === year) || {};
+  const plant = laborPlant(ys);
+  const rows = (data.labor_positions || []).filter((p) => year === undefined || p.year === year)
+    .sort((a, b) => n(a.sort) - n(b.sort) || n(a.id) - n(b.id)).map((p) => laborPosition(p, plant, days));
   const sum = (f) => rows.reduce((t, r) => t + f(r), 0);
-  const direct = sum((r) => r.direct); const indirect = sum((r) => r.indirect); const minutes = sum((r) => r.minutes);
-  const charged = direct + (plant.idleTo === 'labor' ? indirect : 0);
-  const rate = minutes ? charged / minutes : 0;
-  // Labor in each recipe: its own batch size and labor minutes per batch.
+  const burdened = sum((r) => r.burdened); const minutes = sum((r) => r.minutes);
+  const rate = minutes ? burdened / minutes : 0;
   const ix = data.items ? index(data) : null;
   const recipes = ix ? ix.byType('Recipe').filter((r) => ix.bom.has(r.item_no)).map((r) => {
     const batchOz = ix.yieldOf(r.item_no); const minutesPer = ix.laborMinutesOf(r.item_no);
-    return { item: r, batchOz, minutesPer, perBatch: rate * minutesPer, perOz: batchOz ? (rate * minutesPer) / batchOz : 0,
-      loadedPerOz: batchOz && minutes ? ((direct + indirect) / minutes) * minutesPer / batchOz : 0, batchesPerYear: minutesPer ? minutes / minutesPer : 0 };
+    return { item: r, batchOz, minutesPer, perBatch: rate * minutesPer, perOz: batchOz ? (rate * minutesPer) / batchOz : 0, batchesPerYear: minutesPer ? minutes / minutesPer : 0 };
   }) : [];
-  return { recipes, plant, rows, burdened: sum((r) => r.burdened), base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
-    direct, indirect, minutes, lineHours: sum((r) => r.lineHours), paidHours: sum((r) => r.paidHours),
-    rate, directOnlyRate: minutes ? direct / minutes : 0, fullyLoadedRate: minutes ? (direct + indirect) / minutes : 0,
-    overheadPerMin: minutes ? indirect / minutes : 0,
-  };
+  return { year, plant, rows, recipes, burdened, base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
+    minutes, lineHours: sum((r) => r.lineHours), paidHours: sum((r) => r.paidHours), rate };
 }
 
 // The workbook's Labor Scenarios sheet: scenario k = k days a week for everyone,
@@ -197,18 +189,17 @@ export function laborScenarios(s) {
   });
 }
 
-// The standard labor rate for each year: a locked rate if one was set for the
-// year; otherwise today's calculated rate (or, before any positions are set
-// up, the workbook scenario chosen for the year).
+// The labor rate for each year comes from that year's people. A year with no
+// people has no labor rate (it must be set up). Until any people are entered,
+// the workbook scenario chosen for the year is used.
 export function laborModel(data) {
-  const current = laborRate(data);
-  const years = new Map((data.year_settings || []).map((y) => [y.year, y]));
   const hasPositions = (data.labor_positions || []).length > 0;
   const legacy = laborScenarios(data.settings || {});
-  const live = (year) => (hasPositions ? current.rate : legacy[(years.get(year)?.labor_scenario || 0) - 1]?.ratePerMin ?? 0);
-  const locked = (year) => { const y = years.get(year); return y && y.labor_rate !== null && y.labor_rate !== undefined ? n(y.labor_rate) : null; };
-  const rateFor = (year) => locked(year) ?? live(year);
-  return { current, years, live, locked, rateFor, hasPositions };
+  const years = new Map((data.year_settings || []).map((y) => [y.year, y]));
+  const cache = new Map();
+  const forYear = (year) => { if (!cache.has(year)) cache.set(year, laborRate(data, { year })); return cache.get(year); };
+  const rateFor = (year) => (hasPositions ? forYear(year).rate : legacy[(years.get(year)?.labor_scenario || 0) - 1]?.ratePerMin ?? 0);
+  return { hasPositions, years, forYear, rateFor };
 }
 
 // ---------- Standard Cost ----------

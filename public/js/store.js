@@ -26,13 +26,14 @@ const TABLES = {
 const OPTIONAL = new Set(['labor_positions']);
 const missingTable = (e) => /does not exist|could not find the table|schema cache/i.test(e?.message || '') || e?.code === '42P01' || e?.code === 'PGRST205';
 
+const missing = new Set();
 async function fetchAll(table, order) {
   const rows = []; const page = 1000;
   for (let from = 0; ; from += page) {
     let q = sb.from(table).select('*').order(order).range(from, from + page - 1);
     if (table === 'sales') q = q.order('id');
     const { data, error } = await q;
-    if (error && OPTIONAL.has(table) && missingTable(error)) return [];
+    if (error && OPTIONAL.has(table) && missingTable(error)) { missing.add(table); return []; }
     if (error) throw error;
     rows.push(...data);
     if (data.length < page) return rows;
@@ -45,6 +46,7 @@ export async function loadAll() {
   const { data: s, error } = await sb.from('settings').select('*').eq('id', 1).maybeSingle();
   if (error) throw error;
   data.settings = s || { id: 1 };
+  data.missingTables = new Set(missing);
   state.data = data; state.loadedAt = Date.now();
   changed();
   return data;

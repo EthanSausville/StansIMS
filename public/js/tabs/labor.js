@@ -4,9 +4,9 @@
 //   the line) and indirect labor (paid time off the line, e.g. a salaried
 //   person paid for 5 days who is on the line 2) -> direct labor cost divided
 //   by productive line minutes.
-import { h, pageHead, numberCell, money, qty, fmt, pct, toast, niceError, confirmDialog, longDate } from '../ui.js';
-import { state, derived, isAdmin, saveSettings, saveRow, insertRow, updateRow, deleteRow } from '../store.js';
-import { laborModel, laborRate, laborPosition, evalEntry } from '../calc.js';
+import { h, pageHead, numberCell, money, qty, fmt, pct, toast, niceError, confirmDialog } from '../ui.js';
+import { state, isAdmin, saveRow, insertRow, updateRow, deleteRow } from '../store.js';
+import { laborRate, laborPosition, laborYears, evalEntry } from '../calc.js';
 
 const n = (v) => Number(v) || 0;
 const perMin = (v) => (v ? '$' + qty(v, 4) : '—');
@@ -27,7 +27,7 @@ const FIELDS = [
 
 // Every detail of one position, with its cost build-up as you type.
 function positionDialog(p, can) {
-  const plant = laborRate(state.data).plant;
+  const plant = laborRate(state.data, { year: p.year }).plant;
   const inputs = {}; const rows = [];
   for (const [k, label, kind, only] of FIELDS) {
     let el;
@@ -52,7 +52,7 @@ function positionDialog(p, can) {
     summary.replaceChildren(h('table', { class: 't gd-table' }, h('tbody', null,
       [['Paid hours a year', fmt(r.paidHours)], ['Hours on the line a year', fmt(r.lineHours)], ['Base pay', dollars(r.base)], ['Payroll taxes', dollars(r.tax)],
         ['Benefits and fixed costs', dollars(r.benefits)], ['Fully burdened cost', dollars(r.burdened)], ['Burdened cost per paid hour', money(r.perPaidHour)],
-        ['On the line', pct(r.share)], ['Direct labor (to the labor rate)', dollars(r.direct)], ['Indirect labor (to overhead)', dollars(r.indirect)]]
+        ['On the line', pct(r.share)], ['Productive minutes', fmt(r.minutes)]]
         .map(([a, b]) => h('tr', null, h('td', null, a), h('td', { class: 'num strong' }, b))))));
   };
   for (const el of Object.values(inputs)) el.addEventListener('input', refresh);
@@ -70,155 +70,159 @@ function positionDialog(p, can) {
     h('h3', null, `Position: ${p.name}`),
     h('div', { class: 'pd-grid' }, rows.map((r) => r.el)),
     h('label', { class: 'field' }, 'Notes', inputs.notes),
-    h('h4', { class: 'pd-sub' }, 'For the year'),
+    h('h4', { class: 'pd-sub' }, `For ${p.year}`),
     summary,
     h('div', { class: 'actions' }, h('button', { class: 'btn', value: 'cancel', formnovalidate: true }, can ? 'Cancel' : 'Close'), can ? h('button', { class: 'btn primary', value: 'save' }, 'Save') : null)));
   dlg.addEventListener('close', () => dlg.remove());
   refresh(); document.body.append(dlg); dlg.showModal();
 }
 
+let selYear = new Date().getFullYear();
+
 export default {
   id: 'labor',
   label: 'Labor',
-  render() {
-    const d = state.data; const s = d.settings; const admin = isAdmin();
-    const live = Array.isArray(d.labor_positions) && (d.labor_positions.length > 0 || 'labor_prod_weeks' in s);
+  sideWidth: 0.35,
+  render({ rerender }) {
+    const d = state.data; const admin = isAdmin();
+    const live = !d.missingTables?.has('labor_positions'); // false until the database has the labor table
     const can = admin && live;
-    const lm = laborModel(d); const L = lm.current; const cm = derived.costs(); 
-    const thisYear = new Date().getFullYear();
+    const years = laborYears();
+    if (!years.includes(selYear)) selYear = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
+    const byYear = new Map(years.map((y) => [y, laborRate(d, { year: y })]));
+    const L = byYear.get(selYear);
+    const ys = d.year_settings.find((y) => y.year === selYear) || {};
+    const prevYear = selYear - 1; const prev = byYear.get(prevYear);
 
     const addPosition = async () => {
-      try { await insertRow('labor_positions', { name: 'New position', pay_type: 'hourly', headcount: 1, hourly_rate: 0, monthly_fringe: 0, payroll_tax_pct: 7.65, paid_days: 5, production_days: 5, hours_per_day: 8, sort: Math.max(0, ...d.labor_positions.map((x) => n(x.sort))) + 1 }); }
+      try { await insertRow('labor_positions', { year: selYear, name: 'New position', pay_type: 'hourly', headcount: 1, hourly_rate: 0, monthly_fringe: 0, payroll_tax_pct: 7.65, paid_days: 5, production_days: 5, hours_per_day: 8, sort: Math.max(0, ...d.labor_positions.filter((x) => x.year === selYear).map((x) => n(x.sort))) + 1 }); }
       catch (err) { toast(niceError(err), 'bad'); }
+    };
+    const copyPrev = async () => {
+      try {
+        for (const p of d.labor_positions.filter((x) => x.year === prevYear)) {
+          const { id, ...rest } = p; await insertRow('labor_positions', { ...rest, year: selYear });
+        }
+        const py = d.year_settings.find((y) => y.year === prevYear);
+        if (py && (py.labor_prod_weeks !== null || py.labor_efficiency_pct !== null)) await saveRow('year_settings', { year: selYear }, { labor_prod_weeks: py.labor_prod_weeks ?? null, labor_efficiency_pct: py.labor_efficiency_pct ?? null });
+        toast(`Copied ${prevYear}’s people into ${selYear}. Now update their pay for ${selYear}.`);
+      } catch (err) { toast(niceError(err), 'bad'); }
     };
     const save = (p, k) => (v) => updateRow('labor_positions', 'id', p.id, { [k]: v ?? (['headcount', 'payroll_tax_pct', 'paid_days', 'production_days', 'hours_per_day'].includes(k) ? 0 : null) });
 
-    // ---------- summary ----------
-    const summary = h('div', { class: 'cards labor-cards' },
-      stat('Standard labor rate', perMin(L.rate), `${money(L.rate * 60)} per labor hour · ${L.plant.idleTo === 'labor' ? 'includes' : 'excludes'} off-line time`, 'key'),
-      stat('Direct labor a year', dollars(L.direct), `${fmt(L.minutes)} productive minutes`),
-      stat('Indirect labor a year', dollars(L.indirect), L.plant.idleTo === 'labor' ? 'Included in the labor rate' : `Belongs in overhead: ${perMin(L.overheadPerMin)} per labor minute`),
-      stat('Productive line hours a year', fmt(L.minutes / 60), `${fmt(L.lineHours)} line hours × ${fmt(L.plant.efficiency * 100)}% efficiency`));
-
-    // ---------- standard by year ----------
+    // ---------- side bar: the rate for every year ----------
     let prior = null;
-    const years = h('section', { class: 'panel' },
-      h('h2', null, 'Standard labor rate by year'),
-      h('p', { class: 'panel-note' }, 'Set the standard once a year: lock the rate so pay changes during the year don’t change standard costs (the difference shows up as a labor variance). Unlocked years use today’s calculated rate.'),
-      h('div', { class: 'tablewrap flat' }, h('table', { class: 't labor-years' },
-        h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Year'), h('th', { class: 'num' }, 'Standard $/min'), h('th', { class: 'num' }, 'Per labor hour'), h('th', null, 'Status'),
-          h('th', { class: 'num' }, 'vs. prior year'), h('th'))),
-        h('tbody', null, cm.years.map((y) => {
-          const locked = lm.locked(y); const rate = lm.rateFor(y); const row = lm.years.get(y) || {};
-          const change = prior && rate ? rate / prior - 1 : null; if (rate) prior = rate;
-          const set = (patch) => saveRow('year_settings', { year: y }, patch).catch((err) => toast(niceError(err), 'bad'));
-          const lockNow = () => set({ labor_rate: +lm.live(y).toFixed(6), labor_rate_set_at: new Date().toISOString() });
-          return h('tr', { class: [locked !== null ? 'locked' : '', y === thisYear ? 'this-year' : ''].join(' ').trim() || null },
-            h('td', { class: 'sticky-col strong' }, y),
-            h('td', { class: 'num strong std-rate' }, perMin(rate)), h('td', { class: 'num' }, rate ? money(rate * 60) : ''),
-            h('td', null, locked !== null ? h('span', { class: 'pill lockpill' }, `🔒 Locked${row.labor_rate_set_at ? ' ' + longDate(row.labor_rate_set_at.slice(0, 10)) : ''}`) : h('span', { class: 'muted small' }, 'Uses today’s rate')),
-            h('td', { class: 'num' + (change > 0 ? ' up' : change < 0 ? ' down' : '') }, change === null ? '' : (change > 0 ? '+' : '') + pct(change)),
-            h('td', { class: 'row-actions' }, admin && lm.live(y) ? [
-              locked === null ? h('button', { class: 'btn ghost', onclick: lockNow }, 'Lock rate') : null,
-              locked !== null && Math.abs(lm.live(y) - locked) > 5e-7 ? h('button', { class: 'btn ghost', title: `Replace with today’s ${perMin(lm.live(y))}`, onclick: lockNow }, 'Update') : null,
-              locked !== null ? h('button', { class: 'btn ghost', onclick: () => set({ labor_rate: null, labor_rate_set_at: null }) }, 'Unlock') : null] : null));
-        })))));
+    const yearTable = h('table', { class: 't labor-years side-years' },
+      h('thead', null, h('tr', null, h('th', null, 'Year'), h('th', { class: 'num' }, '$ / min'), h('th', { class: 'num' }, '$ / hour'), h('th', { class: 'num' }, 'vs. prior'), h('th', { class: 'num' }, 'People'))),
+      h('tbody', null, years.map((y) => {
+        const r = byYear.get(y); const set = r.rows.length > 0; const rate = set ? r.rate : 0;
+        const change = prior && rate ? rate / prior - 1 : null; if (rate) prior = rate;
+        return h('tr', { class: [y === selYear ? 'picked' : '', set ? '' : 'unset'].join(' ').trim() || null, onclick: () => { selYear = y; rerender(); } },
+          h('td', null, h('button', { class: 'linkish', 'aria-pressed': String(y === selYear), 'aria-label': `Show ${y}`, onclick: (e) => { e.stopPropagation(); selYear = y; rerender(); } }, y)),
+          set ? h('td', { class: 'num strong' }, perMin(rate)) : h('td', { class: 'num muted', colspan: 3 }, 'Not set up'),
+          set ? h('td', { class: 'num' }, money(rate * 60)) : null,
+          set ? h('td', { class: 'num' + (change > 0.0005 ? ' up' : change < -0.0005 ? ' down' : '') }, change === null ? '' : Math.abs(change) < 0.0005 ? 'same' : (change > 0 ? '+' : '') + pct(change)) : null,
+          h('td', { class: 'num' }, set ? qty(r.rows.reduce((t, x) => t + x.people, 0), 2) : '—'));
+      })));
 
-    // ---------- people ----------
-    const ps = [...d.labor_positions].sort((a, b) => n(a.sort) - n(b.sort) || a.id - b.id);
-    const na = () => h('td', { class: 'num blank' }, '—');
-    const people = h('section', { class: 'panel' },
-      h('h2', null, h('span', { class: 'grow' }, 'People'), can ? h('button', { class: 'btn ghost', onclick: addPosition }, '+ Add position') : null),
-      h('p', { class: 'panel-note' }, 'One row per position, or per group paid the same way; amounts are per person. Hourly: hourly rate + monthly fringe. Salaried: annual salary + annual fixed cost. “Days on line” is time actually on the production line; a salaried person paid for 5 days and on the line 2 has 3 days of indirect labor.'),
-      h('div', { class: 'tablewrap flat', 'data-scroll': 'labor-people' }, h('table', { class: 't pay-groups' },
-        h('thead', null,
-          h('tr', { class: 'group' }, h('th'), h('th'), h('th'), h('th', { colspan: 2 }, 'Hourly · per person'), h('th', { colspan: 2 }, 'Salaried · per person'), h('th'), h('th', { colspan: 3 }, 'Schedule'), h('th')),
-          h('tr', null, FIELDS.map(([, label, kind]) => h('th', { class: typeof kind === 'number' ? 'num wrap' : null }, label)), h('th'))),
-        h('tbody', null, ps.length ? ps.map((p) => {
-          const sal = p.pay_type === 'salaried';
-          return h('tr', null, FIELDS.map(([k, label, kind, only]) => {
-            if (kind === 'text') return textCell(p.name, save(p, 'name'), { disabled: !can, label: 'Position', key: `lp|${p.id}|name` });
-            if (kind === 'pay') return h('td', null, h('select', { disabled: !can, 'aria-label': `How ${p.name} is paid`, onchange: (e) => save(p, 'pay_type')(e.target.value).catch((err) => toast(niceError(err), 'bad')) },
-              h('option', { value: 'hourly', selected: !sal }, 'Hourly'), h('option', { value: 'salaried', selected: sal }, 'Salaried')));
-            if (only && (only === 'salaried') !== sal) return na();
-            return numberCell(p[k] ?? null, save(p, k), { disabled: !can, digits: kind, key: `lp|${p.id}|${k}`, title: `${p.name}: ${label}` });
-          }),
-          h('td', { class: 'row-actions' }, h('button', { class: 'btn ghost', onclick: () => positionDialog(p, can) }, can ? 'Details' : 'View'),
+    // ---------- this year ----------
+    const empty = !L.rows.length;
+    const summary = h('div', { class: 'cards labor-cards' },
+      stat(`${selYear} labor rate`, empty ? '—' : perMin(L.rate), empty ? 'Set up this year’s people' : `${money(L.rate * 60)} per labor hour`, 'key'),
+      stat('Paid labor cost', dollars(L.burdened), `${dollars(L.base)} pay · ${dollars(L.tax + L.benefits)} taxes & benefits`),
+      stat('Productive minutes', fmt(L.minutes), `${fmt(L.lineHours)} line hours × ${fmt(L.plant.efficiency * 100)}%`),
+      stat('Paid hours on the line', L.paidHours ? pct(L.lineHours / L.paidHours) : '—', `${fmt(L.lineHours)} of ${fmt(L.paidHours)} paid hours`));
+
+    // People for the year, compact enough for the side bar: pay and fixed cost
+    // show the right field for hourly or salaried; the rest is in Details.
+    const ps = [...d.labor_positions].filter((p) => p.year === selYear).sort((a, b) => n(a.sort) - n(b.sort) || a.id - b.id);
+    const peopleTable = h('table', { class: 't side-people' },
+      h('thead', null, h('tr', null, h('th', null, 'Position'), h('th', { class: 'num' }, 'People'), h('th', { class: 'num' }, 'Pay'), h('th', { class: 'num' }, 'Fixed'), h('th', { class: 'num', title: 'Days paid / days on the line, per week' }, 'Days'), h('th'))),
+      h('tbody', null, ps.map((p) => {
+        const sal = p.pay_type === 'salaried';
+        return h('tr', null,
+          h('td', { class: 'pos' }, h('div', { class: 'pos-name', title: p.name }, p.name), h('div', { class: 'pos-type' }, sal ? 'Salaried' : 'Hourly')),
+          numberCell(p.headcount ?? null, save(p, 'headcount'), { disabled: !can, digits: 2, key: `lp|${p.id}|headcount`, title: `${p.name}: people` }),
+          sal ? numberCell(p.annual_salary ?? null, save(p, 'annual_salary'), { disabled: !can, digits: 2, key: `lp|${p.id}|annual_salary`, title: `${p.name}: annual salary per person`, cls: 'unit-yr' })
+            : numberCell(p.hourly_rate ?? null, save(p, 'hourly_rate'), { disabled: !can, digits: 4, key: `lp|${p.id}|hourly_rate`, title: `${p.name}: hourly rate per person`, cls: 'unit-hr' }),
+          sal ? numberCell(p.annual_fixed ?? null, save(p, 'annual_fixed'), { disabled: !can, digits: 2, key: `lp|${p.id}|annual_fixed`, title: `${p.name}: annual fixed cost per person`, cls: 'unit-yr' })
+            : numberCell(p.monthly_fringe ?? null, save(p, 'monthly_fringe'), { disabled: !can, digits: 2, key: `lp|${p.id}|monthly_fringe`, title: `${p.name}: monthly fringe per person`, cls: 'unit-mo' }),
+          h('td', { class: 'num', title: `Paid ${qty(p.paid_days, 2)} days, on the line ${qty(p.production_days, 2)} days a week` }, `${qty(p.paid_days, 2)} / ${qty(p.production_days, 2)}`),
+          h('td', { class: 'row-actions' }, h('button', { class: 'btn icon-btn', title: 'Details', 'aria-label': `Details for ${p.name}`, onclick: () => positionDialog(p, can) }, '✎'),
             can ? h('button', { class: 'btn icon-btn danger', title: 'Remove', 'aria-label': `Remove ${p.name}`, onclick: async () => {
-              if (await confirmDialog(`Remove ${p.name}?`, 'Remove')) deleteRow('labor_positions', 'id', p.id).catch((err) => toast(niceError(err), 'bad'));
+              if (await confirmDialog(`Remove ${p.name} from ${selYear}?`, 'Remove')) deleteRow('labor_positions', 'id', p.id).catch((err) => toast(niceError(err), 'bad'));
             } }, '×') : null));
-        }) : h('tr', null, h('td', { colspan: FIELDS.length + 1, class: 'empty' }, live ? 'No positions yet. Add one to start.' : 'Not set up yet.'))))));
+      })));
+    const people = empty ? h('section', { class: 'panel' },
+      h('h2', null, `${selYear} isn’t set up yet`),
+      h('div', { class: 'empty-year' },
+        h('p', null, 'Every year’s people and pay are entered on their own. Standard Cost has no labor cost for this year until it is set up.'),
+        can ? h('div', { class: 'controls' },
+          prev && prev.rows.length ? h('button', { class: 'btn primary', onclick: copyPrev }, `Start from ${prevYear}’s people`) : null,
+          h('button', { class: 'btn', onclick: addPosition }, '+ Add position')) : null)) : null;
 
-    // ---------- plant assumptions ----------
-    const plantRow = (label, help, cellEl) => h('tr', null, h('td', null, label, help ? h('div', { class: 'small muted' }, help) : null), cellEl);
-    const setting = (k, title) => numberCell(s[k] ?? null, (v) => saveSettings({ [k]: v ?? 0 }), { disabled: !can, key: `set|${k}`, title });
+    const setYear = (k, title) => numberCell(ys[k] ?? null, (v) => saveRow('year_settings', { year: selYear }, { [k]: v }), { disabled: !can, key: `ly|${selYear}|${k}`, title, placeholder: k === 'labor_prod_weeks' ? '52' : '100' });
     const plant = h('section', { class: 'panel batch-panel' },
-      h('h2', null, 'Plant assumptions'),
+      h('h2', null, `${selYear} line assumptions`),
       h('table', { class: 't batch-table' }, h('tbody', null,
-        plantRow('Weeks the line runs a year', 'Hourly line workers are paid only for the weeks and days they work (no paid time off). Salaried people are paid all 52 weeks; weeks the line is down count as indirect labor.', setting('labor_prod_weeks', 'Weeks the line runs a year')),
-        plantRow('Line efficiency %', 'Share of line time spent making product, after setup, cleaning and breaks. Often 80–90%.', setting('labor_efficiency_pct', 'Line efficiency %')),
-        plantRow('Paid time off the line goes to', 'Best practice is overhead, so the labor rate reflects time making product.',
-          h('td', null, h('select', { disabled: !can, 'aria-label': 'Paid time off the line goes to', onchange: (e) => saveSettings({ labor_idle_to: e.target.value }).catch((err) => toast(niceError(err), 'bad')) },
-            h('option', { value: 'overhead', selected: L.plant.idleTo !== 'labor' }, 'Overhead (recommended)'), h('option', { value: 'labor', selected: L.plant.idleTo === 'labor' }, 'The labor rate')))),
-      )));
+        h('tr', null, h('td', null, 'Weeks the line runs', h('div', { class: 'small muted' }, 'Hourly line workers are paid only for the days and weeks they work (no paid time off). Salaried people are paid all 52 weeks.')), setYear('labor_prod_weeks', 'Weeks the line runs')),
+        h('tr', null, h('td', null, 'Line efficiency %', h('div', { class: 'small muted' }, 'Share of line time spent making product, after setup, cleaning and breaks. Often 80–90%.')), setYear('labor_efficiency_pct', 'Line efficiency %')))));
 
-    // ---------- labor in each recipe (batch size and minutes live on the recipe BOM) ----------
     const saveBomField = (r, k) => (v) => saveRow('boms', { item_no: r.item.item_no }, { [k]: v });
     const recipes = L.recipes.length ? h('section', { class: 'panel' },
-      h('h2', null, 'Labor in each recipe'),
-      h('p', { class: 'panel-note' }, 'Each recipe BOM has its own batch size (what one run makes) and labor minutes per batch (everyone’s minutes added up: 3 people × 40 min = 120). Change them here or on Create BOM. Production batches each recipe in its own batch size.'),
+      h('h2', null, `Labor in each recipe (${selYear} rate)`),
+      h('p', { class: 'panel-note' }, 'Batch size and labor minutes per batch belong to each recipe BOM (change them here or on Create BOM).'),
       h('div', { class: 'tablewrap flat' }, h('table', { class: 't recipes-labor' },
         h('thead', null, h('tr', null, h('th', null, 'Recipe'), h('th', { class: 'num' }, 'Batch size (oz)'), h('th', { class: 'num' }, 'Labor minutes per batch'),
-          h('th', { class: 'num' }, 'Labor per batch'), h('th', { class: 'num' }, 'Labor per oz'), h('th', { class: 'num' }, 'Fully loaded per oz'), h('th', { class: 'num' }, 'Batches a year (this recipe only)'))),
+          h('th', { class: 'num' }, 'Labor per batch'), h('th', { class: 'num' }, 'Labor per oz'), h('th', { class: 'num' }, 'Batches a year (this recipe only)'))),
         h('tbody', null, L.recipes.map((r) => h('tr', null, h('td', null, r.item.name),
           numberCell(r.batchOz, saveBomField(r, 'yield_qty'), { disabled: !admin, digits: 2, key: `bom|${r.item.item_no}|yield`, title: `${r.item.name}: batch size (oz)` }),
           numberCell(r.minutesPer, saveBomField(r, 'labor_minutes'), { disabled: !admin, digits: 2, key: `bom|${r.item.item_no}|minutes`, title: `${r.item.name}: labor minutes per batch` }),
-          h('td', { class: 'num calc' }, money(r.perBatch)), h('td', { class: 'num calc' }, r.perOz ? '$' + qty(r.perOz, 5) : '—'),
-          h('td', { class: 'num calc' }, r.loadedPerOz ? '$' + qty(r.loadedPerOz, 5) : '—'), h('td', { class: 'num calc' }, fmt(r.batchesPerYear)))))))) : null;
+          h('td', { class: 'num calc' }, empty ? '—' : money(r.perBatch)), h('td', { class: 'num calc' }, r.perOz ? '$' + qty(r.perOz, 5) : '—'),
+          h('td', { class: 'num calc' }, empty ? '—' : fmt(r.batchesPerYear)))))))) : null;
 
-    // ---------- cost build-up ----------
     const cols = [['People', (r) => qty(r.people, 2)], ['Paid hours', (r) => fmt(r.paidHours)], ['Line hours', (r) => fmt(r.lineHours)], ['Base pay', (r) => dollars(r.base)],
-      ['Payroll tax', (r) => dollars(r.tax)], ['Benefits & fixed', (r) => dollars(r.benefits)], ['Fully burdened', (r) => dollars(r.burdened)], ['On the line', (r) => pct(r.share)],
-      ['Direct labor', (r) => dollars(r.direct)], ['Indirect labor', (r) => dollars(r.indirect)], ['Productive minutes', (r) => fmt(r.minutes)]];
-    const tot = { people: L.rows.reduce((t, r) => t + r.people, 0), paidHours: L.paidHours, lineHours: L.lineHours, base: L.base, tax: L.tax, benefits: L.benefits, burdened: L.burdened,
-      share: L.paidHours ? L.lineHours / L.paidHours : 0, direct: L.direct, indirect: L.indirect, minutes: L.minutes };
-    const build = h('section', { class: 'panel' },
-      h('h2', null, 'Cost build-up for the year'),
+      ['Payroll tax', (r) => dollars(r.tax)], ['Benefits & fixed', (r) => dollars(r.benefits)], ['Paid labor cost', (r) => dollars(r.burdened)],
+      ['On the line', (r) => pct(r.share)], ['Productive minutes', (r) => fmt(r.minutes)]];
+    const tot = { people: L.rows.reduce((t, r) => t + r.people, 0), paidHours: L.paidHours, lineHours: L.lineHours, base: L.base, tax: L.tax, benefits: L.benefits,
+      burdened: L.burdened, share: L.paidHours ? L.lineHours / L.paidHours : 0, minutes: L.minutes };
+    const build = empty ? null : h('section', { class: 'panel' },
+      h('h2', null, `${selYear} cost build-up`),
       h('div', { class: 'tablewrap flat', 'data-scroll': 'labor-build' }, h('table', { class: 't build' },
         h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Position'), cols.map(([l]) => h('th', { class: 'num wrap' }, l)))),
         h('tbody', null, L.rows.map((r) => h('tr', null, h('td', { class: 'sticky-col' }, r.position.name), cols.map(([, f]) => h('td', { class: 'num' }, f(r))))),
           h('tr', { class: 'total' }, h('td', { class: 'sticky-col' }, 'Total'), cols.map(([, f]) => h('td', { class: 'num' }, f(tot))))))),
       h('div', { class: 'formula' },
-        h('div', null, 'Standard labor rate = ', L.plant.idleTo === 'labor' ? 'all labor ' : 'direct labor ', h('strong', null, dollars(L.plant.idleTo === 'labor' ? L.direct + L.indirect : L.direct)),
-          ' ÷ productive minutes ', h('strong', null, fmt(L.minutes)), ' = ', h('strong', { class: 'accent' }, perMin(L.rate)), ' per labor minute'),
-        L.plant.idleTo === 'labor' ? null : h('div', { class: 'muted' }, `Indirect labor of ${dollars(L.indirect)} is not in the labor rate. Include it in overhead: it adds ${perMin(L.overheadPerMin)} per labor minute (fully loaded labor would be ${perMin(L.fullyLoadedRate)}).`)));
+        h('div', null, 'Labor rate = paid labor cost ', h('strong', null, dollars(L.burdened)), ' ÷ productive minutes ', h('strong', null, fmt(L.minutes)), ' = ', h('strong', { class: 'accent' }, perMin(L.rate)), ' per labor minute')));
 
-    // ---------- what if ----------
-    const what = [1, 2, 3, 4, 5].map((days) => ({ days, r: laborRate(d, { days }) }));
+    const what = [1, 2, 3, 4, 5].map((days) => ({ days, r: laborRate(d, { year: selYear, days }) }));
     const curDays = Math.max(0, ...L.rows.map((r) => r.lineDays));
-    const maxRate = Math.max(0, ...what.map((w) => w.r.fullyLoadedRate));
+    const maxRate = Math.max(0, ...what.map((w) => w.r.rate));
     const vs = (v, base) => { if (!base) return ''; const c = v / base - 1; return Math.abs(c) < 0.0005 ? 'same' : (c > 0 ? '+' : '') + pct(c); };
-    const whatPanel = L.rows.length ? h('section', { class: 'panel' },
+    const whatPanel = empty ? null : h('section', { class: 'panel' },
       h('h2', null, 'What if the line runs more or fewer days a week?'),
-      h('p', { class: 'panel-note' }, 'Same people and pay. Salaried people are paid for their full week whatever the line does, so on fewer line days more of their pay is indirect labor (overhead), and the fully loaded cost of each labor minute rises. The standard labor rate only moves when the mix of people on the line changes.'),
+      h('p', { class: 'panel-note' }, 'Same people and pay. Salaried people are paid for their full week whatever the line does, so fewer line days spread their pay over fewer minutes; hourly people who only work line days are paid for those days.'),
       h('div', { class: 'tablewrap flat' }, h('table', { class: 't whatif' },
-        h('thead', null, h('tr', null, h('th', null, 'Line days a week'), h('th', { class: 'num' }, 'Standard labor rate'), h('th', { class: 'num' }, 'Indirect labor (overhead)'),
-          h('th', { class: 'num' }, 'Overhead per labor min'), h('th', null, 'Fully loaded $/min'), h('th', { class: 'num' }, 'vs. now'),
-          L.recipes.map((rc) => h('th', { class: 'num wrap' }, `Fully loaded per batch: ${rc.item.name.replace(/^RECIPE:\s*/i, '')}`)))),
-        h('tbody', null, what.map(({ days, r }) => {
-          return h('tr', { class: days === curDays ? 'current' : null },
-            h('td', null, `${days} day${days > 1 ? 's' : ''}${days === curDays ? ' (now)' : ''}`),
-            h('td', { class: 'num' }, perMin(r.rate)), h('td', { class: 'num' }, dollars(r.indirect)), h('td', { class: 'num' }, perMin(r.overheadPerMin)),
-            h('td', { class: 'barcell' }, h('span', { class: 'bar', style: { width: `${maxRate ? (r.fullyLoadedRate / maxRate) * 100 : 0}%` } }), h('span', { class: 'barval' }, perMin(r.fullyLoadedRate))),
-            h('td', { class: 'num' + (r.fullyLoadedRate > L.fullyLoadedRate * 1.0005 ? ' up' : r.fullyLoadedRate < L.fullyLoadedRate * 0.9995 ? ' down' : '') }, vs(r.fullyLoadedRate, L.fullyLoadedRate)),
-            L.recipes.map((rc) => h('td', { class: 'num' }, money(r.fullyLoadedRate * rc.minutesPer))));
-        }))))) : null;
+        h('thead', null, h('tr', null, h('th', null, 'Line days a week'), h('th', null, 'Labor rate'), h('th', { class: 'num' }, 'vs. now'), h('th', { class: 'num' }, 'Paid labor cost'),
+          L.recipes.map((rc) => h('th', { class: 'num wrap' }, `Per batch: ${rc.item.name.replace(/^RECIPE:\s*/i, '')}`)))),
+        h('tbody', null, what.map(({ days, r }) => h('tr', { class: days === curDays ? 'current' : null },
+          h('td', null, `${days} day${days > 1 ? 's' : ''}${days === curDays ? ' (now)' : ''}`),
+          h('td', { class: 'barcell' }, h('span', { class: 'bar', style: { width: `${maxRate ? (r.rate / maxRate) * 100 : 0}%` } }), h('span', { class: 'barval' }, perMin(r.rate))),
+          h('td', { class: 'num' + (r.rate > L.rate * 1.0005 ? ' up' : r.rate < L.rate * 0.9995 ? ' down' : '') }, vs(r.rate, L.rate)),
+          h('td', { class: 'num' }, dollars(r.burdened)),
+          L.recipes.map((rc) => h('td', { class: 'num' }, money(r.rate * rc.minutesPer)))))))));
 
     return h('div', { class: 'labor' },
-      pageHead('Labor Rate', 'The standard direct labor cost per minute, set the way manufacturers usually do: each position’s fully burdened pay (wages or salary, payroll taxes, benefits) is split into direct labor (time on the production line) and indirect labor (paid time off the line, which belongs in overhead). The labor rate is direct labor cost ÷ productive line minutes. Lock each year’s rate as that year’s standard.' + (admin ? '' : ' Only admins can change these.'),
-        can ? h('button', { class: 'btn primary', onclick: addPosition }, '+ Add position') : null,
+      pageHead('Labor Rate', 'The standard labor cost per minute, worked out fresh for every year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the productive minutes on the line. All paid time is included, so a salaried person paid for 5 days and on the line 2 has all 5 days of pay spread over 2 days of minutes. Standard Cost uses each year’s own rate; a year that isn’t set up has no labor cost.' + (admin ? '' : ' Only admins can change these.'),
+        h('div', { class: 'side-title' }, 'Labor rate by year'),
+        yearTable,
+        h('div', { class: 'side-title side-sep' }, `${selYear} people`),
+        ps.length ? peopleTable : h('p', { class: 'small muted' }, `No one entered for ${selYear} yet.`),
+        h('p', { class: 'small muted' }, 'Amounts are per person. Hourly: pay per hour, fixed fringe per month. Salaried: salary and fixed cost per year. Days = paid / on the line each week. ✎ opens every detail.'),
+        can ? h('button', { class: 'btn primary', onclick: addPosition }, `+ Add position to ${selYear}`) : null,
+        can && empty && prev && prev.rows.length ? h('button', { class: 'btn', onclick: copyPrev }, `Start ${selYear} from ${prevYear}’s people`) : null,
         h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
-        !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so this shows the workbook’s labor scenarios read-only. It becomes editable after the next deploy to main.') : null),
-      summary, years, people, plant, recipes, build, whatPanel);
+        !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Standard Cost uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
+      summary, people, plant, recipes, build, whatPanel);
   },
 };

@@ -110,7 +110,7 @@ export function numberCell(value, save, { disabled = false, digits = 4, title, w
       input.classList.remove('saving'); input.classList.add('error'); toast(niceError(err), 'bad');
     }
   });
-  return h('td', { class: 'cell num' + (cls ? ' ' + cls : '') }, input);
+  return h('td', { class: 'cell num' + (disabled ? '' : ' entry') + (cls ? ' ' + cls : '') }, input);
 }
 
 // Enter / arrow keys move to the same column in the next row, like a spreadsheet.

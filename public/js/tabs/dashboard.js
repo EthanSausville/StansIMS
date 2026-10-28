@@ -42,7 +42,7 @@ export default {
           series: [{ name: 'Sales', values: d.byMonth.map((m) => m.sales), cls: 'bar-a' }, { name: 'Margin', values: d.byMonth.map((m) => m.margin), cls: 'bar-b' }],
           line: { values: d.byMonth.map((m) => m.marginPct), show: d.byMonth.map((m) => m.sales > 0) } }),
         h('div', { class: 'legend' }, h('span', null, h('i', { style: { background: 'var(--accent)' } }), 'Sales'),
-          h('span', null, h('i', { style: { background: 'color-mix(in srgb, var(--good) 75%, var(--panel))' } }), 'Margin'),
+          h('span', null, h('i', { style: { background: 'var(--accent-2)' } }), 'Margin'),
           h('span', null, h('i', { style: { background: 'var(--ink)', height: '2px', verticalAlign: '3px' } }), 'Margin %'))),
       h('div', { class: 'grid2', style: { marginTop: '16px' } },
         panel(`${year} YTD Sales by Product`, d.byProduct.length ? hbarChart({ width: half, rows: d.byProduct, title: 'Sales by product' }) : h('div', { class: 'empty' }, 'No sales yet.')),

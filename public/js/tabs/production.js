@@ -17,6 +17,7 @@ export default {
     };
     return h('div', null,
       pageHead('Production', `Cases produced each day. Oz, batches (${fmt(B)} oz each) and the estimated loss from the last partial batch calculate automatically. Typing math like 24*10 works.`,
+        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
         monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); })),
       h('div', { class: 'cards' },
         stat('Cases this month', qty(sum((d) => Object.values(d.cases).reduce((a, b) => a + b, 0)))),

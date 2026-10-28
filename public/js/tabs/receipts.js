@@ -13,6 +13,7 @@ export default {
     const month = state.data.goods_receipts.filter((r) => days.has(r.date));
     return h('div', null,
       pageHead('Goods Receipt', 'Quantities received each day, in each item’s unit (pounds, cups or each). Typing math like 175*45 works.',
+        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
         monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); })),
       h('div', { class: 'cards' },
         stat('Receipts this month', month.length),

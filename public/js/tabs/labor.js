@@ -85,6 +85,7 @@ export default {
   id: 'labor',
   label: 'Labor',
   sideWidth: 0.35,
+  sideFold: false,
   render({ rerender }) {
     const d = state.data; const admin = isAdmin();
     const live = !d.missingTables?.has('labor_positions'); // false until the database has the labor table
@@ -136,7 +137,6 @@ export default {
     const summary = h('div', { class: 'cards labor-cards' },
       stat(`${selYear} labor rate${isFc ? ' (forecast)' : ''}`, empty ? '—' : perMin(L.rate), empty ? 'Set up this year’s people' : `${money(L.rate * 60)} per labor hour${!ownRows && F.fromYear ? ` · ${F.fromYear} + ${qty(F.inflation, 2)}%` : ''}`, 'key' + (isFc ? ' forecast' : '')),
       stat('Labor cost', dollars(L.burdened), `${dollars(L.base)} pay · ${dollars(L.tax + L.benefits)} taxes & benefits`),
-      stat('Production hours a week', L.plant.lineHours ? qty(L.plant.lineHours, 2) : '—', L.plant.lineHours ? `${fmt(L.minutes)} labor minutes a year · crew of ${qty(L.crew, 2)}` : 'Enter the production hours a week'),
       stat('Line hours a year', fmt(L.lineHours), `${qty(L.plant.lineHours, 2)} hours × ${qty(L.plant.prodWeeks, 2)} weeks × ${qty(L.crew, 2)} people`));
 
     // People for the year, compact enough for the side bar: name and pay type
@@ -237,17 +237,30 @@ export default {
           h('td', { class: 'num' }, dollars(r.burdened)),
           L.recipes.map((rc) => h('td', { class: 'num' }, money(r.rate * rc.minutesPer)))))))));
 
-    return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') },
+    // The right side: the selected year, with a header that folds it away.
+    const rightFolded = (() => { try { return localStorage.getItem('labor:right-folded') === '1'; } catch { return false; } })();
+    const foldRight = (f) => { try { localStorage.setItem('labor:right-folded', f ? '1' : '0'); } catch { /* not saved */ } rerender(); };
+    const yearHead = h('div', { class: 'year-head' },
+      h('h1', null, selYear, isFc ? h('span', { class: 'fc-tag big' }, F.needsReview ? 'forecast · review' : 'forecast') : null),
+      h('span', { class: 'muted' }, empty ? 'Not set up' : `${perMin(L.rate)} per labor minute`),
+      h('span', { class: 'grow' }),
+      h('button', { class: 'btn icon right-fold', title: rightFolded ? `Show ${selYear} details` : `Hide ${selYear} details`, 'aria-label': rightFolded ? `Show ${selYear} details` : `Hide ${selYear} details`, 'aria-expanded': String(!rightFolded),
+        onclick: () => foldRight(!rightFolded) }, rightFolded ? '‹' : '›'));
+    const peoplePanel = h('section', { class: 'panel people-panel' },
+      h('h2', null, h('span', { class: 'grow' }, `${selYear} people`, !ownRows && F.fromYear && !empty ? h('span', { class: 'fc-tag' }, `forecast · ${F.fromYear} + ${qty(F.inflation, 2)}%`) : null),
+        can && (ownRows || empty) ? h('button', { class: 'btn ghost', onclick: addPosition }, '+ Add position') : null,
+        can && !ownRows && !empty ? h('button', { class: 'btn ghost', onclick: confirmForecast }, F.needsReview ? `Confirm ${selYear}’s people` : `Give ${selYear} its own people`) : null),
+      ps.length ? h('div', { class: 'people-body' }, peopleTable) : h('p', { class: 'panel-note' }, `No one entered for ${selYear} yet.`),
+      h('p', { class: 'panel-note' }, 'Pay and fringe are per person. Hourly: pay per hour, fringe per month. Salaried: salary and fringe per year. # = number of people. ✎ opens every detail.'));
+
+    return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') + (rightFolded ? ' right-folded' : '') },
       pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate.' + (admin ? '' : ' Only admins can change these.'),
         h('div', { class: 'side-title' }, 'Labor rate by year'),
         yearTable,
-        h('div', { class: 'side-title side-sep' }, `${selYear} people`, !ownRows && F.fromYear && !empty ? h('span', { class: 'fc-tag' }, `forecast · ${F.fromYear} + ${qty(F.inflation, 2)}%`) : null),
-        ps.length ? peopleTable : h('p', { class: 'small muted' }, `No one entered for ${selYear} yet.`),
-        h('p', { class: 'small muted' }, 'Pay and fringe are per person. Hourly: pay per hour, fringe per month. Salaried: salary and fringe per year. # = number of people. ✎ opens every detail.'),
-        can && (ownRows || empty) ? h('button', { class: 'btn primary', onclick: addPosition }, `+ Add position to ${selYear}`) : null,
-        can && !ownRows && !empty ? h('button', { class: 'btn primary', onclick: confirmForecast }, F.needsReview ? `Confirm ${selYear}’s people` : `Give ${selYear} its own people`) : null,
+        h('p', { class: 'small muted' }, 'Click a year to see it on the right.'),
         h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Standard Cost uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
-      summary, people, plant, recipes, build, whatPanel);
+      yearHead,
+      rightFolded ? null : [summary, people, h('div', { class: 'labor-pair' }, peoplePanel, plant), recipes, build, whatPanel]);
   },
 };

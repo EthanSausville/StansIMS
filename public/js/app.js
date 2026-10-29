@@ -128,6 +128,9 @@ function sideBar() {
     frac = tab?.sideWidth || 0.2; key = tab?.sideWidth ? `side:w:${tab.id}` : 'side:w';
     const saved = Number(pref.get(key, 0));
     if (saved) setWidth(saved); else side.style.setProperty('--side-w', `${Math.round(frac * 100)}vw`);
+    // A tab whose right side folds instead (sideFold: false) keeps the side bar open.
+    side.classList.toggle('no-fold', tab?.sideFold === false);
+    side.classList.toggle('folded', tab?.sideFold !== false && pref.get('side:folded', '0') === '1');
   };
   const setFolded = (f) => {
     side.classList.toggle('folded', f); pref.set('side:folded', f ? '1' : '0');

@@ -679,3 +679,22 @@ table.side-people .pos-pay { display: block; box-sizing: border-box; max-width: 
 /* Forecast years: every number bold purple italic */
 .labor.fc-year .stat .value, .labor.fc-year .stat .small, .labor.fc-year table td.num, .labor.fc-year table td.num input, .labor.fc-year .barval,
 .labor.fc-year .formula strong, .labor.fc-year table.build tr.total td.num { font-style: italic; font-weight: 700; color: #6b3fc4; }
+/* Labor: the right side (the selected year) has a header and folds away */
+.sidebar.no-fold .side-fold { display: none; }
+.year-head { display: flex; align-items: center; gap: 12px; margin: -2px 0 14px; padding: 6px 0 10px; border-bottom: 2px solid var(--accent); }
+.year-head h1 { margin: 0; font-size: 26px; display: flex; align-items: center; gap: 8px; }
+.year-head .muted { font-size: 14px; }
+.fc-tag.big { font-size: 12px; padding: 2px 10px; vertical-align: 4px; }
+.right-fold { width: 30px; height: 30px; border-radius: 50%; font-size: 17px; line-height: 1; padding: 0; }
+.labor-pair { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.labor-pair > .panel { margin: 0; max-width: none; }
+.labor-pair > .panel + .panel { margin-top: 0; }
+.people-panel .people-body { padding: 0 6px; }
+@media (max-width: 1100px) { .labor-pair { grid-template-columns: 1fr; } }
+.layout:has(.labor.right-folded) .sidebar { width: calc(100% - 64px) !important; }
+.layout:has(.labor.right-folded) .content { flex: 0 0 64px; padding: 16px 8px; }
+.labor.right-folded .year-head { flex-direction: column; border: 0; gap: 8px; }
+.labor.right-folded .year-head h1 { writing-mode: vertical-rl; font-size: 20px; }
+.labor.right-folded .year-head .muted, .labor.right-folded .year-head .fc-tag, .labor.right-folded .year-head .grow { display: none; }
+.labor.right-folded .year-head .right-fold { order: -1; }
+.year-head .grow { flex: 1; }

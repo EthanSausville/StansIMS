@@ -1,4 +1,4 @@
-import { h, pageHead, numberCell, qty } from '../ui.js';
+import { h, pageHead, numberCell, qty, acctText } from '../ui.js';
 import { state, derived, saveCell, isAdmin } from '../store.js';
 import { avgPricePerOz } from '../calc.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
@@ -17,8 +17,8 @@ export default {
         cell: (fg) => h('td', { class: 'num calc' }, qty(ix.fgCaseOz.get(fg.item_no) || 0)) },
       ...cm.years.map((y) => ({ key: `y${y}`, label: String(y), num: true, value: (fg) => price(fg, y), text: (fg) => (price(fg, y) === null ? '' : '$' + qty(price(fg, y), 2)),
         cell: (fg) => numberCell(price(fg, y), (v) => saveCell('standard_prices', { item_no: fg.item_no, year: y }, 'price', v),
-          { disabled: !admin, digits: 2, key: `sp|${fg.item_no}|${y}`, title: `${fg.name} ${y} price per case` }),
-        total: () => { const v = avgPricePerOz(state.data, y); return v ? '$' + qty(v, 4) : ''; } })),
+          { disabled: !admin, digits: 2, key: `sp|${fg.item_no}|${y}`, title: `${fg.name} ${y} price per case`, display: acctText, cls: 'acct-cell', placeholder: ' ' }),
+        total: () => { const v = avgPricePerOz(state.data, y); return v ? '$' + acctText(v) : ''; } })),
     ];
     const rows = filteredRows({ id: 'prices', columns, rows: fgs });
     const nFilters = activeFilterCount('prices');

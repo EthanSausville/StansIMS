@@ -5,7 +5,8 @@ import production from './tabs/production.js';
 import receipts from './tabs/receipts.js';
 import counts from './tabs/counts.js';
 import inventory from './tabs/inventory.js';
-import demand from './tabs/demand.js';
+import consumption from './tabs/consumption.js';
+import { demandPlanTab, purchasePlanTab } from './tabs/planning.js';
 import sales from './tabs/sales.js';
 import { byCustomer, byProduct } from './tabs/salessummary.js';
 import costs from './tabs/costs.js';
@@ -22,7 +23,8 @@ const GROUPS = [
   { id: 'overview', label: 'Dashboard', tabs: [dashboard] },
   { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
   { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
-  { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, demand] },
+  { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, consumption] },
+  { id: 'planning', label: 'Planning', tabs: [demandPlanTab, purchasePlanTab] },
   { id: 'costing', label: 'Standards', tabs: [costs, bom, labor] },
 ];
 const TABS = [...GROUPS.flatMap((g) => g.tabs), users];

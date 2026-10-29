@@ -3,6 +3,7 @@
 // recalculates locally, and writes each change straight to the database.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import * as C from './calc.js';
+import { todayIso } from './ui.js';
 
 const cfg = window.STANS_CONFIG || {};
 export const configured = Boolean(cfg.supabaseUrl && cfg.supabaseKey);
@@ -17,13 +18,13 @@ function changed() { state.version++; derivedCache.clear(); for (const fn of lis
 const TABLES = {
   items: 'sort', standard_costs: 'year', standard_prices: 'year', boms: 'item_no', bom_lines: 'sort', year_settings: 'year', purchase_settings: 'item_no', production: 'date',
   sales_imports: 'created_at', qb_name_map: 'kind',
-  labor_positions: 'sort',
+  labor_positions: 'sort', demand_forecast: 'week',
   goods_receipts: 'date', cycle_counts: 'date', sales: 'date',
 };
 
 // Tables added after the first release: until the database has been updated
 // (schema.sql), they load as empty instead of stopping the whole site.
-const OPTIONAL = new Set(['labor_positions']);
+const OPTIONAL = new Set(['labor_positions', 'demand_forecast']);
 const missingTable = (e) => /does not exist|could not find the table|schema cache/i.test(e?.message || '') || e?.code === '42P01' || e?.code === 'PGRST205';
 
 const missing = new Set();
@@ -80,6 +81,9 @@ export const derived = {
   }),
   inventory: () => memo('inventory', () => C.dailyInventory(state.data, derived.horizon())),
   demand: () => memo('demand', () => C.purchaseDemand(state.data, derived.inventory())),
+  plan: () => memo('plan', () => C.demandPlan(state.data, { today: todayIso(), inv: derived.inventory() })),
+  materials: () => memo('materials', () => C.materialPlan(state.data, derived.plan(), { today: todayIso(), inv: derived.inventory() })),
+  counts: () => memo('counts', () => C.countToCount(state.data)),
   sales: () => memo('sales', () => C.salesRows(state.data)),
   // 2026 through next year, everywhere on the site.
   years: () => memo('years', () => C.siteYears()),

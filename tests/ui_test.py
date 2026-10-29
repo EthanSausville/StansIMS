@@ -69,7 +69,8 @@ def shot(page, name):
 
 GROUPS = {
     'Dashboard': ['Dashboard'],
-    'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Purchase Demand'],
+    'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Consumption'],
+    'Planning': ['Demand Plan', 'Purchase Plan'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
@@ -92,6 +93,15 @@ def tab(page, label):
             page.get_by_role('tab', name=label, exact=True).click()
     page.wait_for_timeout(150)
 
+def acct(text):
+    """A number from accounting-style text: '$\n1,250.00' or '$ (30.60)'."""
+    t = text.replace('$', '').replace(',', '').replace('\n', '').strip()
+    if not t: return None
+    neg = t.startswith('(') or t.startswith('-')
+    try: v = float(t.strip('()-'))
+    except ValueError: return text
+    return round(-v if neg else v, 2)
+
 def cell(page, key):
     return page.locator(f'input[data-k="{key}"]')
 
@@ -112,7 +122,7 @@ with sync_playwright() as p:
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'dashboard loads after sign-in')
     groups = page.locator('.groups .group').all_inner_texts()
     print('   groups:', ' | '.join(groups))
-    check(groups == ['Dashboard', 'Accounting', 'Sales', 'Inventory', 'Standards'], 'five sections across the top, in order')
+    check(groups == ['Dashboard', 'Accounting', 'Sales', 'Inventory', 'Planning', 'Standards'], 'six sections across the top, in order')
     check(page.locator('.brandrow').count() == 0 or page.locator('.brandrow').is_hidden(), 'no gray bar')
     check(page.locator('.tabs').is_hidden(), 'Dashboard has no second row of tabs')
     page.locator('.groups .group', has_text='Inventory').click(); page.wait_for_timeout(100)
@@ -242,30 +252,40 @@ with sync_playwright() as p:
 
     # ---- sales ----
     tab(page, 'Sales Detail')
-    page.get_by_role('button', name='+ Add a line by hand').click(); page.wait_for_timeout(80)
+    page.get_by_role('button', name='Add sale').click(); page.wait_for_timeout(120)
+    check(page.locator('.sidebar form.sale-form').count() == 1 and page.locator('dialog[open]').count() == 0, 'Add sale opens a form in the side bar')
     n0 = page.evaluate('window.__MOCK_DB__.sales.length')
-    page.fill('form.inline-form input[type=date]', '2026-10-26')
-    page.fill('form.inline-form input[placeholder="e.g. 14664"]', 'T-1')
-    page.select_option('form.inline-form select', 'Original gallon')
-    page.fill('form.inline-form input[placeholder=Customer]', 'Test Market')
-    page.fill('form.inline-form input[placeholder=Cases]', '10')
+    F = '.sidebar form.sale-form'
+    page.fill(f'{F} input[type=date]', '2026-10-26')
+    page.fill(f'{F} input[placeholder="e.g. 14664"]', 'T-1')
+    page.select_option(f'{F} select', 'Original gallon')
+    page.fill(f'{F} input[placeholder=Customer]', 'Test Market')
+    page.fill(f'{F} input[placeholder=Cases]', '10')
     page.wait_for_timeout(100)
-    price = page.input_value('form.inline-form input[placeholder="Per case"]')
-    amount = page.input_value('form.inline-form input[placeholder="Qty × price"]')
+    price = page.input_value(f'{F} input[placeholder="Per case"]')
+    amount = page.input_value(f'{F} input[placeholder="Qty × price"]')
     std = next(p['price'] for p in inputs['standard_prices'] if p['item_no'] == 500003 and p['year'] == 2026)
     check(float(price) == std and abs(float(amount) - 10 * std) < 0.01, f'standard price fills in and amount = qty × price ({price}, {amount})')
-    page.click('form.inline-form button[type=submit]'); page.wait_for_timeout(300)
+    page.click(f'{F} button[type=submit]'); page.wait_for_timeout(300)
     n1 = page.evaluate('window.__MOCK_DB__.sales.length')
-    check(n1 == n0 + 1, 'adding a sale saves it')
+    check(n1 == n0 + 1 and page.locator(F).count() == 0, 'adding a sale saves it and closes the form')
     check(page.locator('tbody td', has_text='Test Market').count() == 1, 'new sale appears in the list')
+    check(page.locator('tr.selected', has_text='Test Market').count() == 1, 'the new sale is selected')
     shot(page, '22-sales-added')
-    page.locator('tr', has_text='Test Market').get_by_role('button', name='Delete Original gallon line for Test Market').click()
-    page.get_by_role('button', name='Delete', exact=True).last.click(); page.wait_for_timeout(300)
+    page.get_by_role('button', name='Edit sale').click(); page.wait_for_timeout(120)
+    page.fill(f'{F} input[placeholder=Customer]', 'Test Market 2'); page.locator(F).get_by_role('button', name='Save').click(); page.wait_for_timeout(300)
+    check(page.locator('tbody td', has_text='Test Market 2').count() == 1, 'Edit sale changes the line')
+    page.get_by_role('button', name='Edit sale').click(); page.wait_for_timeout(120)
+    page.locator(F).get_by_role('button', name='Delete').click()
+    page.locator('dialog[open]').get_by_role('button', name='Delete', exact=True).click(); page.wait_for_timeout(300)
     check(page.evaluate('window.__MOCK_DB__.sales.length') == n0, 'deleting a sale removes it')
+    check(page.locator('table.xtable .row-actions').count() == 0, 'no edit / delete buttons on the rows')
+    amt = page.locator('table.xtable tbody tr').first.locator('td').nth(4)
+    check(amt.locator('.cur').count() == 1, 'amounts show the $ at the far left')
 
     # ---- Sales Detail filters and sorts like an Excel table; totals at the top ----
     if not page.evaluate("document.querySelector('.sidebar').classList.contains('folded')"): page.locator('.side-fold').click(); page.wait_for_timeout(200)
-    money = lambda v: '-$' + '{:,.2f}'.format(-v) if v < 0 else '${:,.2f}'.format(v)
+    money = lambda v: round(v, 2)
     latest = max(int(s['date'][:4]) for s in inputs['sales'])
     yr = [s for s in inputs['sales'] if s['date'].startswith(str(latest))]
     page.evaluate('window.scrollTo(0, 400)'); page.wait_for_timeout(150)
@@ -273,7 +293,7 @@ with sync_playwright() as p:
     check(abs(gap) <= 1, f'the totals row is pinned to the bottom of the screen ({gap}px from the bottom)')
     shot(page, '35-sales-totals-bottom')
     page.evaluate('window.scrollTo(0, 0)')
-    tot = lambda: page.locator('tfoot tr.xt-totals td').all_inner_texts()
+    tot = lambda: [x.split('\n')[0] if i == 0 else acct(x) for i, x in enumerate(page.locator('tfoot tr.xt-totals td').all_inner_texts())]
     t = tot()
     check(t[0] == (f'{len(yr):,} lines' if len(yr) == len(inputs['sales']) else f'{len(yr):,} of {len(inputs["sales"]):,}') and t[4] == money(sum(s['amount'] or 0 for s in yr)),
           f'it opens on {latest} and the totals add up that year ({t[0]}, {t[4]})')
@@ -292,7 +312,7 @@ with sync_playwright() as p:
     check(page.get_by_role('button', name='Filter and sort Customer (filtered)').count() == 1, 'the filtered column’s button is highlighted')
     page.get_by_role('button', name='Filter and sort Amount').click(); page.wait_for_timeout(80)
     page.locator('.xf-menu').get_by_role('button', name='Sort largest to smallest').click(); page.wait_for_timeout(150)
-    amts = [float(x.replace('$', '').replace(',', '')) for x in page.locator('main table.xtable tbody td:nth-child(5)').all_inner_texts()]
+    amts = [acct(x) for x in page.locator('main table.xtable tbody td:nth-child(5)').all_inner_texts()]
     check(amts == sorted(amts, reverse=True), 'Amount sorts largest to smallest')
     shot(page, '34-sales-filtered')
     page.locator('.side-fold').click(); page.wait_for_timeout(150)
@@ -482,8 +502,8 @@ with sync_playwright() as p:
 
     # ---- sales summaries ----
     tab(page, 'By Customer')
-    total = page.locator('table.t tfoot td').nth(-3).inner_text()
-    want = '${:,.0f}'.format(sum(s['amount'] or 0 for s in inputs['sales'] if s['date'].startswith('2026')))
+    total = acct(page.locator('table.t tfoot td').nth(-3).inner_text())
+    want = round(sum(s['amount'] or 0 for s in inputs['sales'] if s['date'].startswith('2026')), 2)
     check(total == want, f'By Customer total matches 2026 sales ({total} vs {want})')
     custs = {s['customer'] for s in inputs['sales'] if s['date'].startswith('2026')}
     check(page.locator('table.t tbody tr').count() == len(custs), f'one row per customer ({len(custs)})')
@@ -532,7 +552,68 @@ with sync_playwright() as p:
         check(page.locator('.toast.bad', has_text='Transaction date').count() > 0, 'a file that is not the report is refused with a clear message')
         bad.unlink()
 
-    # ---- BOMs tree ----
+    # ---- Planning ----
+    tab(page, 'Demand Plan')
+    weeks = page.locator('table.plan-table thead th .wk-label').count()
+    check(weeks == 12, f'demand plan covers 12 weeks ({weeks})')
+    first_fg = page.locator('table.plan-table tbody tr').first
+    ph = first_fg.locator('td.cell input').first.get_attribute('placeholder')
+    check(ph not in (None, '', '0'), f'forecast cells show the average weekly sales ({ph})')
+    key = first_fg.locator('td.cell input').nth(2).get_attribute('data-k')
+    c = cell(page, key); c.click(); c.fill('999'); c.press('Tab'); page.wait_for_timeout(250)
+    _, item_no, week = key.split('|')
+    check(page.evaluate(f"window.__MOCK_DB__.demand_forecast.find(f => f.item_no === {item_no} && f.week === '{week}').cases") == 999, 'a typed-in forecast is saved for that week')
+    page.get_by_role('button', name='Production', exact=True).click(); page.wait_for_timeout(150)
+    prod = first_fg.locator('td').nth(4 + 2).inner_text().replace(',', '')
+    check(prod and float(prod) >= 999 - 2000, f'planned production follows the forecast ({prod})')
+    page.get_by_role('button', name='On hand', exact=True).click(); page.wait_for_timeout(150)
+    shot(page, '50-demand-plan')
+    page.get_by_role('button', name='Forecast', exact=True).click(); page.wait_for_timeout(150)
+    c = cell(page, key); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(250)
+    check(page.evaluate(f"window.__MOCK_DB__.demand_forecast.filter(f => f.item_no === {item_no}).length") == 0, 'clearing a forecast goes back to the average')
+    tab(page, 'Purchase Plan')
+    rows_pp = page.locator('table.xtable tbody tr').count()
+    mats = len([i for i in inputs['items'] if i['type'] in ('Raw Material', 'Component')])
+    check(rows_pp == mats, f'purchase plan lists every raw material and packaging item ({rows_pp})')
+    st_first = page.locator('table.xtable tbody tr').first.locator('.status').inner_text()
+    check(st_first in ('Order now', 'Order this week'), f'most urgent purchases first ({st_first})')
+    leads = set(page.locator('table.xtable tbody tr td:last-child').all_inner_texts())
+    check(leads == {'14'}, f'every material has a two-week lead time ({leads})')
+    page.locator('table.xtable tbody tr', has_text='Cheese').locator('td').first.click(); page.wait_for_timeout(150)
+    check('Cheese' in page.locator('.side-detail').inner_text() and page.locator('.side-detail', has_text='Safety stock').count() == 1, 'selecting a material shows its orders in the side bar')
+    shot(page, '51-purchase-plan')
+    page.get_by_role('button', name='Weekly', exact=True).click(); page.wait_for_timeout(150)
+    check(page.locator('table.plan-table td.wk .rcpt').count() > 0, 'week by week shows planned deliveries')
+    shot(page, '52-purchase-weekly')
+    page.get_by_role('button', name='Settings', exact=True).click(); page.wait_for_timeout(150)
+    cheese_no = next(i['item_no'] for i in inputs['items'] if i['name'] == 'Cheese')
+    c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill('21'); c.press('Tab'); page.wait_for_timeout(250)
+    check(page.evaluate(f"window.__MOCK_DB__.purchase_settings.find(s => s.item_no === {cheese_no}).lead_days") == 21, 'lead time can be changed per material')
+    page.get_by_role('button', name='To order', exact=True).click(); page.wait_for_timeout(150)
+    lt = page.locator('table.xtable tbody tr', has_text='Cheese').locator('td').last.inner_text()
+    check(lt == '21', f'the plan uses the new lead time ({lt})')
+    page.get_by_role('button', name='Settings', exact=True).click(); page.wait_for_timeout(150)
+    c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(250)
+    page.get_by_role('button', name='To order', exact=True).click(); page.wait_for_timeout(100)
+    tab(page, 'Dashboard')
+    check(page.locator('.note.warn', has_text='Order now').count() == 1, 'the dashboard lists what to order now')
+
+    # ---- Consumption ----
+    tab(page, 'Consumption')
+    cheese_row = page.locator('table.xtable tbody tr', has_text='Cheese').first
+    jul = cheese_row.locator('td').nth(3 + 6).inner_text()
+    check(jul not in ('', '0'), f'standard usage by month (Cheese, July {jul})')
+    page.get_by_role('button', name='Dollars').click(); page.wait_for_timeout(150)
+    check(cheese_row.locator('td').nth(3 + 6).locator('.cur').count() == 1, 'usage in dollars, accounting style')
+    page.get_by_role('button', name='Count to count').click(); page.wait_for_timeout(150)
+    n_cc = page.locator('table.xtable tbody tr').count()
+    check(n_cc > 0 and page.locator('table.xtable thead', has_text='Actual used').count() == 1, f'count-to-count actual vs standard usage ({n_cc} periods)')
+    shot(page, '53-count-to-count')
+    page.get_by_role('button', name='Daily').click(); page.wait_for_timeout(150)
+    check(page.locator('h2', has_text='Used per case produced').count() == 1, 'daily usage and per-case usage are on Consumption')
+    page.get_by_role('button', name='By month').click(); page.wait_for_timeout(100)
+    page.get_by_role('button', name='Quantity').click(); page.wait_for_timeout(100)
+
     tab(page, 'BOMs')
     while page.locator('table.tree-table button.twisty[aria-expanded=true]').count():
         page.locator('table.tree-table button.twisty[aria-expanded=true]').first.click(); page.wait_for_timeout(60)

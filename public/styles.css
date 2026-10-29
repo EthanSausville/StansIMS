@@ -14,9 +14,9 @@
   --accent-2: #8fb3f2;
   --weekend: #f3f6fa;
   --calc: #f6f8fb;
-  --entry: #fff8d1;
-  --entry-weekend: #fbf0bd;
-  --entry-focus: #fffdf0;
+  --entry: #ffffff;          /* cells you type in: white, like the rest (was yellow) */
+  --entry-weekend: var(--weekend);
+  --entry-focus: #fffbe6;    /* a pale yellow only while typing */
   --good: #1d8350;
   --good-soft: #e3f3ea;
   --warn: #8a5a00;
@@ -108,7 +108,9 @@ label.field > input, label.field > select { font-size: 14px; color: var(--ink); 
 /* ---------- tables ---------- */
 .tablewrap { overflow-x: auto; overflow-y: hidden; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 .tablewrap.tall { max-height: none; }
-table.t { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
+table.t { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 0; }
+/* Tables keep their natural column widths; the box hugs the table and the rest stays white space. */
+.tablewrap:has(> table.t) { width: fit-content; }
 table.t th, table.t td { padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.t thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); font-weight: 600; font-size: 12px; color: var(--muted); text-align: left; vertical-align: bottom; border-bottom: 1px solid var(--line-strong); }
 table.t thead tr.group th { top: 0; color: var(--faint); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; border-bottom: 0; padding-bottom: 0; }
@@ -122,7 +124,7 @@ table.t tbody tr:hover td.sticky-col { background: var(--accent-soft); }
 table.t tr.weekend td { background: var(--weekend); }
 table.t tr.weekend td.sticky-col { background: var(--weekend); }
 table.t tr.today td.sticky-col { box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
-table.t td.calc { background: var(--calc); color: var(--muted); }
+table.t td.calc { color: var(--ink); }
 table.t tfoot td { position: sticky; bottom: 0; background: var(--panel); font-weight: 650; border-top: 1px solid var(--line-strong); border-bottom: 0; }
 table.t td.neg { color: var(--bad); }
 table.t td.hit { background: var(--warn-soft) !important; color: var(--warn); font-weight: 600; }
@@ -222,9 +224,9 @@ table.t thead .sticky-col { background: #f8fafd; }
 /* ---------- manual entry: light yellow ---------- */
 table.t td.cell.entry, table.t tr td.cell.entry { background: var(--entry); }
 table.t tr.weekend td.cell.entry { background: var(--entry-weekend); }
-table.t tbody tr:hover td.cell.entry { background: var(--entry-weekend); }
+table.t tbody tr:hover td.cell.entry { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
 table.t td.cell.entry input:focus { background: var(--entry-focus); }
-.inline-form input:not([type=checkbox]), .inline-form select, dialog input, dialog select { background: var(--entry); border-color: #e6d58a; }
+.inline-form input:not([type=checkbox]), .inline-form select, dialog input, dialog select { background: var(--entry); border-color: var(--line-strong); }
 .legend-entry { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .legend-entry i { width: 14px; height: 14px; border-radius: 3px; background: var(--entry); border: 1px solid #e6d58a; }
 
@@ -259,7 +261,7 @@ table.bom tr.bom-recipe td { border-top: 1px solid var(--line-strong); }
 .twisty { appearance: none; border: 0; background: none; cursor: pointer; color: var(--accent); font-size: 13px; width: 18px; padding: 0; }
 table.bom tr.bom-add td { background: var(--panel); }
 .bom-addform { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 2px 0; }
-.bom-addform select, .bom-addform input { background: var(--entry); border-color: #e6d58a; }
+.bom-addform select, .bom-addform input { background: var(--entry); border-color: var(--line-strong); }
 .bom-addform input { width: 120px; }
 
 /* ---------- T-Accounts ---------- */
@@ -301,7 +303,7 @@ table.tree-table tr.d1 .tree-name { font-weight: 600; }
 /* ---------- Create BOM ---------- */
 .cb-grid { display: flex; flex-wrap: wrap; gap: 14px 16px; align-items: flex-end; }
 .cb-grid .field.wide select, .cb-grid .field.wide input { width: min(420px, 80vw); }
-.cb-grid input, .cb-grid select { background: var(--entry); border-color: #e6d58a; }
+.cb-grid input, .cb-grid select { background: var(--entry); border-color: var(--line-strong); }
 .cb-yield { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; flex-basis: 100%; }
 .cb-yield input { width: 120px; }
 .cb-yield p { margin: 0 0 6px; max-width: 52ch; }
@@ -723,7 +725,7 @@ table.side-people .pos-pay { display: block; box-sizing: border-box; max-width: 
 .bom-editor p { margin: 0; }
 .cb-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .cb-fields .span2 { grid-column: 1 / -1; }
-.cb-fields input, .cb-fields select, .bom-editor #cb-item { background: var(--entry); border-color: #e6d58a; min-width: 0; }
+.cb-fields input, .cb-fields select, .bom-editor #cb-item { background: var(--entry); border-color: var(--line-strong); min-width: 0; }
 .bom-editor table.cb-lines { width: 100%; table-layout: fixed; font-size: 12.5px; }
 .bom-editor table.cb-lines th:nth-child(2), .bom-editor table.cb-lines td:nth-child(2) { width: 22%; }
 .bom-editor table.cb-lines th:nth-child(3), .bom-editor table.cb-lines td:nth-child(3) { width: 14%; }
@@ -756,7 +758,7 @@ table.side-people .pos-pay { display: block; box-sizing: border-box; max-width: 
 
 /* Accounting format: $ at the far left of the cell, the amount at the right */
 td.acct { white-space: nowrap; }
-td.acct .cur { float: left; margin-right: 10px; }
+td.acct .cur, table.t td .cur, table.t tfoot td .cur { float: left; margin-right: 10px; }
 td.acct-cell { position: relative; }
 td.acct-cell::before { content: '$'; position: absolute; left: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; z-index: 1; }
 td.acct-cell:has(input:placeholder-shown)::before, td.acct-cell:has(input:focus)::before { content: none; }
@@ -787,3 +789,24 @@ table.t.plain-cells tbody tr:hover td.cell.entry { background: var(--panel); }
 table.t.plain-cells td.cell.entry input { background: transparent; }
 table.t.plain-cells td.calc { color: var(--ink); }
 table.t.plain-cells td.cell.entry input:focus { background: var(--entry-focus); }
+
+/* ---------- Planning ---------- */
+.plan-table .wk-label { font-weight: 400; color: var(--faint); font-size: 10.5px; }
+.plan-table td.cell.suggested input::placeholder { color: var(--faint); font-style: italic; opacity: 1; }
+.plan-table td.cell.typed input { font-weight: 650; color: var(--accent-dark); }
+.plan-table td.low { color: var(--warn); font-weight: 600; }
+.plan-table td.wk { min-width: 64px; }
+.plan-table td.wk .rcpt { display: block; font-size: 10.5px; color: var(--good); font-weight: 650; line-height: 1.1; }
+.status { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.status.bad { background: var(--bad-soft); color: var(--bad); }
+.status.warn { background: var(--warn-soft); color: var(--warn); }
+.status.info { background: var(--accent-soft); color: var(--accent-dark); }
+.status.good { background: var(--good-soft); color: var(--good); }
+.side-detail { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.side-detail .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 4px 0; font-size: 12.5px; }
+.side-detail .kv dt { color: var(--muted); }
+.side-detail .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+table.side-orders { font-size: 12.5px; width: 100%; }
+table.side-orders th, table.side-orders td { padding: 3px 4px; }
+table.side-orders tr.late td { color: var(--bad); font-weight: 600; }
+.section-title { font-size: 15px; margin: 20px 0 8px; }

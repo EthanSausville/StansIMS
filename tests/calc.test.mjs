@@ -199,3 +199,52 @@ test('BOMs by year: a later year’s BOM leaves earlier years alone', () => {
   assert.equal(cons.get('2026-12-31').get(box.item_no), 10);
   assert.equal(cons.get('2027-01-04').get(box.item_no), 20);
 });
+
+test('planning: demand plan, material plan', () => {
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, demand_forecast: [] };
+  const today = '2026-10-28';
+  assert.equal(C.mondayOf('2026-10-28'), '2026-10-26');
+  assert.equal(C.mondayOf('2026-11-01'), '2026-10-26');
+  assert.equal(C.mondayOf('2026-11-02'), '2026-11-02');
+  const inv = C.dailyInventory(d, '2026-12-31');
+  const p = C.demandPlan(d, { today, inv });
+  assert.equal(p.weeks.length, 12); assert.equal(p.weeks[0], '2026-10-26');
+  const fg = p.rows[0];
+  // average of the 13 history weeks, each week's cases sold
+  const hist = d.sales.filter((s) => s.item_no === fg.item.item_no && s.date >= p.history.from && s.date <= p.history.to).reduce((s, r) => s + r.quantity, 0);
+  close(fg.avg, hist / 13, 'average weekly sales');
+  // every week ends at or above safety stock, and production only tops up to it
+  for (const r of p.rows) for (const c of r.weeks) assert.ok(c.endOnHand >= r.safety - 1e-9, `${r.item.name} ${c.week} ends above safety`);
+  // a typed-in forecast replaces the average for that week
+  const typed = C.demandPlan({ ...d, demand_forecast: [{ item_no: fg.item.item_no, week: p.weeks[2], cases: 500 }] }, { today, inv });
+  assert.equal(typed.rows[0].weeks[2].forecast, 500); assert.equal(typed.rows[0].weeks[2].typed, true);
+  // materials: two-week lead time, never below safety stock after planned receipts, orders placed lead time ahead
+  const m = C.materialPlan(d, p, { today, inv });
+  for (const r of m.rows) {
+    assert.equal(r.leadDays, 14);
+    assert.ok(r.safety >= r.avgPlanned - 1e-9, `${r.item.name} safety at least a week of use`);
+    for (const c of r.weeks) assert.ok(c.endOnHand >= r.safety - 1e-6, `${r.item.name} ${c.week} stays above safety`);
+    for (const o of r.orders) assert.equal(o.orderBy, C.addDays(o.week, -14));
+  }
+  // a typed-in lead time and safety stock win; order sizes round up to the standard purchase
+  const cheese = m.rows.find((r) => r.item.name === 'Cheese').item.item_no;
+  const m2 = C.materialPlan({ ...d, purchase_settings: [{ item_no: cheese, lead_days: 21, safety_stock: 100, standard_purchase: 1000 }] }, p, { today, inv });
+  const r2 = m2.rows.find((r) => r.item.item_no === cheese);
+  assert.equal(r2.leadDays, 21); assert.equal(r2.safety, 100);
+  for (const o of r2.orders) { assert.equal(o.qty % 1000, 0); assert.equal(o.orderBy, C.addDays(o.week, -21)); }
+});
+
+test('consumption: count to count', () => {
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines };
+  const rows = C.countToCount(d);
+  assert.ok(rows.length > 0);
+  for (const r of rows) {
+    close(r.actual, r.start + r.received - r.end, 'actual = start + received - end');
+    close(r.variance, r.actual - r.standard, 'variance');
+  }
+  // standard usage by month adds up to the daily consumption
+  const byMonth = C.usageByMonth(d, 2026); const cons = C.consumptionByDate(d);
+  const cheese = d.items.find((i) => i.name === 'Cheese').item_no;
+  let total = 0; for (const [, m] of cons) total += m.get(cheese) || 0;
+  close(byMonth.get(cheese).reduce((s, v) => s + v, 0), total, 'monthly usage total');
+});

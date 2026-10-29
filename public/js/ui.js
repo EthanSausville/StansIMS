@@ -42,6 +42,8 @@ export function acctText(v) {
   const d = a ? Math.min(8, Math.max(2, 1 - Math.floor(Math.log10(a)))) : 2;
   return (v < 0 ? '(' : '') + fmt(a, d, 2) + (v < 0 ? ')' : '');
 }
+// The $ and amount for a cell that's already a <td> (e.g. a totals row).
+export const acctParts = (v) => (v ? [h('span', { class: 'cur' }, '$'), acctText(v)] : '');
 export const acctCell = (v, { class: cls = '', title } = {}) => h('td', { class: `num acct ${cls}`.trim(), title, 'data-v': v || null },
   v ? [h('span', { class: 'cur' }, '$'), acctText(v)] : '');
 export const pct = (v) => (Number.isFinite(v) ? fmt(v * 100, 1, 1) + '%' : '');

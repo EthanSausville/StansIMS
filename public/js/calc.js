@@ -496,3 +496,165 @@ export function dashboard(data, year, throughMonth = 12) {
   return { byMonth, byProduct: group((r) => r.product || 'Other'), byCustomer: group((r) => r.customer || '(none)'), loss,
     totalSales, totalMargin, marginPct: totalSales ? totalMargin / totalSales : 0, totalLoss: loss.reduce((s, m) => s + m.loss, 0) };
 }
+
+// ---------- Planning ----------
+// Weeks start on Monday. Everything is planned from `today` forward.
+export const mondayOf = (iso) => { const w = toDate(iso).getUTCDay(); return addDays(iso, -((w + 6) % 7)); };
+export const PLAN_WEEKS = 12;        // weeks planned ahead
+export const HISTORY_WEEKS = 13;     // a quarter of history behind each average
+export const DEFAULT_LEAD_DAYS = 14; // every material: two weeks from order to delivery
+export const FG_SAFETY_WEEKS = 1;    // finished goods: keep a week of forecast sales on hand
+export const SERVICE_Z = 1.65;       // materials: 95% chance of not running out during the lead time
+export const MIN_SAFETY_WEEKS = 1;   // ... and never less than a week of usage
+
+// The 13 weeks of history an average is taken over: ending at the last week
+// with activity on or before today (so a gap in entered data doesn't zero the
+// forecast), as a list of Monday dates.
+function historyWeeks(dates, today, weeks = HISTORY_WEEKS) {
+  const past = dates.filter((d) => d <= today);
+  const end = mondayOf(past.length ? past.reduce((a, b) => (a > b ? a : b)) : today);
+  return Array.from({ length: weeks }, (_, i) => addDays(end, -7 * (weeks - 1 - i)));
+}
+const mean = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0);
+const stdev = (a) => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1)); };
+
+// Demand plan for finished goods.
+//   forecast: a typed-in number of cases for a product and week (demand_forecast),
+//             otherwise the product's average weekly sales over the history weeks.
+//   safety stock: FG_SAFETY_WEEKS of the average forecast.
+//   planned production: enough cases in a week to end it at or above safety stock.
+export function demandPlan(data, { today, inv, weeks = PLAN_WEEKS }) {
+  const ix = index(data, yearOf(today));
+  const fgs = ix.byType('Finished Good');
+  const hist = historyWeeks(data.sales.filter((s) => s.item_no).map((s) => s.date), today);
+  const histStart = hist[0]; const histEnd = addDays(hist.at(-1), 6);
+  const sold = new Map();
+  for (const s of data.sales) {
+    if (!s.item_no || s.date < histStart || s.date > histEnd) continue;
+    const k = `${s.item_no}|${mondayOf(s.date)}`; sold.set(k, (sold.get(k) || 0) + n(s.quantity));
+  }
+  const entered = new Map((data.demand_forecast || []).map((f) => [`${f.item_no}|${f.week}`, f.cases]));
+  const start = mondayOf(today);
+  const weekList = Array.from({ length: weeks }, (_, i) => addDays(start, 7 * i));
+  const rows = fgs.map((item) => {
+    const history = hist.map((w) => sold.get(`${item.item_no}|${w}`) || 0);
+    const avg = mean(history);
+    const onHand = inv?.byItem.get(item.item_no)?.get(today) ?? 0;
+    const cells = weekList.map((w) => { const e = entered.get(`${item.item_no}|${w}`); const typed = e !== undefined && e !== null; return { week: w, forecast: typed ? n(e) : avg, typed }; });
+    const safety = Math.ceil(mean(cells.map((c) => c.forecast)) * FG_SAFETY_WEEKS);
+    let proj = onHand;
+    for (const c of cells) {
+      const short = c.forecast + safety - proj;
+      c.production = short > 0 ? Math.ceil(short - 1e-9) : 0;
+      proj = proj + c.production - c.forecast; c.endOnHand = proj;
+    }
+    return { item, history, avg, onHand, safety, weeks: cells };
+  });
+  return { weeks: weekList, history: { from: histStart, to: histEnd }, rows };
+}
+
+// Material requirements: what the planned production uses up each week (from
+// that year's BOMs), and the purchases needed to stay above safety stock.
+//   lead time: purchase_settings.lead_days, else DEFAULT_LEAD_DAYS.
+//   safety stock: purchase_settings.safety_stock, else the larger of
+//     SERVICE_Z x (week-to-week spread of past usage) x sqrt(lead time in weeks)
+//     and MIN_SAFETY_WEEKS of planned usage.
+//   order size: enough to get back to safety stock plus two weeks of planned
+//     usage, rounded up to the standard purchase (case / pallet) when one is set.
+export function materialPlan(data, plan, { today, inv }) {
+  const ix = index(data, yearOf(today));
+  const mats = [...ix.byType('Raw Material'), ...ix.byType('Component')];
+  const settings = new Map((data.purchase_settings || []).map((s) => [s.item_no, s]));
+  const usageByYear = new Map(); const usageFor = (y) => { if (!usageByYear.has(y)) usageByYear.set(y, perCaseUsage(data, y)); return usageByYear.get(y); };
+  // planned usage per material per week
+  const need = new Map();
+  for (const r of plan.rows) for (const c of r.weeks) {
+    if (!c.production) continue;
+    for (const [m, q] of usageFor(yearOf(c.week)).get(r.item.item_no) || []) {
+      const k = `${m}|${c.week}`; need.set(k, (need.get(k) || 0) + q * c.production);
+    }
+  }
+  // past usage per material per week (standard usage from production)
+  const cons = consumptionByDate(data);
+  const hist = historyWeeks(data.production.map((p) => p.date), today);
+  const histStart = hist[0]; const histEnd = addDays(hist.at(-1), 6);
+  const used = new Map();
+  for (const [d, m] of cons) {
+    if (d < histStart || d > histEnd) continue;
+    const w = mondayOf(d);
+    for (const [it, q] of m) { const k = `${it}|${w}`; used.set(k, (used.get(k) || 0) + q); }
+  }
+  const rows = mats.map((item) => {
+    const s = settings.get(item.item_no) || {};
+    const leadDays = s.lead_days === null || s.lead_days === undefined || s.lead_days === '' ? DEFAULT_LEAD_DAYS : n(s.lead_days);
+    const past = hist.map((w) => used.get(`${item.item_no}|${w}`) || 0);
+    const weeks = plan.weeks.map((w) => ({ week: w, need: need.get(`${item.item_no}|${w}`) || 0 }));
+    const avgPlanned = mean(weeks.map((c) => c.need));
+    const avgPast = mean(past);
+    const autoSafety = Math.max(SERVICE_Z * stdev(past) * Math.sqrt(leadDays / 7), MIN_SAFETY_WEEKS * Math.max(avgPlanned, avgPast));
+    const typedSafety = s.safety_stock !== null && s.safety_stock !== undefined && s.safety_stock !== '';
+    const safety = typedSafety ? n(s.safety_stock) : autoSafety;
+    const multiple = n(s.standard_purchase) || 0;
+    const onHand = inv?.byItem.get(item.item_no)?.get(today) ?? 0;
+    const orders = [];
+    let proj = onHand;
+    for (const c of weeks) {
+      proj -= c.need; c.receipt = 0;
+      if (proj < safety) {
+        let qty = safety - proj + 2 * avgPlanned;
+        qty = multiple ? Math.ceil(qty / multiple - 1e-9) * multiple : Math.ceil(qty - 1e-9);
+        const orderBy = addDays(c.week, -leadDays);
+        orders.push({ week: c.week, qty, orderBy, late: orderBy < today });
+        c.receipt = qty; proj += qty;
+      }
+      c.endOnHand = proj;
+    }
+    const next = orders[0] || null;
+    const status = !next ? 'ok' : next.orderBy <= today ? 'now' : next.orderBy <= addDays(today, 7) ? 'soon' : 'planned';
+    return { item, leadDays, safety, typedSafety, autoSafety, multiple, avgPlanned, avgPast, onHand,
+      reorderPoint: avgPlanned * (leadDays / 7) + safety, weeks, orders, next, status };
+  });
+  return { weeks: plan.weeks, history: { from: histStart, to: histEnd }, rows };
+}
+
+// ---------- Consumption ----------
+// Standard usage: what production used according to the BOMs (consumptionByDate).
+// Actual usage between two cycle counts of an item: the first count, plus what
+// was received, minus the second count (a count is taken at the start of its
+// day, before that day's deliveries and production). The difference from
+// standard is the variance: loss, waste, or a BOM that's off.
+export function countToCount(data) {
+  const cons = consumptionByDate(data);
+  const counts = new Map();
+  for (const c of data.cycle_counts) { const k = `${c.item_no}|${c.date}`; counts.set(k, (counts.get(k) || 0) + n(c.qty)); }
+  const byItem = new Map();
+  for (const k of counts.keys()) { const [i, d] = k.split('|'); if (!byItem.has(+i)) byItem.set(+i, []); byItem.get(+i).push(d); }
+  const receipts = new Map();
+  for (const r of data.goods_receipts) { const k = `${r.item_no}|${r.date}`; receipts.set(k, (receipts.get(k) || 0) + n(r.qty)); }
+  const ix = index(data);
+  const out = [];
+  for (const [itemNo, dates] of byItem) {
+    const item = ix.items.get(itemNo);
+    if (!item || (item.type !== 'Raw Material' && item.type !== 'Component')) continue;
+    dates.sort();
+    for (let i = 1; i < dates.length; i++) {
+      const from = dates[i - 1]; const to = dates[i];
+      let received = 0; let standard = 0;
+      for (const d of eachDay(from, addDays(to, -1))) { received += receipts.get(`${itemNo}|${d}`) || 0; standard += cons.get(d)?.get(itemNo) || 0; }
+      const start = counts.get(`${itemNo}|${from}`); const end = counts.get(`${itemNo}|${to}`);
+      const actual = start + received - end;
+      out.push({ item, from, to, start, received, end, actual, standard, variance: actual - standard });
+    }
+  }
+  return out.sort((a, b) => (a.to < b.to ? 1 : a.to > b.to ? -1 : a.item.sort - b.item.sort));
+}
+
+// Standard usage of each material by month for a year (qty).
+export function usageByMonth(data, year) {
+  const cons = consumptionByDate(data); const out = new Map();
+  for (const [d, m] of cons) {
+    if (yearOf(d) !== year) continue;
+    for (const [it, q] of m) { if (!out.has(it)) out.set(it, Array(12).fill(0)); out.get(it)[monthOf(d) - 1] += q; }
+  }
+  return out;
+}

@@ -1,6 +1,6 @@
 // Sales summaries: one row per customer (or product), one column per month,
 // for the chosen year and measure. Built from the same lines as Invoices.
-import { h, pageHead, money, qty, pct, seg, yearSelect } from '../ui.js';
+import { h, pageHead, money, qty, pct, seg, yearSelect, acctParts } from '../ui.js';
 import { derived } from '../store.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
 import { MONTHS } from '../calc.js';
@@ -34,14 +34,15 @@ function summaryTab({ id, label, title, keyOf, description, colLabel }) {
       const grand = monthTotals.reduce((s, v) => s + v, 0);
       const lastMonth = Math.max(0, ...rows.map((r) => r.month));
       const months = MONTHS.slice(0, Math.max(lastMonth, 1));
-      const cell = (v) => h('td', { class: 'num' + (v < 0 ? ' neg' : '') + (v ? '' : ' muted') }, v ? show(v) : '–');
+      const isMoney = measure !== 'cases';
+      const cell = (v) => h('td', { class: 'num' + (isMoney ? ' acct' : '') + (v < 0 ? ' neg' : '') + (v ? '' : ' muted') }, v ? (isMoney ? acctParts(v) : show(v)) : '–');
       const sum = (rs, f) => rs.reduce((acc, t) => acc + f(t), 0);
       const columns = [
         { key: 'key', label: colLabel, sticky: true, value: (t) => t.key, cell: (t) => h('td', { class: 'sticky-col' }, t.key) },
         ...months.map((m, i) => ({ key: `m${i}`, label: m, num: true, value: (t) => t.months[i], text: (t) => (t.months[i] ? show(t.months[i]) : '–'),
-          cell: (t) => cell(t.months[i]), total: (rs) => { const v = sum(rs, (t) => t.months[i]); return v ? show(v) : '–'; } })),
+          cell: (t) => cell(t.months[i]), total: (rs) => { const v = sum(rs, (t) => t.months[i]); return v ? (isMoney ? acctParts(v) : show(v)) : '–'; } })),
         { key: 'total', label: `Total ${mLabel.toLowerCase()}`, num: true, value: (t) => t.total, text: (t) => show(t.total),
-          cell: (t) => h('td', { class: 'num strong' }, show(t.total)), total: (rs) => show(sum(rs, (t) => t.total)) },
+          cell: (t) => h('td', { class: 'num strong' + (isMoney ? ' acct' : '') }, isMoney ? acctParts(t.total) : show(t.total)), total: (rs) => (isMoney ? acctParts(sum(rs, (t) => t.total)) : show(sum(rs, (t) => t.total))) },
         { key: 'share', label: 'Share', num: true, value: (t) => (grand ? t.total / grand : 0), text: (t) => (grand ? pct(t.total / grand) : ''),
           cell: (t) => h('td', { class: 'num muted' }, grand ? pct(t.total / grand) : ''), total: (rs) => (grand ? pct(sum(rs, (t) => t.total) / grand) : '') },
         { key: 'mpct', label: 'Margin %', num: true, value: (t) => (t.sales ? t.margin / t.sales : null), text: (t) => (t.sales ? pct(t.margin / t.sales) : ''),

@@ -15,9 +15,9 @@ export default {
     const years = derived.years();
     if (!years.includes(year)) year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
     const d = dashboard(state.data, year, month);
-    const ix = derived.ix(); const inv = derived.inventory(); const pd = derived.demand();
+    const ix = derived.ix(); const inv = derived.inventory();
     const items = [...ix.byType('Raw Material'), ...ix.byType('Component')];
-    const orderNow = items.filter((it) => pd.get(it.item_no)?.suggestions.get(t));
+    const orderNow = derived.materials().rows.filter((r) => r.status === 'now');
     const negative = [...items, ...ix.byType('Finished Good')].filter((it) => (inv.byItem.get(it.item_no)?.get(t) ?? 0) < 0);
     const hasSales = d.totalSales !== 0;
     // Draw charts at the size they'll be shown, so text stays readable.
@@ -30,7 +30,7 @@ export default {
         yearSelect(years, year, (y) => { year = y; rerender(); }),
         h('label', { class: 'field' }, 'Through', h('select', { onchange: (e) => { month = Number(e.target.value); rerender(); } },
           MONTHS.map((m, i) => h('option', { value: i + 1, selected: i + 1 === month }, m))))),
-      orderNow.length ? h('div', { class: 'note warn' }, `Purchase suggested today: ${orderNow.map((it) => `${it.name} (${qty(pd.get(it.item_no).suggestions.get(t))} ${it.unit})`).join(', ')}. See Purchase Demand.`) : null,
+      orderNow.length ? h('div', { class: 'note warn' }, `Order now: ${orderNow.map((r) => `${r.item.name} (${qty(r.next.qty)} ${r.item.unit || ''})`.replace(' )', ')')).join(', ')}. See Planning → Purchase Plan.`) : null,
       negative.length ? h('div', { class: 'note warn' }, `${negative.length} item${negative.length > 1 ? 's show' : ' shows'} negative inventory today. Enter missing deliveries on Goods Receipt, or do a cycle count.`) : null,
       h('div', { class: 'cards' },
         stat('Sales', money(d.totalSales, 0)),

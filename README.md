@@ -6,11 +6,12 @@ Tabs are grouped across the top:
 - **Dashboard**
 - **Accounting:** Journals, T-Accounts
 - **Sales:** Sales Detail (the workbook's SalesReport; load QuickBooks reports onto it), By Customer, By Product, Standard Price
-- **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Purchase Demand
+- **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Consumption (standard usage by month, actual vs. standard between cycle counts, daily usage)
+- **Planning:** Demand Plan (forecast sales and planned production of finished goods), Purchase Plan (what to order, how much and by when)
 - **Standards:** Master List (every item with its standard cost per year), BOMs (every bill of materials for a year as an expandable tree; New BOM, or select a BOM and Edit BOM, opens the editor in the left side bar. BOMs are by year: a year without its own BOM carries the latest earlier one, so next year's BOMs can be changed freely; editing the current or a past year shows a warning; BOMs can contain other BOMs to any depth), Labor
 - **Users** (admins, from the gear menu at the right of the blue bar)
 
-On table tabs, the actions (loading a report, month and year pickers, Add item, Clear filters …) are in a side bar on the left. Drag its edge to resize it, or fold it away with the ‹ button; both are remembered. The (i) at the right of the page tabs explains the page.
+On table tabs, the actions (loading a report, month and year pickers, Add item / Add sale, Clear filters …) and the add / edit forms are in a side bar on the left; click a row to select it (it turns blue) and edit it from there. Money shows to the penny, or to two significant digits when that shows more, with the $ at the far left of the cell (like Excel's Accounting format). Drag its edge to resize it, or fold it away with the ‹ button; both are remembered. The (i) at the right of the page tabs explains the page.
 
 - **Site:** plain HTML/CSS/JavaScript in `public/` (no build step), served by a Cloudflare Worker (`src/worker.js`, `wrangler.jsonc`).
 - **Data and sign-in:** Supabase (Postgres + Auth). Schema and access rules are in `supabase/schema.sql`.
@@ -112,7 +113,9 @@ Database rules can be checked on a local Postgres with `tests/supabase_stub.sql`
 - **Labor minutes per batch:** set on each recipe BOM (the BOM editor on the BOMs tab). Direct Labor and Overhead lines marked “Labor minutes” use it.
 - **Usage:** each case uses (recipe qty ÷ batch size × oz per case) of every raw material, plus its packaging.
 - **Daily inventory:** starts at each item's first cycle count. Each day = (that day's count, or yesterday's balance) + receipts − usage. Finished goods add cases produced and subtract cases sold.
-- **Purchase demand:** safety stock = threshold × lead time × planning usage. A standard purchase is suggested on any day when inventory plus all purchases suggested so far is below safety stock.
+- **Demand Plan:** weeks start Monday; 12 weeks ahead. The forecast for a product and week is a typed-in number (`demand_forecast`), otherwise the product's average weekly cases sold over the last 13 weeks that have sales. Finished-goods safety stock is 1 week of forecast. Planned production in a week is just enough to end the week at or above safety stock (on hand today from Daily Inventory, + production − forecast).
+- **Purchase Plan:** planned production × each product's BOM (for that year) gives the weekly use of every raw material and packaging item. Lead time is 14 days unless set per item (`purchase_settings.lead_days`). Safety stock, unless typed in (`purchase_settings.safety_stock`), is the larger of 1 week of use and 1.65 × the week-to-week standard deviation of past use × √(lead time in weeks) (about a 95% chance of not running out during a lead time). When projected stock would drop below safety stock in a week, an order arrives that week, placed one lead time earlier, sized to get back above safety stock plus two weeks of use and rounded up to the order multiple (`purchase_settings.standard_purchase`). Status: Order now (order-by date is today or past), Order this week, Planned, OK. The workbook's older Purchase Demand formula is still in `calc.js` (`purchaseDemand`) and tested, but no longer shown.
+- **Consumption:** standard usage = cases produced × what one case uses by its BOM. Count to count: actual usage between two cycle counts of an item = first count + received − second count (a count is taken at the start of its day); variance = actual − standard, in units, % and $ at standard cost.
 - **Sales:** standard price, cost and margin use the sale year's standards, or the nearest year that has them.
 
 ### Differences from the workbook

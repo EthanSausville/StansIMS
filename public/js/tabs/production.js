@@ -1,4 +1,4 @@
-import { h, pageHead, monthPicker, money, qty, fmt, chip } from '../ui.js';
+import { h, pageHead, monthPicker, money, qty, fmt, chip, acctCell } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
 
@@ -12,7 +12,7 @@ export default {
     const sum = (f) => inMonth.reduce((s, d) => s + f(d), 0);
     const calc = (d) => {
       const p = days.get(d);
-      return [h('td', { class: 'num calc' }, p ? money(p.loss) : ''), h('td', { class: 'num calc' }, p ? p.batches : ''), h('td', { class: 'num calc' }, p ? fmt(p.oz) : '')];
+      return [acctCell(p ? p.loss : null, { class: 'calc' }), h('td', { class: 'num calc' }, p ? p.batches : ''), h('td', { class: 'num calc' }, p ? fmt(p.oz) : '')];
     };
     return h('div', null,
       pageHead('Production', 'Cases produced each day. Oz, batches and the estimated loss from the last partial batch calculate automatically: each recipe is batched on its own, in its recipe BOM’s batch size. Typing math like 24*10 works.',

@@ -1,10 +1,12 @@
-import { h, pageHead, money, qty, toast, niceError, confirmDialog, todayIso } from '../ui.js';
+import { h, pageHead, money, qty, toast, niceError, confirmDialog, todayIso, acctCell, acctParts } from '../ui.js';
 import { state, derived, insertRow, updateRow, deleteRow } from '../store.js';
 import { MONTHS, yearOf, evalEntry } from '../calc.js';
 import { loadButton, pendingPreview, historyTable, importCount } from './qbpanel.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, setFilter, showValue } from '../xtable.js';
 
-let open = null; // 'add' or 'history': what's open under the bar
+let open = null;     // 'history': past QuickBooks loads shown above the table
+let form = null;     // null, 'add' or 'edit': the sale form in the side bar
+let selected = null; // id of the selected sale
 
 // The fields of one sale. Product picks a finished good (or "Other" for fees,
 // credits and promotions); price fills in from the standard price.
@@ -48,21 +50,31 @@ function saleFields(initial = {}) {
   return { f, datalist, read };
 }
 
-function editDialog(sale) {
-  const { f, datalist, read } = saleFields(sale);
-  const dlg = h('dialog', null, h('form', { method: 'dialog', onsubmit: async (e) => {
-      if (e.submitter?.value !== 'save') return;
+// The add / edit sale form, shown in the side bar.
+function saleForm(sale, done) {
+  const { f, datalist, read } = saleFields(sale || {});
+  const isNew = !sale;
+  const btn = h('button', { class: 'btn primary', type: 'submit' }, isNew ? 'Add sale' : 'Save');
+  return h('form', { class: 'item-form sale-form', onsubmit: async (e) => {
       e.preventDefault();
-      try { await updateRow('sales', 'id', sale.id, read()); dlg.close(); toast('Sale updated.'); } catch (err) { toast(niceError(err), 'bad'); }
+      try {
+        btn.disabled = true; const row = read();
+        if (isNew) { const saved = await insertRow('sales', row); toast('Sale added.'); showValue(TID, 'year', String(yearOf(row.date))); done(saved?.id ?? null); }
+        else { await updateRow('sales', 'id', sale.id, row); toast('Sale updated.'); done(sale.id); }
+      } catch (err) { toast(niceError(err), 'bad'); } finally { btn.disabled = false; }
     } },
-    h('h3', null, 'Edit sale'),
-    h('div', { class: 'row' }, h('label', { class: 'field' }, 'Date', f.date), h('label', { class: 'field' }, 'Invoice #', f.invoice)),
-    h('label', { class: 'field' }, 'Product', f.product), h('label', { class: 'field' }, 'Customer', f.customer, datalist),
-    h('div', { class: 'row' }, h('label', { class: 'field' }, 'Quantity', f.quantity), h('label', { class: 'field' }, 'Price', f.price)),
-    h('label', { class: 'field' }, 'Amount', f.amount),
-    h('div', { class: 'actions' }, h('button', { class: 'btn', value: 'cancel', formnovalidate: true }, 'Cancel'), h('button', { class: 'btn primary', value: 'save' }, 'Save'))));
-  dlg.addEventListener('close', () => dlg.remove());
-  document.body.append(dlg); dlg.showModal();
+    h('strong', { class: 'tb-title' }, isNew ? 'Add a sale' : 'Edit sale'),
+    h('div', { class: 'item-fields' },
+      h('label', { class: 'field' }, 'Date', f.date), h('label', { class: 'field' }, 'Invoice #', f.invoice),
+      h('label', { class: 'field span2' }, 'Product', f.product), h('label', { class: 'field span2' }, 'Customer', f.customer, datalist),
+      h('label', { class: 'field' }, 'Quantity', f.quantity), h('label', { class: 'field' }, 'Price', f.price),
+      h('label', { class: 'field span2' }, 'Amount', f.amount)),
+    h('div', { class: 'controls' },
+      !isNew ? h('button', { type: 'button', class: 'btn danger', onclick: async () => {
+        if (!(await confirmDialog(`Delete this ${sale.product} line for ${sale.customer || 'no customer'} (${money(sale.amount)})?`))) return;
+        try { await deleteRow('sales', 'id', sale.id); toast('Line deleted.'); done(null); } catch (err) { toast(niceError(err), 'bad'); }
+      } }, 'Delete') : null,
+      h('button', { type: 'button', class: 'btn', onclick: () => done(sale?.id ?? null) }, 'Cancel'), btn));
 }
 
 const TID = 'sales-detail';
@@ -78,9 +90,9 @@ const COLUMNS = [
   { key: 'quantity', label: 'Quantity', num: true, value: (r) => r.quantity, text: (r) => blankOr(r.quantity, qty),
     cell: (r) => h('td', { class: 'num' }, blankOr(r.quantity, qty)), total: (rows) => qty(sum(rows, 'quantity')) },
   { key: 'price', label: 'Sales price', num: true, value: (r) => r.price, text: (r) => blankOr(r.price, money),
-    cell: (r) => h('td', { class: 'num' }, blankOr(r.price, money)) },
+    cell: (r) => acctCell(r.price, { class: r.price < 0 ? 'neg' : '' }) },
   { key: 'amount', label: 'Amount', num: true, value: (r) => Number(r.amount), text: (r) => money(r.amount),
-    cell: (r) => h('td', { class: 'num' + (r.amount < 0 ? ' neg' : '') }, money(r.amount)), total: (rows) => money(sum(rows, 'amount')) },
+    cell: (r) => acctCell(Number(r.amount), { class: r.amount < 0 ? 'neg' : '' }), total: (rows) => acctParts(sum(rows, 'amount')) },
   { key: 'customer', label: 'Customer', value: (r) => r.customer || '', cell: (r) => h('td', null, r.customer || '') },
   { key: 'product', label: 'Product', value: (r) => r.product || '', cell: (r) => h('td', null, r.product || '') },
   { key: 'month', label: 'Month', value: (r) => r.month, text: (r) => MONTHS[r.month - 1], cell: (r) => h('td', { class: 'calc' }, MONTHS[r.month - 1]) },
@@ -88,25 +100,20 @@ const COLUMNS = [
   { key: 'oz', label: 'oz', num: true, value: (r) => r.oz || 0, text: (r) => (r.oz ? qty(r.oz, 0) : ''),
     cell: (r) => h('td', { class: 'num calc' }, r.oz ? qty(r.oz, 0) : ''), total: (rows) => qty(sum(rows, 'oz'), 0) },
   { key: 'stdPrice', label: 'Std Price', num: true, value: (r) => r.stdPrice || 0, text: (r) => (r.stdPrice ? money(r.stdPrice) : ''),
-    cell: (r) => h('td', { class: 'num calc' }, r.stdPrice ? money(r.stdPrice) : ''), total: (rows) => money(sum(rows, 'stdPrice')) },
+    cell: (r) => acctCell(r.stdPrice, { class: 'calc' }), total: (rows) => acctParts(sum(rows, 'stdPrice')) },
   { key: 'stdCost', label: 'Std Cost', num: true, value: (r) => r.stdCost || 0, text: (r) => (r.stdCost ? money(r.stdCost) : ''),
-    cell: (r) => h('td', { class: 'num calc' }, r.stdCost ? money(r.stdCost) : ''), total: (rows) => money(sum(rows, 'stdCost')) },
+    cell: (r) => acctCell(r.stdCost, { class: 'calc' }), total: (rows) => acctParts(sum(rows, 'stdCost')) },
   { key: 'stdMargin', label: 'Std Margin', num: true, value: (r) => (r.stdPrice || r.stdCost ? r.stdMargin : null), text: (r) => (r.stdPrice || r.stdCost ? money(r.stdMargin) : ''),
-    cell: (r) => h('td', { class: 'num calc' }, r.stdPrice || r.stdCost ? money(r.stdMargin) : ''), total: (rows) => money(sum(rows, 'stdMargin')) },
+    cell: (r) => acctCell(r.stdPrice || r.stdCost ? r.stdMargin : null, { class: 'calc' + (r.stdMargin < 0 ? ' neg' : '') }), total: (rows) => acctParts(sum(rows, 'stdMargin')) },
 ];
 const DEFAULT_SORT = { key: 'date', dir: 'desc' };
 let startedYear = false;
 
-const actions = (r) => h('td', { class: 'row-actions' },
-  h('button', { class: 'btn icon-btn', title: 'Edit line', 'aria-label': `Edit ${r.product} line for ${r.customer || 'no customer'}`, onclick: () => editDialog(r) }, '✎'),
-  h('button', { class: 'btn icon-btn danger', title: 'Delete line', 'aria-label': `Delete ${r.product} line for ${r.customer || 'no customer'}`, onclick: async () => {
-    if (await confirmDialog(`Delete this ${r.product} line for ${r.customer || 'no customer'} (${money(r.amount)})?`)) {
-      try { await deleteRow('sales', 'id', r.id); toast('Line deleted.'); } catch (err) { toast(niceError(err), 'bad'); }
-    } } }, '×'));
-
 export default {
   id: 'sales',
   label: 'Sales Detail',
+  get sideWidth() { return form ? 300 : null; },
+  get sideKey() { return 'sales-form'; },
   render({ rerender }) {
     const rowsAll = derived.sales();
     // Open on the latest year, the way the page always has; the Year filter clears it.
@@ -118,31 +125,24 @@ export default {
     const showTotals = prefTotals(TID);
     const nFilters = activeFilterCount(TID);
 
-    const add = saleFields();
-    const addBtn = h('button', { class: 'btn primary', type: 'submit' }, 'Add sale');
-    const addForm = h('form', { class: 'inline-form', onsubmit: async (e) => {
-        e.preventDefault();
-        try { addBtn.disabled = true; const row = add.read(); await insertRow('sales', row); toast('Sale added.'); showValue(TID, 'year', String(yearOf(row.date))); }
-        catch (err) { toast(niceError(err), 'bad'); } finally { addBtn.disabled = false; }
-      } },
-      h('label', { class: 'field' }, 'Date', add.f.date), h('label', { class: 'field' }, 'Invoice #', add.f.invoice),
-      h('label', { class: 'field wide' }, 'Product', add.f.product), h('label', { class: 'field wide' }, 'Customer', add.f.customer, add.datalist),
-      h('label', { class: 'field' }, 'Quantity', add.f.quantity), h('label', { class: 'field' }, 'Price', add.f.price),
-      h('label', { class: 'field' }, 'Amount', add.f.amount), addBtn);
-
     const flip = (which) => () => { open = open === which ? null : which; rerender(); };
     const preview = pendingPreview(rerender);
-    const body = preview || (open === 'add' ? addForm : open === 'history' ? historyTable() : null);
+    const body = preview || (open === 'history' ? historyTable() : null);
+    const sel = selected ? rowsAll.find((r) => r.id === selected) : null;
+    const done = (id) => { form = null; selected = id; rerender(); };
     // Side bar: load a QuickBooks report, add a line by hand, see past loads.
     return h('div', null,
       pageHead('Sales Detail', 'Every invoice line, as on the workbook’s SalesReport sheet. Use the ▾ button on any column heading to filter or sort, like an Excel table; the totals at the bottom of the screen add up the lines showing. Load a QuickBooks Sales by Product/Service Detail export to add new lines (lines already here are skipped), or add one by hand.',
         loadButton(rerender),
-        h('button', { class: 'btn' + (open === 'add' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'add'), onclick: flip('add') }, '+ Add a line by hand'),
+        !form ? h('button', { class: 'btn primary', onclick: () => { form = 'add'; rerender(); } }, 'Add sale') : null,
+        !form && sel ? h('button', { class: 'btn primary', onclick: () => { form = 'edit'; rerender(); } }, 'Edit sale') : null,
+        form ? saleForm(form === 'edit' ? sel : null, done) : null,
         importCount() ? h('button', { class: 'btn ghost' + (open === 'history' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'history'), onclick: flip('history') }, `Loaded reports (${importCount()})`) : null,
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(TID); rerender(); } }, `Clear filters (${nFilters})`) : null),
       body ? h('section', { class: 'panel sales-body' }, body) : null,
       h('div', { class: 'tablewrap tall', 'data-scroll': 'sales' },
-        xtable({ id: TID, columns: COLUMNS, allRows: rowsAll, rows, rerender, defaultSort: DEFAULT_SORT, showTotals, onToggleTotals: (on) => { setPrefTotals(TID, on); rerender(); }, className: 'sales-report',
-          rowClass: (r) => (r.import_id ? 'from-qb' : null), extraCells: actions })));
+        xtable({ id: TID, columns: COLUMNS, allRows: rowsAll, rows, rerender, defaultSort: DEFAULT_SORT, showTotals, onToggleTotals: (on) => { setPrefTotals(TID, on); rerender(); }, className: 'sales-report selectable',
+          rowClass: (r) => [r.import_id ? 'from-qb' : '', r.id === selected ? 'selected' : ''].join(' ').trim() || null,
+          onRowClick: (r) => { if (form) return; selected = r.id === selected ? null : r.id; rerender(); } })));
   },
 };

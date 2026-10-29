@@ -1,11 +1,36 @@
 // Cycle counts: the month grid of counts, and a count sheet for one day that
 // shows what the running inventory expects next to what was counted.
-import { h, pageHead, monthPicker, longDate, seg, numberCell, qty, todayIso, acctCell, chip } from '../ui.js';
+import { h, pageHead, monthPicker, longDate, seg, qty, todayIso, acctCell, chip, toast, niceError } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
-import { countSheet, COUNT_TOLERANCE, yearOf } from '../calc.js';
+import { countSheet, COUNT_TOLERANCE, yearOf, hasReceiving, splitReceiving, unitWord, evalEntry } from '../calc.js';
 
 let mode = 'sheet';
+let checking = false; // show expected and differences (for whoever reviews the count); off while counting
+
+// Counting an item that comes in boxes / bags / cases: full ones, plus what's
+// loose in the base unit (12 boxes + 15 lb of cheese = 375 lb).
+function boxCountCell(item, value, save) {
+  const per = Number(item.units_per_receiving);
+  const sp = splitReceiving(item, value);
+  const full = h('input', { type: 'text', inputmode: 'decimal', class: 'cnt-full', value: sp ? sp.full : '', 'data-k': `csf|${item.item_no}`, 'aria-label': `Full ${unitWord(item.receiving_unit)} of ${item.name}` });
+  const loose = h('input', { type: 'text', inputmode: 'decimal', class: 'cnt-loose', value: sp && sp.loose ? sp.loose : '', 'data-k': `csl|${item.item_no}`, 'aria-label': `Loose ${unitWord(item.unit)} of ${item.name}` });
+  const total = h('span', { class: 'cnt-total' });
+  const read = () => { const f = full.value.trim(); const l = loose.value.trim(); if (!f && !l) return null; return (evalEntry(f || '0') || 0) * per + (evalEntry(l || '0') || 0); };
+  const show = () => { try { const v = read(); total.textContent = v === null ? '' : `= ${qty(v, 2)} ${unitWord(item.unit, v)}`; full.classList.remove('error'); loose.classList.remove('error'); } catch { total.textContent = 'Numbers only'; } };
+  const commit = async () => { let v; try { v = read(); } catch (err) { (full.value && Number.isNaN(Number(full.value)) ? full : loose).classList.add('error'); toast(err.message, 'bad'); return; }
+    if ((v ?? null) === (value ?? null)) return; try { await save(v); } catch (err) { toast(niceError(err), 'bad'); } };
+  for (const el of [full, loose]) { el.addEventListener('input', show); el.addEventListener('change', commit); }
+  show();
+  return h('td', { class: 'cnt-box' }, h('div', { class: 'cnt-line' }, full, h('span', { class: 'cnt-u' }, `full ${unitWord(item.receiving_unit)}`), h('span', { class: 'cnt-plus' }, '+'), loose, h('span', { class: 'cnt-u' }, `${unitWord(item.unit)} loose`)), total);
+}
+// Counting an item that's only counted in its base unit.
+function plainCountCell(item, value, save) {
+  const input = h('input', { type: 'text', inputmode: 'decimal', class: 'cnt-full', value: value ?? '', 'data-k': `cs|${item.item_no}`, 'aria-label': `${item.name} counted` });
+  input.addEventListener('change', async () => { let v; try { v = input.value.trim() ? evalEntry(input.value) : null; input.classList.remove('error'); } catch (err) { input.classList.add('error'); toast(err.message, 'bad'); return; }
+    if ((v ?? null) === (value ?? null)) return; try { await save(v); } catch (err) { toast(niceError(err), 'bad'); } });
+  return h('td', { class: 'cnt-box' }, h('div', { class: 'cnt-line' }, input, h('span', { class: 'cnt-u' }, unitWord(item.unit) || 'each')));
+}
 let sheetDate = todayIso();
 
 export default {
@@ -30,28 +55,30 @@ export default {
       let group = null;
       const body = [];
       for (const r of rows) {
-        if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 8 }, group === 'Component' ? 'Packaging' : group))); }
+        if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: checking ? 7 : 3 }, group === 'Component' ? 'Packaging' : group === 'Finished Good' ? 'Finished goods (cases)' : 'Raw materials'))); }
         const std = cm.cost(r.item.item_no, yearOf(sheetDate)) || cm.latest(r.item.item_no);
-        body.push(h('tr', { class: r.flag ? 'flagged' : null },
-          h('td', { class: 'sticky-col' }, r.item.name),
-          h('td', { class: 'muted' }, r.item.pack_note || r.item.unit || ''),
-          h('td', { class: 'num' + (r.expected < 0 ? ' neg' : '') }, r.expected === null ? '—' : qty(r.expected, 1)),
-          numberCell(r.counted, (v) => saveCell('cycle_counts', { date: sheetDate, item_no: r.item.item_no }, 'qty', v),
-            { digits: 4, key: `cs|${r.item.item_no}`, title: `${r.item.name} counted on ${sheetDate}`, placeholder: ' ' }),
-          h('td', { class: 'muted' }, r.item.unit || ''),
-          h('td', { class: 'num' + (r.diff < 0 ? ' neg' : '') }, r.diff === null ? '' : (r.diff > 0 ? '+' : '') + qty(r.diff, 1)),
-          h('td', { class: 'num' + (r.flag ? ' neg strong' : '') }, r.pct === null ? '' : `${r.pct > 0 ? '+' : ''}${qty(r.pct * 100, 0)}%`),
-          r.diff === null ? h('td') : acctCell(r.diff * std, { class: r.diff < 0 ? 'neg' : '' })));
+        const saveIt = (v) => saveCell('cycle_counts', { date: sheetDate, item_no: r.item.item_no }, 'qty', v);
+        body.push(h('tr', { class: checking && r.flag ? 'flagged' : null },
+          h('td', { class: 'sticky-col cnt-name' }, h('strong', null, r.item.name)),
+          h('td', { class: 'muted' }, hasReceiving(r.item) ? `1 ${r.item.receiving_unit} = ${qty(Number(r.item.units_per_receiving))} ${unitWord(r.item.unit, 2)}` : ''),
+          hasReceiving(r.item) ? boxCountCell(r.item, r.counted, saveIt) : plainCountCell(r.item, r.counted, saveIt),
+          checking ? [
+            h('td', { class: 'num' + (r.expected < 0 ? ' neg' : '') }, r.expected === null ? '—' : `${qty(r.expected, 1)} ${unitWord(r.item.unit, 2)}`),
+            h('td', { class: 'num' + (r.diff < 0 ? ' neg' : '') }, r.diff === null ? '' : (r.diff > 0 ? '+' : '') + qty(r.diff, 1)),
+            h('td', { class: 'num' + (r.flag ? ' neg strong' : '') }, r.pct === null ? '' : `${r.pct > 0 ? '+' : ''}${qty(r.pct * 100, 0)}%`),
+            r.diff === null ? h('td') : acctCell(r.diff * std, { class: r.diff < 0 ? 'neg' : '' })] : null));
       }
       return h('div', null,
-        pageHead('Count Sheet', `Count what’s physically on hand and type it in. Expected is the running inventory at the start of the day (the end of the day before). Differences over ${tolerance} are flagged: recount those, or look for a delivery or production that wasn’t entered. A count replaces the running inventory for that item from that day on.`,
+        pageHead('Count Sheet', `Count what’s on the shelf and type it in: full boxes, bags or cases, plus anything loose. Counts save as you go. The count sheet doesn’t show what the system expects while you count, so the count isn’t steered by it; afterwards, Check counts shows expected vs. counted and flags differences over ${tolerance} (recount those, or look for a delivery or production that wasn’t entered). A count replaces the running inventory for that item from that day on.`,
           switcher,
           h('label', { class: 'field' }, 'Count date', dateInput),
-          chip('Counted', `${done} of ${rows.length}`), chip(`Off by over ${tolerance}`, flagged)),
+          chip('Counted', `${done} of ${rows.length}`),
+          h('button', { class: 'btn' + (checking ? ' primary' : ''), 'aria-pressed': String(checking), onclick: () => { checking = !checking; rerender(); } }, checking ? 'Hide expected' : 'Check counts'),
+          checking ? chip(`Off by over ${tolerance}`, flagged) : null),
         busy ? h('div', { class: 'note warn' }, `There’s production or a delivery entered on ${longDate(sheetDate)}. Counts are taken at the start of the day, so count before anything is made or received, or count on another day.`) : null,
         h('div', { class: 'tablewrap', 'data-scroll': 'count-sheet' }, h('table', { class: 't count-sheet' },
-          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Pack'), h('th', { class: 'num' }, 'Expected'), h('th', { class: 'num' }, 'Counted'), h('th', null, 'Unit'),
-            h('th', { class: 'num' }, 'Difference'), h('th', { class: 'num' }, '%'), h('th', { class: 'num' }, 'At standard'))),
+          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Comes in'), h('th', null, 'How many are there?'),
+            checking ? [h('th', { class: 'num' }, 'Expected'), h('th', { class: 'num' }, 'Difference'), h('th', { class: 'num' }, '%'), h('th', { class: 'num' }, 'At standard')] : null)),
           h('tbody', null, body))));
     }
 

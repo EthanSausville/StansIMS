@@ -4,10 +4,10 @@
 // (demandPlan, materialPlan).
 import { h, pageHead, numberCell, qty, seg, chip, longDate, typePill, todayIso, toast, niceError, confirmDialog, acctCell, acctParts, acctText } from '../ui.js';
 import { state, derived, saveCell, saveField, isAdmin, insertRow, updateRow, deleteRow, receivePO } from '../store.js';
-import { DEFAULT_LEAD_DAYS, FG_SAFETY_WEEKS, PLAN_WEEKS, HISTORY_WEEKS, addDays, yearOf, evalEntry, poStatus, poVariance, receivingLabel, inReceiving, hasReceiving } from '../calc.js';
+import { DEFAULT_LEAD_DAYS, FG_SAFETY_WEEKS, PLAN_WEEKS, HISTORY_WEEKS, addDays, yearOf, evalEntry, poStatus, poVariance, holdsLabel, inReceiving, hasReceiving, unitWord } from '../calc.js';
 
 // "2,640 box" for a quantity in base units, when the item has a receiving unit.
-const asReceived = (it, q) => (hasReceiving(it) ? `${qty(inReceiving(it, q), 1)} ${it.receiving_unit}` : '');
+const asReceived = (it, q) => { if (!hasReceiving(it)) return ''; const x = inReceiving(it, q); return `${qty(x, 1)} ${unitWord(it.receiving_unit, x)}`; };
 import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton, downloadCsv } from '../xtable.js';
 
 const shortDate = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
@@ -120,7 +120,7 @@ export const purchasePlanTab = {
         h('dt', null, 'Planned use / wk'), h('dd', null, `${qty(sel.avgPlanned, 1)} ${unit(sel)}`),
         h('dt', null, 'Safety stock'), h('dd', null, `${qty(sel.safety, 1)}${sel.typedSafety ? ' (typed in)' : ''}`),
         h('dt', null, 'Lead time'), h('dd', null, `${sel.leadDays} days`),
-        hasReceiving(sel.item) ? [h('dt', null, 'Received as'), h('dd', null, receivingLabel(sel.item))] : null,
+        hasReceiving(sel.item) ? [h('dt', null, 'Comes in'), h('dd', null, `${sel.item.receiving_unit} of ${holdsLabel(sel.item)}`)] : null,
         h('dt', null, 'Reorder point'), h('dd', null, qty(sel.reorderPoint, 1))),
       sel.orders.length ? h('table', { class: 't side-orders' }, h('thead', null, h('tr', null, h('th', null, 'Order by'), h('th', { class: 'num' }, 'Qty'), h('th', null, 'Arrives'))),
         h('tbody', null, sel.orders.map((o) => h('tr', { class: o.orderBy <= today ? 'late' : null }, h('td', null, shortDate(o.orderBy)), h('td', { class: 'num', title: asReceived(sel.item, o.qty) }, qty(o.qty, 0)), h('td', null, `wk ${shortDate(o.week)}`)))))
@@ -223,7 +223,7 @@ function poFormEl(po, done) {
   const unitLabel = h('span', { class: 'muted' }, unitOf());
   const rcvHint = h('div', { class: 'small muted span2 rcv-hint' });
   const hint = () => { const it = ix.items.get(Number(f.item.value)); let q = null; try { q = evalEntry(f.qty.value); } catch { /* typing */ }
-    rcvHint.textContent = hasReceiving(it) ? `${receivingLabel(it)}${q ? ` · ${asReceived(it, q)}` : ''}` : ''; };
+    rcvHint.textContent = hasReceiving(it) ? `1 ${it.receiving_unit} = ${holdsLabel(it)}${q ? ` · this order is ${asReceived(it, q)}` : ''}` : ''; };
   f.qty.addEventListener('input', hint); hint();
   f.item.addEventListener('change', () => {
     unitLabel.textContent = unitOf(); hint();
@@ -257,24 +257,33 @@ function poFormEl(po, done) {
 
 function receiveForm(po, done) {
   const it = derived.ix().items.get(po.item_no);
+  // Received in boxes / bags / cases when the item has them; stored in the base unit.
+  const per = hasReceiving(it) ? Number(it.units_per_receiving) : 1;
+  const u = hasReceiving(it) ? it.receiving_unit : it?.unit || 'units';
   const date = h('input', { id: 'rcv-date', type: 'date', required: true, value: todayIso() });
-  const q = h('input', { id: 'rcv-qty', type: 'text', inputmode: 'decimal', required: true, value: po.qty });
-  const price = h('input', { id: 'rcv-price', type: 'text', inputmode: 'decimal', value: po.unit_price ?? '', placeholder: 'Price paid per unit' });
+  const q = h('input', { id: 'rcv-qty', type: 'text', inputmode: 'decimal', required: true, value: +(Number(po.qty) / per).toFixed(4) });
+  const conv = h('div', { class: 'rcv-sentence span2' });
+  const sync = () => { let v = null; try { v = evalEntry(q.value); } catch { /* typing */ }
+    conv.textContent = v ? `${qty(v, 2)} ${unitWord(u, v)}${per !== 1 ? ` = ${qty(v * per, 2)} ${unitWord(it?.unit, v * per)}` : ''}` : `How many ${unitWord(u)} came in?`; };
+  q.addEventListener('input', sync); sync();
+  const price = h('input', { id: 'rcv-price', type: 'text', inputmode: 'decimal', value: po.unit_price ?? '', placeholder: `Per ${unitWord(it?.unit, 1) || 'unit'}` });
   return h('form', { class: 'item-form', onsubmit: async (e) => {
       e.preventDefault();
       try {
-        const qv = evalEntry(q.value); const pv = evalEntry(price.value);
-        if (!qv) throw new Error('Enter the quantity received.');
+        const n = evalEntry(q.value); const pv = evalEntry(price.value);
+        if (!n) throw new Error(`Enter how many ${unitWord(u)} came in.`);
+        const base = n * per;
         if (pv !== (po.unit_price ?? null)) await updateRow('purchase_orders', 'id', po.id, { unit_price: pv });
-        await receivePO({ ...po, unit_price: pv }, date.value, qv);
-        toast(`Received ${qty(qv, 0)} ${it?.unit || ''} of ${it?.name}. It’s on Goods Receipt for ${longDate(date.value)}.`); done(po.id);
+        await receivePO({ ...po, unit_price: pv }, date.value, base);
+        toast(`Received ${qty(n, 2)} ${unitWord(u, n)} of ${it?.name}${per !== 1 ? ` (${qty(base, 2)} ${unitWord(it?.unit, base)})` : ''}. It’s on Goods Receipt for ${longDate(date.value)}.`); done(po.id);
       } catch (err) { toast(niceError(err), 'bad'); }
     } },
     h('strong', { class: 'tb-title' }, `Receive order #${po.id}`),
-    h('div', { class: 'small muted' }, `${it?.name} · ${qty(po.qty, 0)} ${it?.unit || ''} ordered`),
-    h('div', { class: 'item-fields' }, h('label', { class: 'field' }, 'Received on', date), h('label', { class: 'field' }, `Quantity (${it?.unit || 'units'})`, q),
-      h('label', { class: 'field span2' }, 'Price paid per unit ($)', price)),
-    h('p', { class: 'small muted' }, 'Receiving adds the quantity to Goods Receipt for that day. The price paid against standard cost is the purchase price variance on the Journals tab.'),
+    h('div', { class: 'small muted' }, `${it?.name} · ordered ${asReceived(it, po.qty) || `${qty(po.qty, 0)} ${it?.unit || ''}`}`),
+    h('div', { class: 'item-fields' }, h('label', { class: 'field' }, 'Received on', date),
+      h('label', { class: 'field' }, `How many ${unitWord(u)}`, q), conv,
+      h('label', { class: 'field span2' }, `Price paid per ${unitWord(it?.unit, 1) || 'unit'} ($)`, price)),
+    h('p', { class: 'small muted' }, 'Receiving adds it to Goods Receipt for that day. The price paid against standard cost is the purchase price variance on the Journals tab.'),
     h('div', { class: 'controls' }, h('button', { type: 'button', class: 'btn', onclick: () => done(po.id) }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Receive')));
 }
 

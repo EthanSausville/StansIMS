@@ -1,6 +1,9 @@
 import { h, pageHead, numberCell, typePill, toast, niceError, confirmDialog, acctText, acctCell } from '../ui.js';
 import { state, derived, saveCell, isAdmin, insertRow, updateRow, deleteRow } from '../store.js';
-import { TYPES, isLaborItem, nextItemNo, itemNoProblem, missingStandards, receivingLabel, evalEntry } from '../calc.js';
+import { TYPES, isLaborItem, nextItemNo, itemNoProblem, missingStandards, holdsLabel, hasReceiving, unitWord, evalEntry } from '../calc.js';
+
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
+const RECEIVING_WORDS = ['box', 'bag', 'case', 'drum', 'pail', 'jug', 'roll', 'pallet'];
 import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 
 // Costs typed in: raw materials, packaging, and indirect costs other than direct labor (overhead, marketing, ...).
@@ -17,19 +20,34 @@ function itemForm(item, done) {
     type: h('select', { id: 'item-type', disabled: !isNew }, TYPES.map((t) => h('option', { selected: t === item?.type }, t))),
     unit: h('input', { id: 'item-unit', type: 'text', value: item?.unit ?? '', placeholder: 'lb, c, ea, min, oz' }),
     pack_note: h('input', { id: 'item-pack', type: 'text', value: item?.pack_note ?? '', placeholder: 'e.g. 30lbs ea' }),
-    receiving_unit: h('input', { id: 'item-rcv-unit', type: 'text', value: item?.receiving_unit ?? '', placeholder: 'box, case, drum…' }),
+    receiving_unit: h('select', { id: 'item-rcv-unit' },
+      h('option', { value: '' }, 'Loose (no box or case)'),
+      [...new Set([...RECEIVING_WORDS, ...(item?.receiving_unit ? [item.receiving_unit] : [])])].map((w) => h('option', { value: w, selected: w === item?.receiving_unit }, cap(w))),
+      h('option', { value: '__other' }, 'Something else…')),
+    receiving_other: h('input', { id: 'item-rcv-other', type: 'text', placeholder: 'e.g. tote', hidden: true }),
     units_per_receiving: h('input', { id: 'item-rcv-per', type: 'text', inputmode: 'decimal', value: item?.units_per_receiving ?? '', placeholder: 'e.g. 30' }),
   };
   if (isNew) f.item_no.value = nextItemNo(state.data.items, f.type.value);
   f.type.addEventListener('change', () => { f.item_no.value = nextItemNo(state.data.items, f.type.value); });
   // Receiving unit and how many base units are in one (both, or neither).
+  const ruValue = () => (f.receiving_unit.value === '__other' ? f.receiving_other.value.trim().toLowerCase() : f.receiving_unit.value) || null;
   const receiving = () => {
-    const ru = f.receiving_unit.value.trim() || null; const per = evalEntry(f.units_per_receiving.value);
-    if (ru && !(per > 0)) throw new Error(`Enter how many ${f.unit.value.trim() || 'base units'} are in one ${ru}.`);
+    const ru = ruValue(); let per = null; try { per = evalEntry(f.units_per_receiving.value); } catch { /* checked below */ }
+    if (ru && !(per > 0)) throw new Error(`Enter how many ${unitWord(f.unit.value.trim()) || 'base units'} one ${ru} holds.`);
     return { receiving_unit: ru, units_per_receiving: ru ? per : null };
   };
-  const rcvLabel = h('span', { class: 'muted' }, f.unit.value || 'units');
-  f.unit.addEventListener('input', () => { rcvLabel.textContent = f.unit.value || 'units'; });
+  // Live sentence: "1 box of Cheese = 30 lb"
+  const rcvSentence = h('div', { class: 'rcv-sentence' });
+  const holdsWrap = h('label', { class: 'field' }, 'Each one holds', h('div', { class: 'with-unit' }, f.units_per_receiving, h('span', { class: 'unit-word' })));
+  const syncRcv = () => {
+    f.receiving_other.hidden = f.receiving_unit.value !== '__other';
+    const ru = ruValue(); holdsWrap.hidden = !ru;
+    let per = null; try { per = evalEntry(f.units_per_receiving.value); } catch { /* typing */ }
+    holdsWrap.querySelector('.unit-word').textContent = unitWord(f.unit.value.trim(), per ?? 2) || 'base units';
+    rcvSentence.textContent = ru && per > 0 ? `1 ${ru} of ${f.name.value.trim() || 'this item'} = ${Number(per).toLocaleString()} ${unitWord(f.unit.value.trim(), per)}` : ru ? `How much is in one ${ru}?` : 'Counted and received in its base unit.';
+  };
+  for (const el of [f.receiving_unit, f.receiving_other, f.units_per_receiving, f.unit, f.name]) el.addEventListener('input', syncRcv);
+  f.receiving_unit.addEventListener('change', syncRcv);
   const save = async (e) => {
     e.preventDefault();
     try {
@@ -52,6 +70,7 @@ function itemForm(item, done) {
     if (!(await confirmDialog(`Delete ${item.name}? This only works if nothing uses it yet.`))) return;
     try { await deleteRow('items', 'item_no', item.item_no); toast('Item deleted.'); done(null); } catch (err) { toast(niceError(err), 'bad'); }
   };
+  syncRcv();
   return h('form', { class: 'item-form', onsubmit: save },
     h('strong', { class: 'tb-title' }, isNew ? 'Add item' : `Edit ${item.name}`),
     h('div', { class: 'item-fields' },
@@ -60,9 +79,10 @@ function itemForm(item, done) {
       h('label', { class: 'field span2' }, 'Name', f.name),
       h('label', { class: 'field' }, 'Base unit', f.unit),
       h('label', { class: 'field' }, 'Pack size note', f.pack_note),
-      h('label', { class: 'field' }, 'Received as', f.receiving_unit),
-      h('label', { class: 'field' }, h('span', null, 'Holds (', rcvLabel, ')'), f.units_per_receiving)),
-    h('p', { class: 'small muted' }, 'Base unit is what it’s counted and used in (lb, c, ea). Received as is how it arrives when that’s bigger: a box of cheese holds 30 lb, a case of lids 1,000.'),
+      h('label', { class: 'field' }, 'Comes in', f.receiving_unit, f.receiving_other),
+      holdsWrap,
+      h('div', { class: 'span2' }, rcvSentence)),
+    h('p', { class: 'small muted' }, 'Base unit is what recipes and BOMs use (lb, c, ea). Comes in is how it’s delivered: deliveries are entered as boxes, bags or cases and turned into the base unit for you.'),
     isNew ? h('p', { class: 'small muted' }, 'Item numbers are 6 digits and start with the type: 1 raw material, 2 packaging, 3 indirect (labor, overhead, marketing), 4 recipe, 5 finished good. New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory; new finished goods appear on Production. Build what an item is made of on the BOMs tab.') : null,
     h('div', { class: 'controls' },
       !isNew ? h('button', { type: 'button', class: 'btn danger', onclick: remove }, 'Delete item') : null,
@@ -88,8 +108,9 @@ export default {
       { key: 'name', label: 'Item', sticky: true, value: (it) => it.name, cell: (it) => h('td', { class: 'sticky-col' }, it.name) },
       { key: 'type', label: 'Type', value: (it) => it.type, cell: (it) => h('td', null, typePill(it.type)) },
       { key: 'item_no', label: 'Item #', num: true, value: (it) => it.item_no, cell: (it) => h('td', { class: 'num muted' }, it.item_no) },
-      { key: 'unit', label: 'Units', value: (it) => it.unit || '', cell: (it) => h('td', { class: 'muted' }, it.unit || '') },
-      { key: 'receiving', label: 'Received as', value: (it) => receivingLabel(it), cell: (it) => h('td', { class: 'muted' }, receivingLabel(it)) },
+      { key: 'unit', label: 'Base unit', value: (it) => it.unit || '', cell: (it) => h('td', { class: 'muted' }, it.unit || '') },
+      { key: 'comes', label: 'Comes in', value: (it) => (hasReceiving(it) ? cap(it.receiving_unit) : ''), cell: (it) => h('td', null, hasReceiving(it) ? cap(it.receiving_unit) : '') },
+      { key: 'holds', label: 'Each holds', value: (it) => (hasReceiving(it) ? Number(it.units_per_receiving) : null), text: (it) => holdsLabel(it), cell: (it) => h('td', { class: 'num' }, holdsLabel(it)) },
       ...cm.years.map((y) => ({ key: `y${y}`, label: String(y), sub: scen.get(y) ? `Scenario ${scen.get(y)}` : null, num: true,
         value: (it) => costOf(it, y), text: (it) => (costOf(it, y) ? '$' + acctText(costOf(it, y)) : ''),
         cell: (it) => (enterable(it)

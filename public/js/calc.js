@@ -881,10 +881,29 @@ export function productionLots(data) {
 }
 
 // ---------- Receiving units ----------
-// An item can be received in a bigger unit than it's counted and used in
-// (a 30 lb box of cheese, a case of 1,000 lids).
+// An item can come in a bigger unit than it's counted and used in (a box of
+// cheese holds 30 lb, a case of lids holds 1,000). Quantities are always
+// stored in the base unit; the receiving unit is for entering and showing them.
 export const hasReceiving = (it) => !!(it?.receiving_unit && n(it.units_per_receiving) > 0);
-// "box = 30 lb"
-export const receivingLabel = (it) => (hasReceiving(it) ? `${it.receiving_unit} = ${Number(it.units_per_receiving).toLocaleString()} ${it.unit || ''}`.trim() : '');
+const BASE_WORDS = { lb: ['lb', 'lb'], c: ['cup', 'cups'], ea: ['each', 'each'], oz: ['oz', 'oz'], gal: ['gallon', 'gallons'], min: ['minute', 'minutes'] };
+// "box" / "boxes", "lb" / "lb", "cup" / "cups"
+export function unitWord(unit, count = 2) {
+  const u = String(unit || '').trim(); if (!u) return '';
+  const w = BASE_WORDS[u.toLowerCase()];
+  if (w) return Math.abs(count) === 1 ? w[0] : w[1];
+  if (Math.abs(count) === 1) return u;
+  return /(s|x|z|ch|sh)$/i.test(u) ? `${u}es` : `${u}s`;
+}
+// "box of 30 lb"
+export const receivingLabel = (it) => (hasReceiving(it) ? `${it.receiving_unit} of ${Number(it.units_per_receiving).toLocaleString()} ${unitWord(it.unit, n(it.units_per_receiving))}`.trim() : '');
+// What one receiving unit holds: "30 lb", "1,000 each"
+export const holdsLabel = (it) => (hasReceiving(it) ? `${Number(it.units_per_receiving).toLocaleString()} ${unitWord(it.unit, n(it.units_per_receiving))}` : '');
 // How many receiving units a base-unit quantity is.
 export const inReceiving = (it, q) => (hasReceiving(it) ? n(q) / n(it.units_per_receiving) : null);
+// A base quantity as whole receiving units plus what's left over: 375 lb of
+// cheese -> { full: 12, loose: 15 }.
+export function splitReceiving(it, q) {
+  if (!hasReceiving(it) || q === null || q === undefined) return null;
+  const per = n(it.units_per_receiving); const full = Math.floor(n(q) / per + 1e-9);
+  return { full, loose: Math.round((n(q) - full * per) * 1e6) / 1e6 };
+}

@@ -834,3 +834,52 @@ table.t td.off { box-shadow: inset 0 0 0 2px var(--bad); }
 td.wrap-cell { white-space: normal; max-width: 560px; }
 .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
 .side-detail table.side-orders { table-layout: fixed; } .side-detail table.side-orders td, .side-detail table.side-orders th { white-space: normal; overflow-wrap: anywhere; } .side-detail table.side-orders th:first-child { width: 22%; } .side-detail table.side-orders th:last-child { width: 24%; }
+.with-unit { display: flex; align-items: center; gap: 6px; }
+.with-unit input { flex: 1; min-width: 0; font-size: 14px; color: var(--ink); }
+.with-unit .unit-word { color: var(--muted); white-space: nowrap; }
+.rcv-sentence { padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; font-size: 13px; }
+label.field[hidden], input[hidden] { display: none !important; }
+
+/* ---------- Enter a delivery: big, plain, hard to get wrong ---------- */
+.delivery { max-width: 860px; }
+.dl-title { font-size: 20px; margin: 0 0 12px; }
+.dl-group { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 14px; overflow: hidden; }
+.dl-group h3 { margin: 0; padding: 8px 14px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--line); }
+.dl-row { display: grid; grid-template-columns: minmax(150px, 1.3fr) auto minmax(120px, 1fr); gap: 8px 16px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.dl-row:last-child { border-bottom: 0; }
+.dl-row.filled { background: var(--accent-soft); }
+.dl-name { display: flex; flex-direction: column; gap: 2px; }
+.dl-name strong { font-size: 16px; }
+.dl-entry { display: flex; align-items: center; gap: 8px; }
+.dl-input { width: 96px; font-size: 20px; font-weight: 650; text-align: right; padding: 8px 10px; border: 2px solid var(--line-strong); border-radius: 8px; background: #fff; }
+.dl-input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); background: #fff; }
+.dl-input.error { border-color: var(--bad); background: var(--bad-soft); }
+.dl-unit { font-size: 16px; font-weight: 600; min-width: 64px; }
+.dl-side { display: flex; flex-direction: column; gap: 2px; }
+.dl-conv { color: var(--accent-dark); font-weight: 600; }
+.dl-bar { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow); }
+.dl-summary { color: var(--muted); }
+.dl-summary.bad { color: var(--bad); font-weight: 600; }
+.btn.big { font-size: 16px; padding: 10px 22px; }
+.dl-saved { max-width: 860px; border-color: var(--good); background: var(--good-soft); margin-bottom: 14px; }
+.dl-saved h2 { color: var(--good); margin: 0 0 6px; }
+.dl-saved ul { margin: 0 0 8px; padding-left: 18px; }
+.dl-day { font-weight: 600; }
+.big-date { font-size: 16px; padding: 8px; }
+@media (max-width: 640px) {
+  .dl-row { grid-template-columns: 1fr auto; }
+  .dl-side { grid-column: 1 / -1; }
+  .dl-input { width: 84px; }
+}
+table.count-sheet td.cnt-box { padding: 4px 8px; }
+.cnt-line { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.cnt-line input { width: 56px; text-align: right; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; }
+.cnt-line input.error { border-color: var(--bad); background: var(--bad-soft); }
+.cnt-u { color: var(--muted); font-size: 12px; }
+.cnt-plus { color: var(--faint); padding: 0 2px; }
+.cnt-total { display: block; font-size: 11.5px; color: var(--accent-dark); text-align: right; }
+table.count-sheet td.cnt-name strong { font-size: 15px; font-weight: 600; }
+table.count-sheet .cnt-line input { width: 72px; font-size: 16px; font-weight: 600; padding: 6px 8px; border: 2px solid var(--line-strong); border-radius: 8px; background: #fff; }
+table.count-sheet .cnt-line input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+table.count-sheet .cnt-u { font-size: 13px; color: var(--ink); }
+table.count-sheet .cnt-total { text-align: left; padding-top: 2px; }

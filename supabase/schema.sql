@@ -464,14 +464,17 @@ begin
   end if;
 end $$;
 
--- Receiving units as first set up (only where none is set yet).
+-- Receiving units as first set up (only where none is set yet). The unit is a
+-- plain word (box, bag, case, drum); what's in it is units_per_receiving.
 update public.items i set receiving_unit = v.ru, units_per_receiving = v.per
-from (values ('Cheese', 'box', 30), ('Mayonnaise', 'drum', 420), ('Pepper', 'bag (50 lb)', 175),
-             ('Pimentos', 'case (6 × 10 lb cans)', 96), ('Sodium Benzoate', 'bag (50 lb)', 128), ('Brown Sugar', 'bag (50 lb)', 175),
-             ('Hot Sauce', 'case (4 gal)', 64), ('Lemon Juice', 'case (4 gal)', 64), ('Ground Jalapeños', 'case (6 × 10 lb cans)', 175),
+from (values ('Cheese', 'box', 30), ('Mayonnaise', 'drum', 420), ('Pepper', 'bag', 175),
+             ('Pimentos', 'case', 96), ('Sodium Benzoate', 'bag', 128), ('Brown Sugar', 'bag', 175),
+             ('Hot Sauce', 'case', 64), ('Lemon Juice', 'case', 64), ('Ground Jalapeños', 'case', 175),
              ('7 oz Container', 'case', 1000), ('7 oz Lid', 'case', 1000), ('7 oz Case Box', 'case', 500),
              ('14 oz Container', 'case', 500), ('14 oz Lid', 'case', 1000), ('14 oz Case Box', 'case', 500)) as v (name, ru, per)
 where i.name = v.name and i.receiving_unit is null and i.units_per_receiving is null;
+-- Earlier descriptive names ("bag (50 lb)") become the plain word.
+update public.items set receiving_unit = lower(split_part(receiving_unit, ' (', 1)) where receiving_unit like '% (%';
 
 -- ---------- change history ----------
 -- Every change to setup data (items, costs, prices, BOMs, labor, settings,

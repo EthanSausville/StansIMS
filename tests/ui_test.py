@@ -36,9 +36,9 @@ def mock_db():
         if y['year'] == min(r['year'] for r in db['year_settings']): y['labor_line_hours'] = 16
     nm = ROOT / 'tests/fixtures/qb-name-map.json'
     db['qb_name_map'] = json.load(open(nm)) if nm.exists() else []
-    RCV = {'Cheese': ('box', 30), 'Mayonnaise': ('drum', 420), 'Pepper': ('bag (50 lb)', 175), 'Pimentos': ('case (6 × 10 lb cans)', 96),
-           'Sodium Benzoate': ('bag (50 lb)', 128), 'Brown Sugar': ('bag (50 lb)', 175), 'Hot Sauce': ('case (4 gal)', 64), 'Lemon Juice': ('case (4 gal)', 64),
-           'Ground Jalapeños': ('case (6 × 10 lb cans)', 175), '7 oz Container': ('case', 1000), '7 oz Lid': ('case', 1000), '7 oz Case Box': ('case', 500),
+    RCV = {'Cheese': ('box', 30), 'Mayonnaise': ('drum', 420), 'Pepper': ('bag', 175), 'Pimentos': ('case', 96),
+           'Sodium Benzoate': ('bag', 128), 'Brown Sugar': ('bag', 175), 'Hot Sauce': ('case', 64), 'Lemon Juice': ('case', 64),
+           'Ground Jalapeños': ('case', 175), '7 oz Container': ('case', 1000), '7 oz Lid': ('case', 1000), '7 oz Case Box': ('case', 500),
            '14 oz Container': ('case', 500), '14 oz Lid': ('case', 1000), '14 oz Case Box': ('case', 500)}
     for it in db['items']:
         if it['name'] in RCV: it['receiving_unit'], it['units_per_receiving'] = RCV[it['name']]
@@ -247,6 +247,26 @@ with sync_playwright() as p:
     tab(page, 'Daily Inventory')
     before = page.evaluate("1")
     tab(page, 'Goods Receipt')
+    # ---- Enter a delivery (the simple way) ----
+    check(page.locator('form.delivery').count() == 1, 'Goods Receipt opens on Enter a delivery')
+    lid_no = next(i['item_no'] for i in inputs['items'] if i['name'] == '7 oz Lid')
+    rcpt = lambda no: sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == no and r['date'] == page.evaluate("(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })()"))
+    b_cheese, b_lid = rcpt(100001), rcpt(lid_no)
+    check(page.locator('.dl-row', has_text='Cheese').locator('.dl-unit').inner_text() == 'boxes', 'cheese is entered in boxes')
+    page.locator('input[data-k="dl|100001"]').fill('12'); page.wait_for_timeout(50)
+    check(page.locator('.dl-row', has_text='Cheese').locator('.dl-conv').inner_text() == '= 360 lb', 'typing 12 boxes shows = 360 lb')
+    page.locator(f'input[data-k="dl|{lid_no}"]').fill('2'); page.wait_for_timeout(50)
+    page.locator('input[data-k="dl|100002"]').fill('abc'); page.wait_for_timeout(50)
+    check(page.locator('.dl-bar button').is_disabled() and 'Fix the number' in page.locator('.dl-summary').inner_text(), 'a non-number blocks saving with a plain message')
+    page.locator('input[data-k="dl|100002"]').fill(''); page.wait_for_timeout(50)
+    shot(page, '58-enter-delivery')
+    page.get_by_role('button', name='Save delivery').click(); page.wait_for_timeout(400)
+    check(rcpt(100001) - b_cheese == 360 and rcpt(lid_no) - b_lid == 2000, f'saving turns 12 boxes into 360 lb and 2 cases of lids into 2,000 ({rcpt(100001) - b_cheese}, {rcpt(lid_no) - b_lid})')
+    check(page.locator('.dl-saved', has_text='12 boxes of Cheese').count() == 1 and page.locator('input[data-k="dl|100001"]').input_value() == '', 'a confirmation lists what was saved and the boxes clear')
+    shot(page, '59-delivery-saved')
+    page.get_by_role('button', name='Undo this delivery').click(); page.wait_for_timeout(400)
+    check(rcpt(100001) == b_cheese and rcpt(lid_no) == b_lid, 'Undo takes the delivery back out')
+    page.get_by_role('button', name='Month', exact=True).click(); page.wait_for_timeout(150)
     c = cell(page, 'goods_receipts|2026-07-20|100001'); c.click(); c.fill('30*100'); c.press('Enter'); page.wait_for_timeout(300)
     stored = page.evaluate("window.__MOCK_DB__.goods_receipts.find(r => r.date==='2026-07-20' && r.item_no===100001)")
     check(stored and stored['qty'] == 3000, 'goods receipt of 30*100 lb cheese saved as 3000')
@@ -417,7 +437,7 @@ with sync_playwright() as p:
     check(page.locator('table.side-people.is-forecast').count() == 1 and page.locator('table.side-people input[data-k*="headcount"]').first.is_disabled(), 'forecast people are shown read-only')
     shot(page, '39-labor-forecast')
     tab(page, 'Master List')
-    col = 5 + (nxt - 2026)
+    col = 6 + (nxt - 2026)
     lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).get_attribute('data-v'))
     check(abs(lab_next - this_rate * 1.03) < 1e-4, f'Standard Cost uses the {nxt} forecast rate ({lab_next})')
     tab(page, 'Labor')
@@ -436,7 +456,7 @@ with sync_playwright() as p:
     check(pb['name'] == 'Line lead' and pb['pay_type'] == 'salaried', f'a position can be renamed and switched to salaried in place ({pb["name"]}, {pb["pay_type"]})')
     page.get_by_label('How Line lead is paid').select_option('hourly'); page.wait_for_timeout(250)
     tab(page, 'Master List')
-    lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(5).get_attribute('data-v'))
+    lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(6).get_attribute('data-v'))
     lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).get_attribute('data-v'))
     check(abs(lab_next - r_next) < 1e-4 and abs(lab_this - this_rate) < 1e-4, f'Standard Cost uses each year’s own labor rate ({lab_this}, {lab_next})')
     tab(page, 'Labor')
@@ -448,15 +468,16 @@ with sync_playwright() as p:
 
     # ---- admin edits a standard cost and recipe cost follows ----
     tab(page, 'Master List')
-    rec = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v')
+    rec = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(6).get_attribute('data-v')
     orig = cell(page, 'sc|100001|2026').input_value()
     check(orig.startswith('$') is False and cell(page, 'sc|100001|2026').evaluate("e => getComputedStyle(e.closest('td'), '::before').content") == '"$"', f'entered costs show a $ at the left of the cell ({orig})')
-    cells = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5)
+    cells = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(6)
     check(cells.locator('.cur').inner_text() == '$' and cells.inner_text().replace('$', '').strip() == '0.13', f'calculated costs: $ at the left, to the penny or two significant digits ({cells.inner_text()!r})')
-    ls = page.locator('tr', has_text='Sodium Benzoate').locator('td').nth(5).locator('input')
+    ls = page.locator('tr', has_text='Sodium Benzoate').locator('td').nth(6).locator('input')
     check(ls.input_value() in ('0.14',), f'entered costs show to the penny ({ls.input_value()})')
     check(page.locator('th', has_text='Latest cost').count() == 0, 'no Latest cost column')
-    check(page.locator('tr', has_text='Cheese').first.locator('td').nth(4).inner_text() == 'box = 30 lb' and page.locator('tr', has_text='7 oz Case Box').first.locator('td').nth(4).inner_text() == 'case = 500 ea', 'Master List shows how each item is received')
+    ch = page.locator('tr', has_text='Cheese').first.locator('td'); cb = page.locator('tr', has_text='7 oz Case Box').first.locator('td')
+    check([ch.nth(4).inner_text(), ch.nth(5).inner_text(), cb.nth(4).inner_text(), cb.nth(5).inner_text()] == ['Box', '30 lb', 'Case', '500 each'], 'Master List shows what each item comes in and what one holds')
     want_years = [str(y) for y in range(2026, datetime.date.today().year + 2)]
     heads = [t.split('\n')[0].strip(' ▾') for t in page.locator('table.xtable thead th').all_inner_texts() if t[:2] == '20']
     check(heads == want_years, f'Master List shows 2026 through next year ({heads})')
@@ -468,7 +489,7 @@ with sync_playwright() as p:
     check(cls == cls2 and page.locator('.item-selected').count() == 0, f'Edit item looks like Add item, with nothing else ({cls})')
     bgs = page.evaluate("""(() => { const r = [...document.querySelectorAll('table.xtable tbody tr')]; const sel = r.find(t => t.classList.contains('selected')); const other = r.find(t => !t.classList.contains('selected') && t.textContent.includes('Cheese'));
       const bg = (e) => getComputedStyle(e).backgroundColor; const rec = r.find(t => t.textContent.includes('RECIPE: Original'));
-      return [bg(sel.querySelector('td')), bg(other.querySelector('td.cell')), bg(other.querySelector('td.cell input')), bg(rec.querySelectorAll('td')[5])]; })()""")
+      return [bg(sel.querySelector('td')), bg(other.querySelector('td.cell')), bg(other.querySelector('td.cell input')), bg(rec.querySelectorAll('td')[6])]; })()""")
     check(bgs[0] != 'rgb(255, 244, 194)' and 'rgb(2' in bgs[0] and bgs[1] == 'rgb(255, 255, 255)' and bgs[3] in ('rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)') and bgs[2] in ('rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)'), f'selected row is blue; typed-in and calculated cells are white ({bgs})')
     page.get_by_role('button', name='Edit item').click(); page.wait_for_timeout(150)
     check(page.locator('dialog[open]').count() == 0 and page.locator('.sidebar .item-form .tb-title').inner_text() == 'Edit Pepper', 'Edit item opens a form in the side bar, not a popup')
@@ -476,10 +497,11 @@ with sync_playwright() as p:
     check(w == 300, f'the side bar widens for the form ({w}px)')
     shot(page, '12-item-form')
     page.locator('.item-form').get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100); shot(page, '12b-selected'); page.get_by_role('button', name='Edit item').click(); page.wait_for_timeout(100)
-    page.fill('#item-rcv-unit', 'bag (25 lb)'); page.fill('#item-rcv-per', '88')
+    page.select_option('#item-rcv-unit', 'bag'); page.fill('#item-rcv-per', '88'); page.wait_for_timeout(50)
+    check(page.locator('.rcv-sentence').inner_text() == '1 bag of Pepper = 88 cups', f'the form says it in a sentence ({page.locator(".rcv-sentence").inner_text()})')
     page.fill('#item-pack', '1 c'); page.locator('.item-form').get_by_role('button', name='Save').click(); page.wait_for_timeout(250)
     pep = page.evaluate("window.__MOCK_DB__.items.find(i => i.name === 'Pepper')")
-    check(pep['pack_note'] == '1 c' and pep['receiving_unit'] == 'bag (25 lb)' and pep['units_per_receiving'] == 88 and page.locator('.item-form').count() == 0, 'saving the item saves its receiving unit and closes the form')
+    check(pep['pack_note'] == '1 c' and pep['receiving_unit'] == 'bag' and pep['units_per_receiving'] == 88 and page.locator('.item-form').count() == 0, 'saving the item saves its receiving unit and closes the form')
     check(page.locator('.sidebar').evaluate("e => Math.round(e.getBoundingClientRect().width)") == 170, 'the side bar goes back to narrow')
     page.get_by_role('button', name='Add item').click(); page.wait_for_timeout(150)
     page.select_option('#item-type', 'Indirect Cost'); page.wait_for_timeout(50)
@@ -508,10 +530,10 @@ with sync_playwright() as p:
     nos = page.locator('table.t tbody tr td:nth-child(3)').all_inner_texts()
     check(all(len(n) == 6 for n in nos) and page.locator('tr', has_text='Cheese').locator('td').nth(2).inner_text() == '100001' and page.locator('tr', has_text='Original gallon').locator('td').nth(2).inner_text() == '500003', f'item numbers are 6 digits by type ({nos[:3]})')
     c = cell(page, 'sc|100001|2026'); c.click(); orig = c.input_value(); c.fill(str(float(orig) + 1)); c.press('Tab'); page.wait_for_timeout(300)
-    rec2 = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v')
+    rec2 = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(6).get_attribute('data-v')
     check(rec != rec2, f'recipe cost recalculates when cheese cost changes ({rec} -> {rec2})')
     c = cell(page, 'sc|100001|2026'); c.click(); c.fill(orig); c.press('Tab'); page.wait_for_timeout(300)
-    check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v') == rec, 'restoring cheese cost restores recipe cost')
+    check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(6).get_attribute('data-v') == rec, 'restoring cheese cost restores recipe cost')
     check(not errors, 'no browser errors during edits' + (f': {errors[:3]}' if errors else ''))
 
     # ---- sales summaries ----
@@ -593,7 +615,7 @@ with sync_playwright() as p:
     check(st_first in ('Order now', 'Order this week'), f'most urgent purchases first ({st_first})')
     cq = float(page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(4).inner_text().replace(',', ''))
     asr = page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(6).inner_text()
-    check(cq % 30 == 0 and asr == f'{int(cq / 30):,} box', f'cheese is ordered in whole 30 lb boxes ({cq} lb = {asr})')
+    check(cq % 30 == 0 and asr == f'{int(cq / 30):,} boxes', f'cheese is ordered in whole 30 lb boxes ({cq} lb = {asr})')
     leads = set(page.locator('table.xtable tbody tr td:last-child').all_inner_texts())
     check(leads == {'14'}, f'every material has a two-week lead time ({leads})')
     page.locator('table.xtable tbody tr', has_text='Cheese').locator('td').first.click(); page.wait_for_timeout(150)
@@ -669,14 +691,23 @@ with sync_playwright() as p:
     check(page.locator('table.count-sheet').count() == 1, 'Cycle Counts opens on the count sheet')
     cdate = sorted({c['date'] for c in inputs['cycle_counts']})[-1]
     page.locator('.sidebar input[type=date]').fill(cdate); page.locator('.sidebar input[type=date]').dispatch_event('change'); page.wait_for_timeout(200)
+    check(page.locator('table.count-sheet thead', has_text='Expected').count() == 0, 'counting is blind: no expected numbers while counting')
+    shot(page, '55a-count-blind')
+    page.get_by_role('button', name='Check counts').click(); page.wait_for_timeout(150)
     crow = page.locator('table.count-sheet tbody tr', has_text='Cheese').first
-    exp = crow.locator('td').nth(2).inner_text(); got = cell(page, f'cs|{cheese_no}').input_value()
+    exp = crow.locator('td').nth(3).inner_text(); got = cell(page, f'csf|{cheese_no}').input_value()
     check(exp not in ('', '—') and got != '', f'count sheet shows expected and counted for {cdate} ({exp}, {got})')
     lj = str(next(i['item_no'] for i in inputs['items'] if i['name'] == 'Lemon Juice'))
-    tcell = cell(page, 'cs|' + lj); tcell.click(); tcell.fill('1'); tcell.press('Tab'); page.wait_for_timeout(250)
+    check(crow.locator('.cnt-u').first.inner_text() == 'full boxes' and 'lb loose' in crow.inner_text(), 'cheese is counted in full boxes plus loose lb')
+    f_ = cell(page, f'csf|{cheese_no}'); l_ = cell(page, f'csl|{cheese_no}'); keep = (f_.input_value(), l_.input_value())
+    f_.fill('12'); l_.fill('15'); l_.press('Tab'); page.wait_for_timeout(300)
+    check(page.evaluate(f"window.__MOCK_DB__.cycle_counts.find(c => c.item_no === {cheese_no} && c.date === '{cdate}').qty") == 375, '12 boxes + 15 lb loose is saved as 375 lb')
+    f_ = cell(page, f'csf|{cheese_no}'); l_ = cell(page, f'csl|{cheese_no}'); f_.fill(keep[0]); l_.fill(keep[1]); l_.press('Tab'); page.wait_for_timeout(300)
+    tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill('1'); tcell.press('Tab'); page.wait_for_timeout(250)
     check(page.locator('table.count-sheet tbody tr.flagged', has_text='Lemon Juice').count() == 1, 'a count far from expected is flagged')
     shot(page, '55-count-sheet')
-    tcell = cell(page, 'cs|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
+    tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
+    page.get_by_role('button', name='Hide expected').click(); page.wait_for_timeout(100)
     page.get_by_role('button', name='Month', exact=True).click(); page.wait_for_timeout(150)
     check(page.locator('table.t td.cell input').count() > 0, 'the month grid is still there')
     page.get_by_role('button', name='Count sheet').click(); page.wait_for_timeout(100)

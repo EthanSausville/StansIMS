@@ -740,3 +740,8 @@ table.side-people .pos-pay { display: block; box-sizing: border-box; max-width: 
 .bom-editor .cb-save .cb-total { font-size: 22px; }
 .bom-editor .cb-save .controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .bom-editor .cb-warning { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+
+/* The Original Stan's logo, left end of the blue bar */
+.grouprow .brand { flex: none; align-self: center; display: flex; margin: 0 10px 8px 4px; }
+.grouprow .brand img { height: 34px; width: auto; display: block; }
+@media (max-width: 700px) { .grouprow .brand img { height: 28px; } }

@@ -169,7 +169,7 @@ function shell() {
   const main = h('main', { id: 'main', role: 'tabpanel' }, h('div', { class: 'layout' }, side, content));
   app.replaceChildren(
     h('header', { class: 'topbar' },
-      h('div', { class: 'grouprow' }, groupBar, h('span', { class: 'spacer' }), gearMenu()),
+      h('div', { class: 'grouprow' }, h('a', { class: 'brand', href: '#dashboard', title: 'Dashboard' }, h('img', { src: 'logo.webp', alt: 'The Original Stan’s', width: 439, height: 237 })), groupBar, h('span', { class: 'spacer' }), gearMenu()),
       h('div', { class: 'tabrow' }, tabBar, h('span', { class: 'spacer' }), about)),
     main);
   const bars = { groupBar, tabBar };

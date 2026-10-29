@@ -1,7 +1,7 @@
 // A month of days down the side and items across the top, like the daily
 // sheets in the workbook (Production, GoodsReceipt, CycleCounts, ...).
 import { h, numberCell, dateLabel, qty, todayIso } from '../ui.js';
-import { eachDay, isWeekend, monthEnd } from '../calc.js';
+import { eachDay, isWeekend, monthEnd, receivingLabel } from '../calc.js';
 import { totalsFoot } from '../xtable.js';
 
 export const monthDays = ({ year, month }) => [...eachDay(`${year}-${String(month).padStart(2, '0')}-01`, monthEnd(year, month))];
@@ -18,7 +18,7 @@ export function itemHead(items, { before = [], after = [], notes = true, firstLa
       after.map((b) => h('th', { class: 'num wrap' }, b))),
   ];
   if (notes) rows.push(h('tr', null, h('th', { class: 'sticky-col' }), pad(before.length),
-    items.map((it) => h('th', { class: 'num' }, it.pack_note || it.unit || '')), pad(after.length)));
+    items.map((it) => h('th', { class: 'num', title: receivingLabel(it) ? `Received as ${receivingLabel(it)}` : null }, receivingLabel(it) || it.pack_note || it.unit || '')), pad(after.length)));
   return h('thead', null, rows);
 }
 

@@ -36,6 +36,12 @@ def mock_db():
         if y['year'] == min(r['year'] for r in db['year_settings']): y['labor_line_hours'] = 16
     nm = ROOT / 'tests/fixtures/qb-name-map.json'
     db['qb_name_map'] = json.load(open(nm)) if nm.exists() else []
+    RCV = {'Cheese': ('box', 30), 'Mayonnaise': ('drum', 420), 'Pepper': ('bag (50 lb)', 175), 'Pimentos': ('case (6 × 10 lb cans)', 96),
+           'Sodium Benzoate': ('bag (50 lb)', 128), 'Brown Sugar': ('bag (50 lb)', 175), 'Hot Sauce': ('case (4 gal)', 64), 'Lemon Juice': ('case (4 gal)', 64),
+           'Ground Jalapeños': ('case (6 × 10 lb cans)', 175), '7 oz Container': ('case', 1000), '7 oz Lid': ('case', 1000), '7 oz Case Box': ('case', 500),
+           '14 oz Container': ('case', 500), '14 oz Lid': ('case', 1000), '14 oz Case Box': ('case', 500)}
+    for it in db['items']:
+        if it['name'] in RCV: it['receiving_unit'], it['units_per_receiving'] = RCV[it['name']]
     db['audit_log'] = [dict(id=2, at='2026-10-27T15:04:00Z', user_id='u1', email='owner@stans.test', table_name='standard_costs', action='update',
                             old_row=dict(item_no=100001, year=2026, cost=1.9), new_row=dict(item_no=100001, year=2026, cost=1.937)),
                        dict(id=1, at='2026-10-26T09:00:00Z', user_id='u1', email='owner@stans.test', table_name='items', action='insert',
@@ -411,7 +417,7 @@ with sync_playwright() as p:
     check(page.locator('table.side-people.is-forecast').count() == 1 and page.locator('table.side-people input[data-k*="headcount"]').first.is_disabled(), 'forecast people are shown read-only')
     shot(page, '39-labor-forecast')
     tab(page, 'Master List')
-    col = 4 + (nxt - 2026)
+    col = 5 + (nxt - 2026)
     lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).get_attribute('data-v'))
     check(abs(lab_next - this_rate * 1.03) < 1e-4, f'Standard Cost uses the {nxt} forecast rate ({lab_next})')
     tab(page, 'Labor')
@@ -430,7 +436,7 @@ with sync_playwright() as p:
     check(pb['name'] == 'Line lead' and pb['pay_type'] == 'salaried', f'a position can be renamed and switched to salaried in place ({pb["name"]}, {pb["pay_type"]})')
     page.get_by_label('How Line lead is paid').select_option('hourly'); page.wait_for_timeout(250)
     tab(page, 'Master List')
-    lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(4).get_attribute('data-v'))
+    lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(5).get_attribute('data-v'))
     lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).get_attribute('data-v'))
     check(abs(lab_next - r_next) < 1e-4 and abs(lab_this - this_rate) < 1e-4, f'Standard Cost uses each year’s own labor rate ({lab_this}, {lab_next})')
     tab(page, 'Labor')
@@ -442,14 +448,15 @@ with sync_playwright() as p:
 
     # ---- admin edits a standard cost and recipe cost follows ----
     tab(page, 'Master List')
-    rec = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(4).get_attribute('data-v')
+    rec = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v')
     orig = cell(page, 'sc|100001|2026').input_value()
     check(orig.startswith('$') is False and cell(page, 'sc|100001|2026').evaluate("e => getComputedStyle(e.closest('td'), '::before').content") == '"$"', f'entered costs show a $ at the left of the cell ({orig})')
-    cells = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(4)
+    cells = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5)
     check(cells.locator('.cur').inner_text() == '$' and cells.inner_text().replace('$', '').strip() == '0.13', f'calculated costs: $ at the left, to the penny or two significant digits ({cells.inner_text()!r})')
-    ls = page.locator('tr', has_text='Sodium Benzoate').locator('td').nth(4).locator('input')
+    ls = page.locator('tr', has_text='Sodium Benzoate').locator('td').nth(5).locator('input')
     check(ls.input_value() in ('0.14',), f'entered costs show to the penny ({ls.input_value()})')
     check(page.locator('th', has_text='Latest cost').count() == 0, 'no Latest cost column')
+    check(page.locator('tr', has_text='Cheese').first.locator('td').nth(4).inner_text() == 'box = 30 lb' and page.locator('tr', has_text='7 oz Case Box').first.locator('td').nth(4).inner_text() == 'case = 500 ea', 'Master List shows how each item is received')
     want_years = [str(y) for y in range(2026, datetime.date.today().year + 2)]
     heads = [t.split('\n')[0].strip(' ▾') for t in page.locator('table.xtable thead th').all_inner_texts() if t[:2] == '20']
     check(heads == want_years, f'Master List shows 2026 through next year ({heads})')
@@ -461,16 +468,18 @@ with sync_playwright() as p:
     check(cls == cls2 and page.locator('.item-selected').count() == 0, f'Edit item looks like Add item, with nothing else ({cls})')
     bgs = page.evaluate("""(() => { const r = [...document.querySelectorAll('table.xtable tbody tr')]; const sel = r.find(t => t.classList.contains('selected')); const other = r.find(t => !t.classList.contains('selected') && t.textContent.includes('Cheese'));
       const bg = (e) => getComputedStyle(e).backgroundColor; const rec = r.find(t => t.textContent.includes('RECIPE: Original'));
-      return [bg(sel.querySelector('td')), bg(other.querySelector('td.cell')), bg(other.querySelector('td.cell input')), bg(rec.querySelectorAll('td')[4])]; })()""")
-    check(bgs[0] != 'rgb(255, 244, 194)' and 'rgb(2' in bgs[0] and bgs[1] == bgs[3] == 'rgb(255, 255, 255)' and bgs[2] in ('rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)'), f'selected row is blue; typed-in and calculated cells are white ({bgs})')
+      return [bg(sel.querySelector('td')), bg(other.querySelector('td.cell')), bg(other.querySelector('td.cell input')), bg(rec.querySelectorAll('td')[5])]; })()""")
+    check(bgs[0] != 'rgb(255, 244, 194)' and 'rgb(2' in bgs[0] and bgs[1] == 'rgb(255, 255, 255)' and bgs[3] in ('rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)') and bgs[2] in ('rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)'), f'selected row is blue; typed-in and calculated cells are white ({bgs})')
     page.get_by_role('button', name='Edit item').click(); page.wait_for_timeout(150)
     check(page.locator('dialog[open]').count() == 0 and page.locator('.sidebar .item-form .tb-title').inner_text() == 'Edit Pepper', 'Edit item opens a form in the side bar, not a popup')
     w = page.locator('.sidebar').evaluate("e => Math.round(e.getBoundingClientRect().width)")
     check(w == 300, f'the side bar widens for the form ({w}px)')
     shot(page, '12-item-form')
     page.locator('.item-form').get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100); shot(page, '12b-selected'); page.get_by_role('button', name='Edit item').click(); page.wait_for_timeout(100)
+    page.fill('#item-rcv-unit', 'bag (25 lb)'); page.fill('#item-rcv-per', '88')
     page.fill('#item-pack', '1 c'); page.locator('.item-form').get_by_role('button', name='Save').click(); page.wait_for_timeout(250)
-    check(page.evaluate("window.__MOCK_DB__.items.find(i => i.name === 'Pepper').pack_note") == '1 c' and page.locator('.item-form').count() == 0, 'saving the item closes the form')
+    pep = page.evaluate("window.__MOCK_DB__.items.find(i => i.name === 'Pepper')")
+    check(pep['pack_note'] == '1 c' and pep['receiving_unit'] == 'bag (25 lb)' and pep['units_per_receiving'] == 88 and page.locator('.item-form').count() == 0, 'saving the item saves its receiving unit and closes the form')
     check(page.locator('.sidebar').evaluate("e => Math.round(e.getBoundingClientRect().width)") == 170, 'the side bar goes back to narrow')
     page.get_by_role('button', name='Add item').click(); page.wait_for_timeout(150)
     page.select_option('#item-type', 'Indirect Cost'); page.wait_for_timeout(50)
@@ -499,10 +508,10 @@ with sync_playwright() as p:
     nos = page.locator('table.t tbody tr td:nth-child(3)').all_inner_texts()
     check(all(len(n) == 6 for n in nos) and page.locator('tr', has_text='Cheese').locator('td').nth(2).inner_text() == '100001' and page.locator('tr', has_text='Original gallon').locator('td').nth(2).inner_text() == '500003', f'item numbers are 6 digits by type ({nos[:3]})')
     c = cell(page, 'sc|100001|2026'); c.click(); orig = c.input_value(); c.fill(str(float(orig) + 1)); c.press('Tab'); page.wait_for_timeout(300)
-    rec2 = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(4).get_attribute('data-v')
+    rec2 = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v')
     check(rec != rec2, f'recipe cost recalculates when cheese cost changes ({rec} -> {rec2})')
     c = cell(page, 'sc|100001|2026'); c.click(); c.fill(orig); c.press('Tab'); page.wait_for_timeout(300)
-    check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(4).get_attribute('data-v') == rec, 'restoring cheese cost restores recipe cost')
+    check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v') == rec, 'restoring cheese cost restores recipe cost')
     check(not errors, 'no browser errors during edits' + (f': {errors[:3]}' if errors else ''))
 
     # ---- sales summaries ----
@@ -582,6 +591,9 @@ with sync_playwright() as p:
     check(rows_pp == mats, f'purchase plan lists every raw material and packaging item ({rows_pp})')
     st_first = page.locator('table.xtable tbody tr').first.locator('.status').first.inner_text()
     check(st_first in ('Order now', 'Order this week'), f'most urgent purchases first ({st_first})')
+    cq = float(page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(4).inner_text().replace(',', ''))
+    asr = page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(6).inner_text()
+    check(cq % 30 == 0 and asr == f'{int(cq / 30):,} box', f'cheese is ordered in whole 30 lb boxes ({cq} lb = {asr})')
     leads = set(page.locator('table.xtable tbody tr td:last-child').all_inner_texts())
     check(leads == {'14'}, f'every material has a two-week lead time ({leads})')
     page.locator('table.xtable tbody tr', has_text='Cheese').locator('td').first.click(); page.wait_for_timeout(150)

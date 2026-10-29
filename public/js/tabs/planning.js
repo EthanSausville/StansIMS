@@ -4,7 +4,10 @@
 // (demandPlan, materialPlan).
 import { h, pageHead, numberCell, qty, seg, chip, longDate, typePill, todayIso, toast, niceError, confirmDialog, acctCell, acctParts, acctText } from '../ui.js';
 import { state, derived, saveCell, saveField, isAdmin, insertRow, updateRow, deleteRow, receivePO } from '../store.js';
-import { DEFAULT_LEAD_DAYS, FG_SAFETY_WEEKS, PLAN_WEEKS, HISTORY_WEEKS, addDays, yearOf, evalEntry, poStatus, poVariance } from '../calc.js';
+import { DEFAULT_LEAD_DAYS, FG_SAFETY_WEEKS, PLAN_WEEKS, HISTORY_WEEKS, addDays, yearOf, evalEntry, poStatus, poVariance, receivingLabel, inReceiving, hasReceiving } from '../calc.js';
+
+// "2,640 box" for a quantity in base units, when the item has a receiving unit.
+const asReceived = (it, q) => (hasReceiving(it) ? `${qty(inReceiving(it, q), 1)} ${it.receiving_unit}` : '');
 import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton, downloadCsv } from '../xtable.js';
 
 const shortDate = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
@@ -117,9 +120,10 @@ export const purchasePlanTab = {
         h('dt', null, 'Planned use / wk'), h('dd', null, `${qty(sel.avgPlanned, 1)} ${unit(sel)}`),
         h('dt', null, 'Safety stock'), h('dd', null, `${qty(sel.safety, 1)}${sel.typedSafety ? ' (typed in)' : ''}`),
         h('dt', null, 'Lead time'), h('dd', null, `${sel.leadDays} days`),
+        hasReceiving(sel.item) ? [h('dt', null, 'Received as'), h('dd', null, receivingLabel(sel.item))] : null,
         h('dt', null, 'Reorder point'), h('dd', null, qty(sel.reorderPoint, 1))),
       sel.orders.length ? h('table', { class: 't side-orders' }, h('thead', null, h('tr', null, h('th', null, 'Order by'), h('th', { class: 'num' }, 'Qty'), h('th', null, 'Arrives'))),
-        h('tbody', null, sel.orders.map((o) => h('tr', { class: o.orderBy <= today ? 'late' : null }, h('td', null, shortDate(o.orderBy)), h('td', { class: 'num' }, qty(o.qty, 0)), h('td', null, `wk ${shortDate(o.week)}`)))))
+        h('tbody', null, sel.orders.map((o) => h('tr', { class: o.orderBy <= today ? 'late' : null }, h('td', null, shortDate(o.orderBy)), h('td', { class: 'num', title: asReceived(sel.item, o.qty) }, qty(o.qty, 0)), h('td', null, `wk ${shortDate(o.week)}`)))))
         : h('p', { class: 'small muted' }, `No purchase needed in the next ${PLAN_WEEKS} weeks.`),
       sel.openQty ? h('div', { class: 'small muted' }, `${qty(sel.openQty, 0)} ${unit(sel)} already on order.`) : null,
       sel.next ? h('button', { class: 'btn primary', onclick: async () => {
@@ -146,7 +150,7 @@ export const purchasePlanTab = {
             { disabled: !admin, digits: 2, key: `ps|${r.item.item_no}|safety_stock`, placeholder: qty(r.autoSafety, 0), title: `${r.item.name} safety stock (blank = calculated, ${qty(r.autoSafety, 1)})` }) },
         { key: 'multiple', label: 'Order in multiples of', num: true, value: (r) => r.multiple,
           cell: (r) => numberCell(settings.get(r.item.item_no)?.standard_purchase ?? null, (v) => saveField('purchase_settings', { item_no: r.item.item_no }, 'standard_purchase', v),
-            { disabled: !admin, digits: 2, key: `ps|${r.item.item_no}|standard_purchase`, placeholder: '1', title: `${r.item.name} order size (a case, a pallet…)` }) },
+            { disabled: !admin, digits: 2, key: `ps|${r.item.item_no}|standard_purchase`, placeholder: hasReceiving(r.item) ? String(r.item.units_per_receiving) : '1', title: `${r.item.name} order size (blank = one ${r.item.receiving_unit || 'unit'})` }) },
         { key: 'pack', label: 'Pack', value: (r) => r.item.pack_note || '', cell: (r) => h('td', { class: 'muted' }, r.item.pack_note || '') },
       ];
       body = h('div', { class: 'tablewrap', 'data-scroll': 'purchase-settings' }, xtable({ id: 'purchase-settings', columns, allRows: rows, rows: filteredRows({ id: 'purchase-settings', columns, rows }), rerender, className: 'natural plain-cells' }));
@@ -166,6 +170,7 @@ export const purchasePlanTab = {
         { key: 'orderBy', label: 'Order by', value: (r) => r.next?.orderBy || '', text: (r) => (r.next ? longDate(r.next.orderBy) : ''), cell: (r) => h('td', { class: r.next && r.next.orderBy < today ? 'neg' : null }, r.next ? longDate(r.next.orderBy) : '') },
         { key: 'qty', label: 'Order qty', num: true, value: (r) => r.next?.qty || 0, text: (r) => (r.next ? qty(r.next.qty, 0) : ''), cell: (r) => h('td', { class: 'num strong' }, r.next ? qty(r.next.qty, 0) : '') },
         { key: 'unit', label: 'Unit', value: (r) => unit(r), cell: (r) => h('td', { class: 'muted' }, unit(r)) },
+        { key: 'asrcv', label: 'Order as received', value: (r) => (r.next ? asReceived(r.item, r.next.qty) : ''), cell: (r) => h('td', { class: 'muted' }, r.next ? asReceived(r.item, r.next.qty) : '') },
         { key: 'onhand', label: 'On hand', num: true, value: (r) => r.onHand, text: (r) => qty(r.onHand, 0), cell: (r) => h('td', { class: 'num' + (r.onHand < 0 ? ' neg' : '') }, qty(r.onHand, 0)) },
         { key: 'use', label: 'Use / wk', num: true, value: (r) => r.avgPlanned, text: (r) => qty(r.avgPlanned, 0), cell: (r) => h('td', { class: 'num' }, qty(r.avgPlanned, 0)) },
         { key: 'safety', label: 'Safety stock', num: true, value: (r) => r.safety, text: (r) => qty(r.safety, 0), cell: (r) => h('td', { class: 'num' }, qty(r.safety, 0)) },
@@ -216,8 +221,12 @@ function poFormEl(po, done) {
   };
   const unitOf = () => ix.items.get(Number(f.item.value))?.unit || 'unit';
   const unitLabel = h('span', { class: 'muted' }, unitOf());
+  const rcvHint = h('div', { class: 'small muted span2 rcv-hint' });
+  const hint = () => { const it = ix.items.get(Number(f.item.value)); let q = null; try { q = evalEntry(f.qty.value); } catch { /* typing */ }
+    rcvHint.textContent = hasReceiving(it) ? `${receivingLabel(it)}${q ? ` · ${asReceived(it, q)}` : ''}` : ''; };
+  f.qty.addEventListener('input', hint); hint();
   f.item.addEventListener('change', () => {
-    unitLabel.textContent = unitOf();
+    unitLabel.textContent = unitOf(); hint();
     if (!f.price.value) { const c = derived.costs().cost(Number(f.item.value), yearOf(f.due.value || today)); if (c) f.price.value = +c.toFixed(4); }
   });
   const save = async (e) => {
@@ -235,7 +244,7 @@ function poFormEl(po, done) {
     h('div', { class: 'item-fields' },
       h('label', { class: 'field span2' }, 'Item', f.item), h('label', { class: 'field span2' }, 'Supplier', f.supplier, h('datalist', { id: listId }, suppliers.map((x) => h('option', { value: x })))),
       h('label', { class: 'field' }, 'Ordered', f.ordered), h('label', { class: 'field' }, 'Due', f.due),
-      h('label', { class: 'field' }, h('span', null, 'Quantity ', unitLabel), f.qty), h('label', { class: 'field' }, 'Unit price ($)', f.price),
+      h('label', { class: 'field' }, h('span', null, 'Quantity ', unitLabel), f.qty), h('label', { class: 'field' }, 'Unit price ($)', f.price), rcvHint,
       h('label', { class: 'field span2' }, 'Notes', f.notes)),
     h('div', { class: 'controls' },
       po && !po.received ? h('button', { type: 'button', class: 'btn danger', onclick: async () => {
@@ -292,6 +301,7 @@ export const purchaseOrdersTab = {
       { key: 'due', label: 'Due', value: (p) => p.due, text: (p) => longDate(p.due), cell: (p) => h('td', { class: poStatus(p, today) === 'late' ? 'neg' : null }, longDate(p.due)) },
       { key: 'qty', label: 'Qty', num: true, value: (p) => Number(p.qty), text: (p) => qty(p.qty, 2), cell: (p) => h('td', { class: 'num' }, qty(p.qty, 2)) },
       { key: 'unit', label: 'Unit', value: (p) => ix.items.get(p.item_no)?.unit || '', cell: (p) => h('td', { class: 'muted' }, ix.items.get(p.item_no)?.unit || '') },
+      { key: 'asrcv', label: 'As received', value: (p) => asReceived(ix.items.get(p.item_no), p.qty), cell: (p) => h('td', { class: 'muted' }, asReceived(ix.items.get(p.item_no), p.qty)) },
       { key: 'price', label: 'Unit price', num: true, value: (p) => p.unit_price, text: (p) => (p.unit_price ? '$' + acctText(p.unit_price) : ''), cell: (p) => acctCell(p.unit_price) },
       { key: 'amount', label: 'Amount', num: true, value: (p) => amount(p), text: (p) => (amount(p) ? '$' + acctText(amount(p)) : ''), cell: (p) => acctCell(amount(p)),
         total: (rs) => acctParts(rs.reduce((s, p) => s + (amount(p) || 0), 0)) },

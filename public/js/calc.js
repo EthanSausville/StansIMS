@@ -607,7 +607,8 @@ export function materialPlan(data, plan, { today, inv }) {
     const autoSafety = Math.max(SERVICE_Z * stdev(past) * Math.sqrt(leadDays / 7), MIN_SAFETY_WEEKS * Math.max(avgPlanned, avgPast));
     const typedSafety = s.safety_stock !== null && s.safety_stock !== undefined && s.safety_stock !== '';
     const safety = typedSafety ? n(s.safety_stock) : autoSafety;
-    const multiple = n(s.standard_purchase) || 0;
+    // order in whole receiving units (boxes, cases...) unless a standard purchase is set
+    const multiple = n(s.standard_purchase) || (hasReceiving(item) ? n(item.units_per_receiving) : 0);
     const onHand = inv?.byItem.get(item.item_no)?.get(today) ?? 0;
     const orders = [];
     let proj = onHand;
@@ -878,3 +879,12 @@ export function productionLots(data) {
   lots.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.item.sort - b.item.sort));
   return { lots, unmatched };
 }
+
+// ---------- Receiving units ----------
+// An item can be received in a bigger unit than it's counted and used in
+// (a 30 lb box of cheese, a case of 1,000 lids).
+export const hasReceiving = (it) => !!(it?.receiving_unit && n(it.units_per_receiving) > 0);
+// "box = 30 lb"
+export const receivingLabel = (it) => (hasReceiving(it) ? `${it.receiving_unit} = ${Number(it.units_per_receiving).toLocaleString()} ${it.unit || ''}`.trim() : '');
+// How many receiving units a base-unit quantity is.
+export const inReceiving = (it, q) => (hasReceiving(it) ? n(q) / n(it.units_per_receiving) : null);

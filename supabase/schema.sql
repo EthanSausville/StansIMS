@@ -59,6 +59,10 @@ create table if not exists public.items (
   pack_note text,            -- e.g. "30lbs ea", shown under the column headings
   sort      int not null default 0
 );
+-- How an item is received when that differs from its base unit: a box of
+-- cheese is 30 lb, a case of 7 oz containers is 1,000.
+alter table public.items add column if not exists receiving_unit      text;
+alter table public.items add column if not exists units_per_receiving numeric check (units_per_receiving > 0);
 
 create table if not exists public.standard_costs (
   item_no int not null references public.items (item_no) on update cascade on delete cascade,
@@ -459,6 +463,15 @@ begin
       and item_no < 600000);
   end if;
 end $$;
+
+-- Receiving units as first set up (only where none is set yet).
+update public.items i set receiving_unit = v.ru, units_per_receiving = v.per
+from (values ('Cheese', 'box', 30), ('Mayonnaise', 'drum', 420), ('Pepper', 'bag (50 lb)', 175),
+             ('Pimentos', 'case (6 × 10 lb cans)', 96), ('Sodium Benzoate', 'bag (50 lb)', 128), ('Brown Sugar', 'bag (50 lb)', 175),
+             ('Hot Sauce', 'case (4 gal)', 64), ('Lemon Juice', 'case (4 gal)', 64), ('Ground Jalapeños', 'case (6 × 10 lb cans)', 175),
+             ('7 oz Container', 'case', 1000), ('7 oz Lid', 'case', 1000), ('7 oz Case Box', 'case', 500),
+             ('14 oz Container', 'case', 500), ('14 oz Lid', 'case', 1000), ('14 oz Case Box', 'case', 500)) as v (name, ru, per)
+where i.name = v.name and i.receiving_unit is null and i.units_per_receiving is null;
 
 -- ---------- change history ----------
 -- Every change to setup data (items, costs, prices, BOMs, labor, settings,

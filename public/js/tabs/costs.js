@@ -1,6 +1,6 @@
 import { h, pageHead, numberCell, typePill, toast, niceError, confirmDialog, acctText, acctCell } from '../ui.js';
 import { state, derived, saveCell, isAdmin, insertRow, updateRow, deleteRow } from '../store.js';
-import { TYPES, isLaborItem, nextItemNo, itemNoProblem, missingStandards } from '../calc.js';
+import { TYPES, isLaborItem, nextItemNo, itemNoProblem, missingStandards, receivingLabel, evalEntry } from '../calc.js';
 import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 
 // Costs typed in: raw materials, packaging, and indirect costs other than direct labor (overhead, marketing, ...).
@@ -17,9 +17,19 @@ function itemForm(item, done) {
     type: h('select', { id: 'item-type', disabled: !isNew }, TYPES.map((t) => h('option', { selected: t === item?.type }, t))),
     unit: h('input', { id: 'item-unit', type: 'text', value: item?.unit ?? '', placeholder: 'lb, c, ea, min, oz' }),
     pack_note: h('input', { id: 'item-pack', type: 'text', value: item?.pack_note ?? '', placeholder: 'e.g. 30lbs ea' }),
+    receiving_unit: h('input', { id: 'item-rcv-unit', type: 'text', value: item?.receiving_unit ?? '', placeholder: 'box, case, drum…' }),
+    units_per_receiving: h('input', { id: 'item-rcv-per', type: 'text', inputmode: 'decimal', value: item?.units_per_receiving ?? '', placeholder: 'e.g. 30' }),
   };
   if (isNew) f.item_no.value = nextItemNo(state.data.items, f.type.value);
   f.type.addEventListener('change', () => { f.item_no.value = nextItemNo(state.data.items, f.type.value); });
+  // Receiving unit and how many base units are in one (both, or neither).
+  const receiving = () => {
+    const ru = f.receiving_unit.value.trim() || null; const per = evalEntry(f.units_per_receiving.value);
+    if (ru && !(per > 0)) throw new Error(`Enter how many ${f.unit.value.trim() || 'base units'} are in one ${ru}.`);
+    return { receiving_unit: ru, units_per_receiving: ru ? per : null };
+  };
+  const rcvLabel = h('span', { class: 'muted' }, f.unit.value || 'units');
+  f.unit.addEventListener('input', () => { rcvLabel.textContent = f.unit.value || 'units'; });
   const save = async (e) => {
     e.preventDefault();
     try {
@@ -27,12 +37,12 @@ function itemForm(item, done) {
         const bad = itemNoProblem(f.item_no.value, f.type.value);
         if (bad) { toast(bad, 'bad'); return; }
         const sort = Math.max(0, ...state.data.items.map((i) => i.sort)) + 1;
-        const row = { item_no: Number(f.item_no.value), name: f.name.value.trim(), type: f.type.value, unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null, sort };
+        const row = { item_no: Number(f.item_no.value), name: f.name.value.trim(), type: f.type.value, unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null, ...receiving(), sort };
         await insertRow('items', row);
         toast(`${row.name} added.`);
         done(row.item_no);
       } else {
-        await updateRow('items', 'item_no', item.item_no, { name: f.name.value.trim(), unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null });
+        await updateRow('items', 'item_no', item.item_no, { name: f.name.value.trim(), unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null, ...receiving() });
         toast('Item saved.');
         done(item.item_no);
       }
@@ -48,8 +58,11 @@ function itemForm(item, done) {
       h('label', { class: 'field' }, 'Type', f.type),
       h('label', { class: 'field' }, 'Item #', f.item_no),
       h('label', { class: 'field span2' }, 'Name', f.name),
-      h('label', { class: 'field' }, 'Unit', f.unit),
-      h('label', { class: 'field' }, 'Pack size note', f.pack_note)),
+      h('label', { class: 'field' }, 'Base unit', f.unit),
+      h('label', { class: 'field' }, 'Pack size note', f.pack_note),
+      h('label', { class: 'field' }, 'Received as', f.receiving_unit),
+      h('label', { class: 'field' }, h('span', null, 'Holds (', rcvLabel, ')'), f.units_per_receiving)),
+    h('p', { class: 'small muted' }, 'Base unit is what it’s counted and used in (lb, c, ea). Received as is how it arrives when that’s bigger: a box of cheese holds 30 lb, a case of lids 1,000.'),
     isNew ? h('p', { class: 'small muted' }, 'Item numbers are 6 digits and start with the type: 1 raw material, 2 packaging, 3 indirect (labor, overhead, marketing), 4 recipe, 5 finished good. New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory; new finished goods appear on Production. Build what an item is made of on the BOMs tab.') : null,
     h('div', { class: 'controls' },
       !isNew ? h('button', { type: 'button', class: 'btn danger', onclick: remove }, 'Delete item') : null,
@@ -76,6 +89,7 @@ export default {
       { key: 'type', label: 'Type', value: (it) => it.type, cell: (it) => h('td', null, typePill(it.type)) },
       { key: 'item_no', label: 'Item #', num: true, value: (it) => it.item_no, cell: (it) => h('td', { class: 'num muted' }, it.item_no) },
       { key: 'unit', label: 'Units', value: (it) => it.unit || '', cell: (it) => h('td', { class: 'muted' }, it.unit || '') },
+      { key: 'receiving', label: 'Received as', value: (it) => receivingLabel(it), cell: (it) => h('td', { class: 'muted' }, receivingLabel(it)) },
       ...cm.years.map((y) => ({ key: `y${y}`, label: String(y), sub: scen.get(y) ? `Scenario ${scen.get(y)}` : null, num: true,
         value: (it) => costOf(it, y), text: (it) => (costOf(it, y) ? '$' + acctText(costOf(it, y)) : ''),
         cell: (it) => (enterable(it)

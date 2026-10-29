@@ -148,7 +148,7 @@ export function xtable({ id, columns, allRows, rows, rerender, defaultSort, show
       h('span', { class: 'xf-head' }, h('span', { class: 'xf-label' }, col.label, col.sub ? h('span', { class: 'xf-sub' }, col.sub) : null, sorted ? h('span', { class: 'xf-arrow', 'aria-hidden': 'true' }, sorted === 'asc' ? ' ↑' : ' ↓') : null), btn));
   }), extraCells ? h('th', null, extraHead || null) : null);
   const count = h('span', { title: `${rows.length.toLocaleString()} of ${allRows.length.toLocaleString()} lines shown` },
-    rows.length === allRows.length ? `${rows.length.toLocaleString()} lines` : `${rows.length.toLocaleString()} of ${allRows.length.toLocaleString()}`);
+    rows.length === allRows.length ? `${rows.length.toLocaleString()} ${rows.length === 1 ? 'line' : 'lines'}` : `${rows.length.toLocaleString()} of ${allRows.length.toLocaleString()}`);
   const toggle = (on) => h('button', { type: 'button', class: 'xt-toggle', onclick: () => onToggleTotals(on) },
     on ? h('span', { 'aria-hidden': 'true' }, '▴ ') : null, on ? 'Show totals' : 'Hide');
   const first = totalsLabel ? totalsLabel(rows, allRows) : count;

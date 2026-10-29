@@ -584,6 +584,12 @@ export function materialPlan(data, plan, { today, inv }) {
     const w = mondayOf(d);
     for (const [it, q] of m) { const k = `${it}|${w}`; used.set(k, (used.get(k) || 0) + q); }
   }
+  // open purchase orders arrive in the week they're due (overdue ones: this week)
+  const onOrder = new Map();
+  for (const po of openOrders(data)) {
+    const w = po.due < plan.weeks[0] ? plan.weeks[0] : mondayOf(po.due);
+    const k = `${po.item_no}|${w}`; onOrder.set(k, (onOrder.get(k) || 0) + n(po.qty));
+  }
   const rows = mats.map((item) => {
     const s = settings.get(item.item_no) || {};
     const leadDays = s.lead_days === null || s.lead_days === undefined || s.lead_days === '' ? DEFAULT_LEAD_DAYS : n(s.lead_days);
@@ -598,9 +604,14 @@ export function materialPlan(data, plan, { today, inv }) {
     const onHand = inv?.byItem.get(item.item_no)?.get(today) ?? 0;
     const orders = [];
     let proj = onHand;
+    // A new order can't arrive before one lead time from today; until then only
+    // open orders help, and a week that ends below safety stock is a shortage.
+    const earliest = mondayOf(addDays(today, leadDays));
     for (const c of weeks) {
-      proj -= c.need; c.receipt = 0;
-      if (proj < safety) {
+      c.onOrder = onOrder.get(`${item.item_no}|${c.week}`) || 0;
+      proj += c.onOrder - c.need; c.receipt = 0;
+      c.short = c.week < earliest && proj < safety;
+      if (proj < safety && c.week >= earliest) {
         let qty = safety - proj + 2 * avgPlanned;
         qty = multiple ? Math.ceil(qty / multiple - 1e-9) * multiple : Math.ceil(qty - 1e-9);
         const orderBy = addDays(c.week, -leadDays);
@@ -610,8 +621,9 @@ export function materialPlan(data, plan, { today, inv }) {
       c.endOnHand = proj;
     }
     const next = orders[0] || null;
+    const openQty = weeks.reduce((t, c) => t + c.onOrder, 0);
     const status = !next ? 'ok' : next.orderBy <= today ? 'now' : next.orderBy <= addDays(today, 7) ? 'soon' : 'planned';
-    return { item, leadDays, safety, typedSafety, autoSafety, multiple, avgPlanned, avgPast, onHand,
+    return { item, leadDays, earliest, short: weeks.some((c) => c.short), safety, typedSafety, autoSafety, multiple, avgPlanned, avgPast, onHand, openQty,
       reorderPoint: avgPlanned * (leadDays / 7) + safety, weeks, orders, next, status };
   });
   return { weeks: plan.weeks, history: { from: histStart, to: histEnd }, rows };
@@ -657,4 +669,22 @@ export function usageByMonth(data, year) {
     for (const [it, q] of m) { if (!out.has(it)) out.set(it, Array(12).fill(0)); out.get(it)[monthOf(d) - 1] += q; }
   }
   return out;
+}
+
+// ---------- Purchase orders ----------
+// A purchase order is open until it's received or cancelled. Receiving one
+// records the delivery on Goods Receipt; its price against the standard cost
+// is the purchase price variance (PPV).
+export const openOrders = (data) => (data.purchase_orders || []).filter((po) => !po.received && !po.cancelled);
+export function poStatus(po, today) {
+  if (po.cancelled) return 'cancelled';
+  if (po.received) return 'received';
+  return po.due < today ? 'late' : 'open';
+}
+// PPV of a received order: (price paid - standard cost that year) x qty received.
+// Positive is unfavorable (paid more than standard).
+export function poVariance(po, cm) {
+  if (!po.received || po.unit_price === null || po.unit_price === undefined || po.unit_price === '') return null;
+  const std = cm.cost(po.item_no, yearOf(po.received)) || cm.latest(po.item_no);
+  return (n(po.unit_price) - std) * n(po.received_qty ?? po.qty);
 }

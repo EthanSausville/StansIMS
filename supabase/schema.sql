@@ -226,6 +226,24 @@ create table if not exists public.demand_forecast (
 );
 
 -- ---------- day-to-day activity (everyone signed in) ----------
+-- Purchase orders: open until received or cancelled. Receiving one adds the
+-- delivery to goods_receipts; unit_price against standard cost is the PPV.
+create table if not exists public.purchase_orders (
+  id           bigint generated always as identity primary key,
+  item_no      int  not null references public.items (item_no) on update cascade,
+  supplier     text,
+  ordered      date not null default current_date,
+  due          date not null,
+  qty          numeric not null check (qty > 0),
+  unit_price   numeric check (unit_price >= 0),
+  received     date,
+  received_qty numeric check (received_qty >= 0),
+  cancelled    boolean not null default false,
+  notes        text,
+  created_at   timestamptz not null default now()
+);
+create index if not exists purchase_orders_item_idx on public.purchase_orders (item_no);
+
 create table if not exists public.production (
   date       date not null,
   item_no    int not null references public.items (item_no) on update cascade,
@@ -327,7 +345,7 @@ begin
     execute format('create policy "admins write" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())', t);
   end loop;
   -- Activity tables: everyone signed in reads and writes.
-  foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales', 'sales_imports', 'qb_name_map'] loop
+  foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales', 'sales_imports', 'qb_name_map', 'purchase_orders'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "signed in" on public.%I', t);
     execute format('create policy "signed in" on public.%I for all to authenticated using (true) with check (true)', t);

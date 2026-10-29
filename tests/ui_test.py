@@ -70,7 +70,7 @@ def shot(page, name):
 GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Consumption'],
-    'Planning': ['Demand Plan', 'Purchase Plan'],
+    'Planning': ['Demand Plan', 'Purchase Plan', 'Purchase Orders'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
@@ -575,7 +575,7 @@ with sync_playwright() as p:
     rows_pp = page.locator('table.xtable tbody tr').count()
     mats = len([i for i in inputs['items'] if i['type'] in ('Raw Material', 'Component')])
     check(rows_pp == mats, f'purchase plan lists every raw material and packaging item ({rows_pp})')
-    st_first = page.locator('table.xtable tbody tr').first.locator('.status').inner_text()
+    st_first = page.locator('table.xtable tbody tr').first.locator('.status').first.inner_text()
     check(st_first in ('Order now', 'Order this week'), f'most urgent purchases first ({st_first})')
     leads = set(page.locator('table.xtable tbody tr td:last-child').all_inner_texts())
     check(leads == {'14'}, f'every material has a two-week lead time ({leads})')
@@ -597,6 +597,39 @@ with sync_playwright() as p:
     page.get_by_role('button', name='To order', exact=True).click(); page.wait_for_timeout(100)
     tab(page, 'Dashboard')
     check(page.locator('.note.warn', has_text='Order now').count() == 1, 'the dashboard lists what to order now')
+
+    # ---- Purchase orders ----
+    tab(page, 'Purchase Plan')
+    row = page.locator('table.xtable tbody tr', has_text='Sodium Benzoate').first
+    sb_no = next(i['item_no'] for i in inputs['items'] if i['name'] == 'Sodium Benzoate')
+    sugg = row.locator('td').nth(4).inner_text().replace(',', '')
+    row.locator('td').first.click(); page.wait_for_timeout(120)
+    page.get_by_role('button', name='Create purchase order').click(); page.wait_for_timeout(400)
+    po = page.evaluate(f"window.__MOCK_DB__.purchase_orders.find(p => p.item_no === {sb_no})")
+    check(po and float(po['qty']) == float(sugg) and page.evaluate('location.hash') == '#orders', f'Create purchase order makes an order for the suggested qty and opens Purchase Orders ({po and po["qty"]})')
+    check(page.locator('table.xtable tbody tr.selected', has_text='Sodium Benzoate').count() == 1, 'the new order is selected')
+    tab(page, 'Purchase Plan')
+    r2 = page.locator('table.xtable tbody tr', has_text='Sodium Benzoate').first
+    st2 = r2.locator('.status').first.inner_text()
+    check(st2 != 'Order now', f'once ordered, the plan stops asking to order it now ({st2})')
+    tab(page, 'Purchase Orders')
+    before = sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == sb_no)
+    page.get_by_role('button', name='Receive order').click(); page.wait_for_timeout(120)
+    page.fill('#rcv-date', '2026-10-27'); page.fill('#rcv-price', str(float(po['unit_price'] or 0) + 0.5))
+    page.locator('.item-form').get_by_role('button', name='Receive').click(); page.wait_for_timeout(400)
+    after = sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == sb_no)
+    check(abs(after - before - float(po['qty'])) < 1e-6, f'receiving adds the delivery to Goods Receipt ({before} -> {after})')
+    page.get_by_role('button', name='All orders').click(); page.wait_for_timeout(150)
+    rr = page.locator('table.xtable tbody tr', has_text='Sodium Benzoate').first
+    check(rr.locator('.status').first.inner_text() == 'Received' and acct(rr.locator('td').last.inner_text()) == round(0.5 * float(po['qty']), 2), f'received order shows its price variance ({rr.locator("td").last.inner_text()!r})')
+    shot(page, '54-purchase-orders')
+    page.get_by_role('button', name='New order').click(); page.wait_for_timeout(120)
+    page.select_option('#po-item', label='Pepper'); page.fill('#po-qty', '50'); page.fill('#po-supplier', 'Spice Co')
+    page.locator('.po-form').get_by_role('button', name='Create order').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.purchase_orders.some(p => p.supplier === 'Spice Co' && p.qty === 50)"), 'New order creates an order from the side panel')
+    page.get_by_role('button', name='Cancel order').click(); page.locator('dialog[open]').get_by_role('button', name='Cancel order').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.purchase_orders.find(p => p.supplier === 'Spice Co').cancelled") is True, 'an order can be cancelled')
+    page.get_by_role('button', name='Open', exact=True).click(); page.wait_for_timeout(100)
 
     # ---- Consumption ----
     tab(page, 'Consumption')

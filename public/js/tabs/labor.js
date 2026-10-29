@@ -11,6 +11,7 @@ import { laborRate, laborPosition, laborYears, evalEntry } from '../calc.js';
 const n = (v) => Number(v) || 0;
 const perMin = (v) => (v ? '$' + qty(v, 4) : '—');
 const dollars = (v) => money(v, 0);
+const ratio = (v) => `${fmt(v * 100, 1, 0)}%`; // 100% = the same as the year (or schedule) it's compared with
 const stat = (label, value, sub, cls = '') => h('div', { class: `stat ${cls}`.trim() }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'small muted' }, sub) : null);
 
 function textCell(value, save, { disabled, label, key }) {
@@ -125,7 +126,7 @@ export default {
             fc ? h('span', { class: 'fc-tag', title: r.setup.own ? 'Set up, but a forecast until the year begins' : `Forecast: ${r.setup.fromYear} + ${qty(r.setup.inflation, 2)}%` }, r.setup.needsReview ? 'review' : 'forecast') : null),
           set ? h('td', { class: 'num strong' }, perMin(rate)) : h('td', { class: 'num muted', colspan: 3 }, 'Not set up'),
           set ? h('td', { class: 'num' }, money(rate * 60)) : null,
-          set ? h('td', { class: 'num' + (change > 0.0005 ? ' up' : change < -0.0005 ? ' down' : '') }, change === null ? '' : Math.abs(change) < 0.0005 ? 'same' : (change > 0 ? '+' : '') + pct(change)) : null,
+          set ? h('td', { class: 'num' + (change > 0.0005 ? ' up' : change < -0.0005 ? ' down' : '') }, change === null ? '' : ratio(1 + change)) : null,
           h('td', { class: 'num' }, set ? qty(r.rows.reduce((t, x) => t + x.people, 0), 2) : '—'));
       })));
 
@@ -222,7 +223,7 @@ export default {
     const steps = [...new Set([16, 24, 40, 80, 120, cur].filter((x) => x > 0))].sort((a, b) => a - b);
     const what = steps.map((hrs) => ({ hrs, r: laborRate(d, { year: selYear, lineHours: hrs }) }));
     const maxRate = Math.max(0, ...what.map((w) => w.r.rate));
-    const vs = (v, base) => { if (!base) return ''; const c = v / base - 1; return Math.abs(c) < 0.0005 ? 'same' : (c > 0 ? '+' : '') + pct(c); };
+    const vs = (v, base) => (base ? ratio(v / base) : '');
     const whatPanel = empty || !cur ? null : h('section', { class: 'panel' },
       h('h2', null, 'What if the line runs more hours a week?'),
       h('p', { class: 'panel-note' }, 'The same people on the line whenever it runs: salaried pay stays the same and hourly people are paid for the extra hours. Running far more hours usually means more people or shifts; add them to the year to see that cost.'),
@@ -236,7 +237,7 @@ export default {
           h('td', { class: 'num' }, dollars(r.burdened)),
           L.recipes.map((rc) => h('td', { class: 'num' }, money(r.rate * rc.minutesPer)))))))));
 
-    return h('div', { class: 'labor' },
+    return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') },
       pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate.' + (admin ? '' : ' Only admins can change these.'),
         h('div', { class: 'side-title' }, 'Labor rate by year'),
         yearTable,

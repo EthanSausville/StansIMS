@@ -194,6 +194,14 @@ cross join lateral (values
 ) as p (name, pay_type, headcount, rate, salary, hours, sort)
 where s.id = 1 and s.salaried_count + s.hourly_a_count + s.hourly_b_count > 0
   and not exists (select 1 from public.labor_positions);
+-- 2026 starting pay and fringe (per person). Only fills rows still at the
+-- values first copied from the workbook, so nothing entered since is changed.
+update public.labor_positions set annual_salary = 70500, annual_fixed = 5600
+where year = 2026 and name = 'Salaried' and pay_type = 'salaried' and annual_salary = 80000 and annual_fixed is null;
+update public.labor_positions set monthly_fringe = 250
+where year = 2026 and name = 'Hourly (A)' and pay_type = 'hourly' and hourly_rate = 21.55 and monthly_fringe is null;
+update public.labor_positions set monthly_fringe = 200
+where year = 2026 and name = 'Hourly (B)' and pay_type = 'hourly' and hourly_rate = 16.19 and monthly_fringe is null;
 
 create table if not exists public.purchase_settings (
   item_no           int primary key references public.items (item_no) on update cascade on delete cascade,

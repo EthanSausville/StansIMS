@@ -85,7 +85,6 @@ export default {
   id: 'labor',
   label: 'Labor',
   sideWidth: 0.35,
-  sideFold: false,
   render({ rerender }) {
     const d = state.data; const admin = isAdmin();
     const live = !d.missingTables?.has('labor_positions'); // false until the database has the labor table
@@ -209,15 +208,10 @@ export default {
           h('td', { class: 'num' + (r.rate > L.rate * 1.0005 ? ' up' : r.rate < L.rate * 0.9995 ? ' down' : '') }, vs(r.rate, L.rate)),
           h('td', { class: 'num' }, dollars(r.burdened))))))));
 
-    // The right side: the selected year, with a header that folds it away.
-    const rightFolded = (() => { try { return localStorage.getItem('labor:right-folded') === '1'; } catch { return false; } })();
-    const foldRight = (f) => { try { localStorage.setItem('labor:right-folded', f ? '1' : '0'); } catch { /* not saved */ } rerender(); };
+    // Left side: the selected year's inputs (people, line assumptions).
     const yearHead = h('div', { class: 'year-head' },
       h('h1', null, selYear, isFc ? h('span', { class: 'fc-tag big' }, F.needsReview ? 'forecast · review' : 'forecast') : null),
-      h('span', { class: 'muted' }, empty ? 'Not set up' : `${perMin(L.rate)} per labor minute`),
-      h('span', { class: 'grow' }),
-      h('button', { class: 'btn icon right-fold', title: rightFolded ? `Show ${selYear} details` : `Hide ${selYear} details`, 'aria-label': rightFolded ? `Show ${selYear} details` : `Hide ${selYear} details`, 'aria-expanded': String(!rightFolded),
-        onclick: () => foldRight(!rightFolded) }, rightFolded ? '‹' : '›'));
+      h('span', { class: 'muted' }, empty ? 'Not set up' : `${perMin(L.rate)} per labor minute`));
     const peoplePanel = h('section', { class: 'panel people-panel' },
       h('h2', null, h('span', { class: 'grow' }, `${selYear} people`, !ownRows && F.fromYear && !empty ? h('span', { class: 'fc-tag' }, `forecast · ${F.fromYear} + ${qty(F.inflation, 2)}%`) : null),
         can && (ownRows || empty) ? h('button', { class: 'btn ghost', onclick: addPosition }, '+ Add position') : null,
@@ -225,11 +219,11 @@ export default {
       ps.length ? h('div', { class: 'people-body' }, peopleTable) : h('p', { class: 'panel-note' }, `No one entered for ${selYear} yet.`),
       h('p', { class: 'panel-note' }, 'Pay and fringe are per person. Hourly: pay per hour, fringe per month. Salaried: salary and fringe per year. # = number of people. ✎ opens every detail.'));
 
-    return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') + (rightFolded ? ' right-folded' : '') },
-      pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate.' + (admin ? '' : ' Only admins can change these.'),
-        yearTable,
+    return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') },
+      pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate. Click a year in the table to change it on the left.' + (admin ? '' : ' Only admins can change these.'),
+        h('div', { class: 'labor-side' + (isFc ? ' fc-year' : '') }, yearHead, people, peoplePanel, plant),
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Standard Cost uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
-      yearHead,
-      rightFolded ? null : [summary, people, peoplePanel, plant, whatPanel]);
+      h('section', { class: 'panel years-panel' }, h('div', { class: 'tablewrap flat' }, yearTable)),
+      summary, whatPanel);
   },
 };

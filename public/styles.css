@@ -698,3 +698,17 @@ table.side-people .pos-pay { display: block; box-sizing: border-box; max-width: 
 .labor.right-folded .year-head .muted, .labor.right-folded .year-head .fc-tag, .labor.right-folded .year-head .grow { display: none; }
 .labor.right-folded .year-head .right-fold { order: -1; }
 .year-head .grow { flex: 1; }
+/* Labor: the year's inputs on the left, the years table on the right */
+.labor-side { display: grid; gap: 12px; }
+.labor-side .panel { margin: 0; max-width: none; box-shadow: none; }
+.labor-side .panel + .panel { margin-top: 0; }
+.labor-side .year-head { margin: 0; }
+.labor-side .year-head h1 { font-size: 22px; }
+.labor-side .people-panel .people-body { padding: 0; }
+.labor-side .panel-note { padding: 8px 10px; font-size: 12px; }
+.labor-side table.batch-table td { padding: 6px 8px; }
+.labor-side.fc-year table td.num, .labor-side.fc-year table td.num input { font-style: italic; font-weight: 700; color: #6b3fc4; }
+.labor > .years-panel { margin-bottom: 16px; }
+.labor > .years-panel table.side-years { font-size: 14px; }
+.labor > .years-panel table.side-years th, .labor > .years-panel table.side-years td { padding: 9px 14px; }
+.labor > .years-panel .tablewrap.flat { border-top: 0; border-radius: var(--radius); }

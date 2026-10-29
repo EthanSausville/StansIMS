@@ -80,7 +80,7 @@ def shot(page, name):
 GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
-    'Planning': ['Planning Dashboard', 'Demand Plan', 'Purchase Plan', 'Safety Stocks'],
+    'Planning': ['Planning Dashboard', 'Purchase Plan', 'Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
@@ -589,30 +589,39 @@ with sync_playwright() as p:
         bad.unlink()
 
     # ---- Planning ----
-    tab(page, 'Demand Plan')
-    weeks = page.locator('table.plan-table thead th .wk-label').count()
-    check(weeks == 12, f'demand plan covers 12 weeks ({weeks})')
-    first_fg = page.locator('table.plan-table tbody tr').first
-    ph = first_fg.locator('td.cell input').first.get_attribute('placeholder')
-    check(ph not in (None, '', '0'), f'forecast cells show the average weekly sales ({ph})')
-    key = first_fg.locator('td.cell input').nth(2).get_attribute('data-k')
-    c = cell(page, key); c.click(); c.fill('999'); c.press('Tab'); page.wait_for_timeout(250)
-    _, item_no, week = key.split('|')
-    check(page.evaluate(f"window.__MOCK_DB__.demand_forecast.find(f => f.item_no === {item_no} && f.week === '{week}').cases") == 999, 'a typed-in forecast is saved for that week')
-    page.get_by_role('button', name='Production', exact=True).click(); page.wait_for_timeout(150)
-    prod = first_fg.locator('td').nth(4 + 2).inner_text().replace(',', '')
-    check(prod and float(prod) >= 999 - 2000, f'planned production follows the forecast ({prod})')
-    page.get_by_role('button', name='On hand', exact=True).click(); page.wait_for_timeout(150)
-    shot(page, '50-demand-plan')
-    page.get_by_role('button', name='Forecast', exact=True).click(); page.wait_for_timeout(150)
-    c = cell(page, key); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(250)
-    check(page.evaluate(f"window.__MOCK_DB__.demand_forecast.filter(f => f.item_no === {item_no}).length") == 0, 'clearing a forecast goes back to the average')
+    tab(page, 'Planning Dashboard')
+    check(page.get_by_role('tab', name='Demand Plan').count() == 0, 'there is no Demand Plan tab')
+    mats_n = len([i for i in inputs['items'] if i['type'] in ('Raw Material', 'Component')])
+    st_rows = page.locator('table.pd-status tbody tr')
+    classes = [c.split()[0] for c in st_rows.evaluate_all("rs => rs.map(r => r.className)")]
+    order = ['st-red', 'st-orange', 'st-yellow', 'st-green']
+    check(st_rows.count() == mats_n and all(c in order for c in classes) and classes == sorted(classes, key=order.index), f'every material and packaging item is a colored row, worst first ({st_rows.count()}: {sorted(set(classes))})')
+    red_bg = page.locator('table.pd-status tbody tr.st-red td').first.evaluate("e => [getComputedStyle(e).backgroundColor, getComputedStyle(e).fontWeight]")
+    check(red_bg[0] == 'rgb(251, 213, 210)' and int(red_bg[1]) >= 700, f'rows are pastel with bold text ({red_bg})')
+    prow = page.locator('table.pd-prod tbody tr').first
+    check(prow.locator('td.cell input').count() == 4, 'production is typed in for the next 4 weeks')
+    ph = prow.locator('td.cell input').first.get_attribute('placeholder')
+    check(ph not in (None, '', '0') and prow.locator('td.cell.suggested').count() == 4, f'blank weeks show the average demand, lighter ({ph})')
+    key = prow.locator('td.cell input').nth(1).get_attribute('data-k'); _, item_no, week = key.split('|')
+    tab(page, 'Purchase Plan'); page.get_by_role('button', name='Weekly', exact=True).click(); page.wait_for_timeout(150)
+    before_wk = page.locator('table.plan-table tbody tr', has_text='7 oz Container').locator('td').nth(5).get_attribute('title')
+    tab(page, 'Planning Dashboard')
+    c = cell(page, key); c.click(); c.fill('2000'); c.press('Tab'); page.wait_for_timeout(300)
+    check(page.evaluate(f"window.__MOCK_DB__.production_plan.find(f => f.item_no === {item_no} && f.week === '{week}').cases") == 2000, 'typed production is saved for that week')
+    tab(page, 'Purchase Plan'); page.get_by_role('button', name='Weekly', exact=True).click(); page.wait_for_timeout(150)
+    after_wk = page.locator('table.plan-table tbody tr', has_text='7 oz Container').locator('td').nth(5).get_attribute('title')
+    check(before_wk != after_wk, f'typed production changes the purchase plan ({before_wk} -> {after_wk})')
+    page.get_by_role('button', name='To order', exact=True).click(); page.wait_for_timeout(100)
+    tab(page, 'Planning Dashboard')
+    shot(page, '50-planning-dashboard')
+    c = cell(page, key); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(300)
+    check(page.evaluate(f"window.__MOCK_DB__.production_plan.filter(f => f.item_no === {item_no}).length") == 0, 'clearing it goes back to the average')
     tab(page, 'Purchase Plan')
     rows_pp = page.locator('table.xtable tbody tr').count()
     mats = len([i for i in inputs['items'] if i['type'] in ('Raw Material', 'Component')])
     check(rows_pp == mats, f'purchase plan lists every raw material and packaging item ({rows_pp})')
     st_first = page.locator('table.xtable tbody tr').first.locator('.status').first.inner_text()
-    check(st_first in ('Order now', 'Order this week'), f'most urgent purchases first ({st_first})')
+    check(st_first in ('Below safety stock', 'Order this week'), f'most urgent purchases first ({st_first})')
     cq = float(page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(5).inner_text().split()[0].replace(',', ''))
     asr = page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(4).inner_text()
     check(cq % 30 == 0 and asr == f'{int(cq / 30):,} boxes', f'cheese is ordered in whole 30 lb boxes ({cq} lb = {asr})')
@@ -641,16 +650,7 @@ with sync_playwright() as p:
     c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(250)
     tab(page, 'Purchase Plan')
     tab(page, 'Dashboard')
-    check(page.locator('.note.warn', has_text='Order now').count() == 1, 'the dashboard lists what to order now')
-
-    # ---- Planning dashboard ----
-    tab(page, 'Planning Dashboard')
-    n_now = int(page.locator('.stat', has_text='Order now').locator('.value').inner_text())
-    check(n_now >= 1 and page.locator('section.panel', has_text='Order now').locator('tbody tr').count() == n_now, f'the planning dashboard lists what to order now ({n_now})')
-    check(page.locator('section.panel', has_text='Coming up in the next 4 weeks').count() == 1 and page.locator('svg').count() >= 1, 'it shows what is coming up and a production chart')
-    check(page.locator('section.panel', has_text='Order now').locator('tbody tr', has_text='Cheese').locator('td').nth(1).inner_text().endswith('boxes'), 'orders are shown in boxes / bags / cases')
-    shot(page, '60-planning-dashboard')
-    check(page.locator('text=Purchase Orders').count() == 0, 'no purchase orders (they are in QuickBooks)')
+    check(page.locator('.note.warn', has_text='Below safety stock or to order this week').count() == 1, 'the dashboard lists what to order now')
 
     # ---- Consumption ----
     tab(page, 'Consumption')
@@ -708,22 +708,6 @@ with sync_playwright() as p:
     check(re.match(r'^\d{6}-\d{6}$', code) and f'Lot {code}' in page.locator('.side-detail').inner_text(), f'selecting a lot shows who it shipped to ({code})')
     shot(page, '57-lots')
     page.get_by_role('button', name='Daily', exact=True).click(); page.wait_for_timeout(100)
-
-    # ---- Demand Plan: adjust a product, batches ----
-    tab(page, 'Demand Plan')
-    page.get_by_role('button', name='Forecast', exact=True).click(); page.wait_for_timeout(100)
-    prow = page.locator('table.plan-table tbody tr').first
-    pname = prow.locator('td').first.inner_text(); pno = int(prow.locator('td.cell input').first.get_attribute('data-k').split('|')[1])
-    prow.locator('td').first.click(); page.wait_for_timeout(120)
-    page.fill('#adj-pct', '150'); page.locator('.adjust-form').get_by_role('button', name='Apply').click(); page.wait_for_timeout(500)
-    typed = page.evaluate(f"window.__MOCK_DB__.demand_forecast.filter(f => f.item_no === {pno})")
-    check(len(typed) == 4, f'adjusting {pname} to 150% types in 4 weeks ({len(typed)})')
-    page.locator('.adjust-form').get_by_role('button', name='Back to average').click(); page.wait_for_timeout(500)
-    check(page.evaluate(f"window.__MOCK_DB__.demand_forecast.filter(f => f.item_no === {pno}).length") == 0, 'Back to average clears them')
-    page.get_by_role('button', name='Production', exact=True).click(); page.wait_for_timeout(150)
-    check(page.locator('table.batch-table tbody tr').count() >= 1, 'planned production shows the recipe batches needed each week')
-    shot(page, '56-plan-batches')
-    page.get_by_role('button', name='Forecast', exact=True).click(); page.wait_for_timeout(100)
 
     # ---- BOMs tree ----
     tab(page, 'BOMs')

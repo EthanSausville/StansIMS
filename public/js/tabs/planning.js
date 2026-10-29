@@ -6,7 +6,7 @@
 // (demandPlan, materialPlan).
 import { h, pageHead, numberCell, qty, seg, chip, longDate, typePill, todayIso, toast, niceError } from '../ui.js';
 import { state, derived, saveCell, saveField, isAdmin } from '../store.js';
-import { DEFAULT_LEAD_DAYS, FG_SAFETY_WEEKS, PLAN_WEEKS, HISTORY_WEEKS, addDays, evalEntry, holdsLabel, inReceiving, hasReceiving, unitWord, mondayOf } from '../calc.js';
+import { DEFAULT_LEAD_DAYS, SAFETY_LEAD_MULTIPLE, PLAN_WEEKS, HISTORY_WEEKS, ENTRY_WEEKS, addDays, holdsLabel, inReceiving, hasReceiving, unitWord, mondayOf } from '../calc.js';
 import { barChart } from '../charts.js';
 
 // "2,640 box" for a quantity in base units, when the item has a receiving unit.
@@ -16,91 +16,12 @@ import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton, 
 const shortDate = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 const weekHead = (w) => h('th', { class: 'num', title: `Week of ${longDate(w)}` }, h('span', { class: 'wk-label' }, 'Wk of'), h('br'), shortDate(w));
 const num = (v, d = 0) => (v ? qty(v, d) : '');
-const STATUS = { now: ['Order now', 'bad'], soon: ['Order this week', 'warn'], planned: ['Planned', 'info'], ok: ['OK', 'good'] };
+// Status colors (also the rows on the Planning Dashboard).
+const STATUS = { red: ['Below safety stock', 'red'], orange: ['Order this week', 'orange'], yellow: ['Order next week', 'yellow'], green: ['OK', 'green'] };
+const ORDER = ['red', 'orange', 'yellow', 'green'];
 const statusPill = (s) => h('span', { class: `status ${STATUS[s][1]}` }, STATUS[s][0]);
-const noData = () => (state.data.missingTables?.has('demand_forecast')
-  ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for planning yet, so typed-in forecasts can’t be saved. The plan below uses average weekly sales.') : null);
-
-// ---------- Demand Plan ----------
-let dpView = 'forecast';
-let dpSelected = null; // item_no of the product selected for adjusting
-
-// Sets a product's forecast to a % of its average for a range of weeks
-// (typed-in values), or clears typed-in weeks back to the average.
-function adjustForm(r, plan, rerender) {
-  const pct = h('input', { id: 'adj-pct', type: 'text', inputmode: 'decimal', value: '120' });
-  const from = h('select', { id: 'adj-from' }, plan.weeks.map((w, i) => h('option', { value: w, selected: i === 0 }, `Week of ${shortDate(w)}`)));
-  const to = h('select', { id: 'adj-to' }, plan.weeks.map((w, i) => h('option', { value: w, selected: i === 3 }, `Week of ${shortDate(w)}`)));
-  const weeksIn = () => plan.weeks.filter((w) => w >= from.value && w <= to.value);
-  const apply = async (e) => {
-    e.preventDefault();
-    try {
-      const p = evalEntry(pct.value); if (p === null || p < 0) throw new Error('Enter a percent, like 120.');
-      for (const w of weeksIn()) await saveCell('demand_forecast', { item_no: r.item.item_no, week: w }, 'cases', Math.round((r.avg * p) / 100));
-      toast(`${r.item.name}: ${weeksIn().length} weeks set to ${p}% of average.`); rerender();
-    } catch (err) { toast(niceError(err), 'bad'); }
-  };
-  const clear = async () => {
-    try { for (const c of r.weeks) if (c.typed) await saveCell('demand_forecast', { item_no: r.item.item_no, week: c.week }, 'cases', null); toast(`${r.item.name} is back to the average.`); rerender(); }
-    catch (err) { toast(niceError(err), 'bad'); }
-  };
-  return h('form', { class: 'item-form adjust-form', onsubmit: apply },
-    h('strong', { class: 'tb-title' }, r.item.name),
-    h('div', { class: 'small muted' }, `Average ${qty(r.avg, 1)} cases a week`),
-    h('div', { class: 'item-fields' }, h('label', { class: 'field span2' }, '% of average', pct), h('label', { class: 'field' }, 'From', from), h('label', { class: 'field' }, 'Through', to)),
-    h('p', { class: 'small muted' }, 'For a promotion, a new account or a slow season: 150 = half again as much, 80 = a fifth less.'),
-    h('div', { class: 'controls' }, r.weeks.some((c) => c.typed) ? h('button', { type: 'button', class: 'btn', onclick: clear }, 'Back to average') : null, h('button', { type: 'submit', class: 'btn primary' }, 'Apply')));
-}
-
-export const demandPlanTab = {
-  id: 'demandplan',
-  label: 'Demand Plan',
-  render({ rerender }) {
-    const plan = derived.plan(); const admin = isAdmin();
-    const views = [['forecast', 'Forecast'], ['production', 'Production'], ['onhand', 'On hand']];
-    const cellsFor = (r) => r.weeks.map((c) => {
-      if (dpView === 'forecast') {
-        return numberCell(c.typed ? c.forecast : null, (v) => saveCell('demand_forecast', { item_no: r.item.item_no, week: c.week }, 'cases', v),
-          { disabled: !admin, digits: 0, key: `df|${r.item.item_no}|${c.week}`, placeholder: qty(c.forecast, 0), cls: c.typed ? 'typed' : 'suggested',
-            title: `${r.item.name}, week of ${longDate(c.week)}: ${c.typed ? 'typed-in forecast' : `average ${qty(r.avg, 1)} a week`} (clear a cell to go back to the average)` });
-      }
-      const v = dpView === 'production' ? c.production : c.endOnHand;
-      return h('td', { class: 'num' + (v < 0 ? ' neg' : '') + (dpView === 'onhand' && v < r.safety ? ' low' : '') }, dpView === 'production' ? num(v) : qty(v, 0));
-    });
-    const total = (r) => (dpView === 'forecast' ? r.weeks.reduce((s, c) => s + c.forecast, 0) : dpView === 'production' ? r.weeks.reduce((s, c) => s + c.production, 0) : null);
-    const colTotals = plan.weeks.map((_, i) => plan.rows.reduce((s, r) => s + (dpView === 'forecast' ? r.weeks[i].forecast : dpView === 'production' ? r.weeks[i].production : r.weeks[i].endOnHand), 0));
-    const next4 = plan.rows.reduce((s, r) => s + r.weeks.slice(0, 4).reduce((a, c) => a + c.production, 0), 0);
-    const table = h('table', { class: 't natural plain-cells plan-table' },
-      h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Product'), h('th', { class: 'num', title: `Average weekly cases sold, ${longDate(plan.history.from)} – ${longDate(plan.history.to)}` }, 'Avg / wk'),
-        h('th', { class: 'num' }, 'On hand'), h('th', { class: 'num', title: `${FG_SAFETY_WEEKS} week of forecast sales` }, 'Safety'),
-        plan.weeks.map(weekHead), dpView !== 'onhand' ? h('th', { class: 'num' }, 'Total') : null)),
-      h('tbody', null, plan.rows.map((r) => h('tr', { class: r.item.item_no === dpSelected && dpView === 'forecast' ? 'selected' : null },
-        h('td', { class: 'sticky-col' + (dpView === 'forecast' && admin ? ' pick' : ''), title: dpView === 'forecast' && admin ? 'Select to adjust this product’s forecast' : null,
-          onclick: dpView === 'forecast' && admin ? () => { dpSelected = r.item.item_no === dpSelected ? null : r.item.item_no; rerender(); } : null }, r.item.name),
-        h('td', { class: 'num' }, qty(r.avg, 1)), h('td', { class: 'num' + (r.onHand < 0 ? ' neg' : '') }, qty(r.onHand, 0)), h('td', { class: 'num' }, qty(r.safety, 0)),
-        cellsFor(r), dpView !== 'onhand' ? h('td', { class: 'num strong' }, qty(total(r), 0)) : null))),
-      h('tfoot', null, h('tr', { class: 'xt-totals' }, h('td', { class: 'sticky-col' }, 'Total cases'), h('td', { class: 'num' }, qty(plan.rows.reduce((s, r) => s + r.avg, 0), 1)),
-        h('td', { class: 'num' }, qty(plan.rows.reduce((s, r) => s + r.onHand, 0), 0)), h('td', { class: 'num' }, qty(plan.rows.reduce((s, r) => s + r.safety, 0), 0)),
-        colTotals.map((v) => h('td', { class: 'num' }, qty(v, 0))), dpView !== 'onhand' ? h('td', { class: 'num' }, qty(colTotals.reduce((s, v) => s + v, 0), 0)) : null)));
-    return h('div', null,
-      pageHead('Demand Plan', `Cases of each product expected to sell over the next ${PLAN_WEEKS} weeks, and the production that keeps a safety stock of ${FG_SAFETY_WEEKS} week of sales on hand. The forecast is each product’s average weekly sales over the last ${HISTORY_WEEKS} weeks with sales (${longDate(plan.history.from)} – ${longDate(plan.history.to)}); type a number in any week to override it, or clear it to go back to the average. Planned production feeds the Purchase Plan.`,
-        seg(views, dpView, (v) => { dpView = v; rerender(); }),
-        chip('Production, next 4 wks', `${qty(next4, 0)} cases`),
-        chip('Forecast basis', `${shortDate(plan.history.from)}–${shortDate(plan.history.to)}`),
-        h('button', { class: 'btn ghost download', onclick: () => downloadCsv(`demand-plan-${dpView}`, [
-          { key: 'p', label: 'Product', value: (r) => r.item.name }, { key: 'a', label: 'Avg / wk', num: true, value: (r) => r.avg }, { key: 'o', label: 'On hand', num: true, value: (r) => r.onHand }, { key: 's', label: 'Safety', num: true, value: (r) => r.safety },
-          ...plan.weeks.map((w, i) => ({ key: w, label: `Week of ${w}`, num: true, value: (r) => (dpView === 'forecast' ? r.weeks[i].forecast : dpView === 'production' ? r.weeks[i].production : r.weeks[i].endOnHand) }))], plan.rows) }, '⤓ Download for Excel'),
-        dpView === 'forecast' && admin && dpSelected && plan.rows.find((r) => r.item.item_no === dpSelected) ? adjustForm(plan.rows.find((r) => r.item.item_no === dpSelected), plan, rerender) : null,
-        dpView === 'forecast' ? h('p', { class: 'small muted' }, 'Grey numbers are the average; type over them to plan a promotion, a new account or a slow week, or click a product to adjust several weeks at once.') : null),
-      noData(),
-      h('div', { class: 'tablewrap', 'data-scroll': 'demandplan' }, table),
-      dpView === 'production' && plan.batches.length ? [h('h2', { class: 'section-title' }, 'Recipe batches for planned production'),
-        h('div', { class: 'tablewrap' }, h('table', { class: 't natural plain-cells plan-table batch-table' },
-          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Recipe'), h('th', { class: 'num' }, 'Batch size'), plan.weeks.map(weekHead), h('th', { class: 'num' }, 'Total'))),
-          h('tbody', null, plan.batches.map((b) => h('tr', null, h('td', { class: 'sticky-col' }, b.recipe.name), h('td', { class: 'num' }, `${qty(b.size, 0)} ${b.unit}`),
-            b.weeks.map((w) => h('td', { class: 'num', title: `${qty(w.oz, 0)} ${b.unit} needed` }, w.batches || '')), h('td', { class: 'num strong' }, b.weeks.reduce((t, w) => t + w.batches, 0)))))))] : null);
-  },
-};
+const noData = () => (state.data.missingTables?.has('production_plan')
+  ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for planning yet, so production plans can’t be saved until the next deploy to main. The plan uses average weekly sales.') : null);
 
 // ---------- Purchase Plan ----------
 let ppView = 'plan';
@@ -116,7 +37,7 @@ export const purchasePlanTab = {
     const mp = derived.materials(); const today = todayIso();
     const rows = mp.rows;
     const views = [['plan', 'To order'], ['schedule', 'Look ahead'], ['weekly', 'Weekly']];
-    const nNow = rows.filter((r) => r.status === 'now').length; const nSoon = rows.filter((r) => r.status === 'soon').length;
+    const nRed = rows.filter((r) => r.status === 'red').length; const nOrange = rows.filter((r) => r.status === 'orange').length;
     const unit = (r) => r.item.unit || '';
     const sel = selected ? rows.find((r) => r.item.item_no === selected) : null;
     const side = sel ? h('div', { class: 'side-detail' },
@@ -160,7 +81,7 @@ export const purchasePlanTab = {
       const columns = [
         { key: 'name', label: 'Item', sticky: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col' }, r.item.name) },
         { key: 'type', label: 'Type', value: (r) => (r.item.type === 'Component' ? 'Packaging' : r.item.type), cell: (r) => h('td', null, typePill(r.item.type)) },
-        { key: 'status', label: 'Status', value: (r) => ['now', 'soon', 'planned', 'ok'].indexOf(r.status), text: (r) => STATUS[r.status][0], cell: (r) => h('td', null, statusPill(r.status), r.short ? h('span', { class: 'status bad short', title: 'Projected below safety stock before a new order could arrive: expedite, or adjust production' }, ' Short') : null) },
+        { key: 'status', label: 'Status', value: (r) => ORDER.indexOf(r.status), text: (r) => STATUS[r.status][0], cell: (r) => h('td', null, statusPill(r.status), r.short ? h('span', { class: 'status bad short', title: 'Projected below safety stock before a new order could arrive: expedite, or adjust production' }, ' Short') : null) },
         { key: 'orderBy', label: 'Order by', value: (r) => r.next?.orderBy || '', text: (r) => (r.next ? longDate(r.next.orderBy) : ''), cell: (r) => h('td', { class: r.next && r.next.orderBy < today ? 'neg' : null }, r.next ? longDate(r.next.orderBy) : '') },
         { key: 'how', label: 'How much', value: (r) => (r.next ? orderText(r.item, r.next.qty) : ''), cell: (r) => h('td', { class: 'strong' }, r.next ? orderText(r.item, r.next.qty) : '') },
         { key: 'qty', label: 'Base qty', num: true, value: (r) => r.next?.qty || 0, text: (r) => (r.next ? qty(r.next.qty, 0) : ''), cell: (r) => h('td', { class: 'num muted' }, r.next ? `${qty(r.next.qty, 0)} ${unit(r)}` : '') },
@@ -178,9 +99,9 @@ export const purchasePlanTab = {
     }
     const nFilters = activeFilterCount('purchase-plan');
     return h('div', null,
-      pageHead('Purchase Plan', `When to order raw materials and packaging, and how much, so they cover the Demand Plan’s production. Place the orders in QuickBooks. To order shows each item’s next order; Look ahead lists every order coming up over the next ${PLAN_WEEKS} weeks by the date it needs to be placed; Weekly shows each item’s projected stock week by week. Orders arrive one lead time after they’re placed and bring stock back above safety stock plus two weeks of use, in whole boxes, bags or cases. Lead times and safety stocks are on the Safety Stocks tab. Until a delivery is entered on New Receipts, an order already placed still shows as needed.`,
+      pageHead('Purchase Plan', `When to order raw materials and packaging, and how much, so they cover the production plan (typed in on the Planning Dashboard). Place the orders in QuickBooks. To order shows each item’s next order; Look ahead lists every order coming up over the next ${PLAN_WEEKS} weeks by the date it needs to be placed; Weekly shows each item’s projected stock week by week. Orders arrive one lead time after they’re placed and bring stock back above safety stock plus two weeks of use, in whole boxes, bags or cases. Lead times and safety stocks are on the Safety Stocks tab. Until a delivery is entered on New Receipts, an order already placed still shows as needed.`,
         seg(views, ppView, (v) => { ppView = v; rerender(); }),
-        chip('Order now', nNow), chip('Order this week', nSoon),
+        chip('Below safety stock', nRed), chip('Order this week', nOrange),
         ppView !== 'schedule' ? side : null,
         nFilters && ppView === 'plan' ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('purchase-plan'); rerender(); } }, `Clear filters (${nFilters})`) : null,
         planDownload),
@@ -220,7 +141,7 @@ export const safetyStocksTab = {
     const nFilters = activeFilterCount('safety-stocks');
     const typed = rows.filter((r) => r.typedSafety).length;
     return h('div', null,
-      pageHead('Safety Stocks', `How much of each raw material and packaging item to keep in reserve, and how long it takes to arrive. The Purchase Plan orders so stock never drops below safety stock. Lead time is ${DEFAULT_LEAD_DAYS} days unless typed in. The calculated safety stock is the larger of one week of planned use and enough to cover normal week-to-week swings in use 95% of the time over the lead time; type a number in Safety stock used to override it, or clear it to go back. Orders are rounded up to whole boxes, bags or cases unless an order size is typed in (in the base unit).` + (admin ? '' : ' Only admins can change these.'),
+      pageHead('Safety Stocks', `How much of each raw material and packaging item to keep in reserve, and how long it takes to arrive. The Purchase Plan orders so stock never drops below safety stock. Lead time is ${DEFAULT_LEAD_DAYS} days unless typed in. The calculated safety stock is enough for ${SAFETY_LEAD_MULTIPLE}× the lead time at the average weekly use (a ${DEFAULT_LEAD_DAYS}-day lead time means ${(SAFETY_LEAD_MULTIPLE * DEFAULT_LEAD_DAYS) / 7} weeks of use); type a number in Safety stock used to override it, or clear it to go back. Orders are rounded up to whole boxes, bags or cases unless an order size is typed in (in the base unit).` + (admin ? '' : ' Only admins can change these.'),
         chip('Lead time', `${DEFAULT_LEAD_DAYS} days unless set`), chip('Typed-in safety stocks', typed),
         downloadButton('safety-stocks', columns, shown),
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('safety-stocks'); rerender(); } }, `Clear filters (${nFilters})`) : null),
@@ -230,41 +151,44 @@ export const safetyStocksTab = {
 };
 
 // ---------- Planning Dashboard ----------
+// Left: every raw material and packaging item as a colored row (red below
+// safety stock, orange order this week, yellow order next week, green fine).
+// Right: what to produce over the next ENTRY_WEEKS weeks, typed in; a blank
+// week shows the average demand in grey and that's what the plan uses.
 export const planningDashboardTab = {
   id: 'planning',
   label: 'Planning Dashboard',
-  render() {
-    const plan = derived.plan(); const mp = derived.materials(); const today = todayIso();
-    const now = mp.rows.filter((r) => r.status === 'now'); const soon = mp.rows.filter((r) => r.status === 'soon');
-    const short = mp.rows.filter((r) => r.short);
-    const upcoming = schedule(mp.rows).filter((o) => o.orderBy >= today && o.orderBy <= addDays(today, 27));
-    const prodWeeks = plan.weeks.map((w, i) => plan.rows.reduce((t, r) => t + r.weeks[i].production, 0));
-    const fcWeeks = plan.weeks.map((w, i) => plan.rows.reduce((t, r) => t + r.weeks[i].forecast, 0));
-    const lowFg = plan.rows.filter((r) => r.onHand < r.safety);
-    const batchesNext = plan.batches.map((b) => [b.recipe.name, b.weeks[0]?.batches || 0]).filter(([, n]) => n);
-    const full = Math.max(300, Math.min(1100, window.innerWidth - (window.innerWidth <= 520 ? 54 : 340)));
-    const stat = (label, value, sub, cls = '') => h('div', { class: 'stat ' + cls }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'small muted' }, sub) : null);
-    const orderList = (list, empty) => (list.length ? h('div', { class: 'scroll-x' }, h('table', { class: 't natural sched-table' },
-      h('thead', null, h('tr', null, h('th', null, 'Item'), h('th', null, 'How much'), h('th', null, 'Order by'), h('th', null, 'Arrives'))),
-      h('tbody', null, list.map((x) => { const o = x.next || x; const r = x.r || x; return h('tr', { class: o.orderBy < today ? 'late' : null },
-        h('td', null, h('strong', null, r.item.name)), h('td', { class: 'strong' }, orderText(r.item, o.qty)), h('td', null, longDate(o.orderBy)), h('td', null, `week of ${shortDate(o.week)}`)); }))))
-      : h('p', { class: 'muted' }, empty));
+  render({ rerender }) {
+    const plan = derived.plan(); const mp = derived.materials(); const today = todayIso(); const admin = isAdmin();
+    const rows = [...mp.rows].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || (a.next?.orderBy || '9').localeCompare(b.next?.orderBy || '9') || a.item.sort - b.item.sort);
+    const counts = Object.fromEntries(ORDER.map((k) => [k, rows.filter((r) => r.status === k).length]));
+    const stock = (r) => (hasReceiving(r.item) ? asReceived(r.item, r.onHand) : `${qty(r.onHand, 0)} ${unitWord(r.item.unit, r.onHand)}`);
+    const materials = h('section', { class: 'panel pd-half' },
+      h('h2', null, 'Materials and packaging'),
+      h('div', { class: 'pd-legend' }, ORDER.map((k) => h('span', { class: `pd-key ${k}` }, `${STATUS[k][0]} · ${counts[k]}`))),
+      h('div', { class: 'scroll-x' }, h('table', { class: 't natural pd-status' },
+        h('thead', null, h('tr', null, h('th', null, 'Item'), h('th', null, 'Status'), h('th', { class: 'num' }, 'On hand'), h('th', null, 'Order by'), h('th', null, 'How much'))),
+        h('tbody', null, rows.map((r) => h('tr', { class: `st-${r.status}`, title: `${r.item.name}: ${qty(r.onHand, 1)} on hand, safety stock ${qty(r.safety, 1)} ${unitWord(r.item.unit, 2)}` },
+          h('td', null, r.item.name), h('td', null, STATUS[r.status][0]), h('td', { class: 'num' }, stock(r)),
+          h('td', null, r.next ? (r.next.orderBy < today ? 'Now' : longDate(r.next.orderBy)) : ''),
+          h('td', null, r.next ? orderText(r.item, r.next.qty) : '')))))));
+    const weeks = plan.weeks.slice(0, ENTRY_WEEKS);
+    const totals = weeks.map((_, i) => plan.rows.reduce((t, r) => t + r.weeks[i].production, 0));
+    const production = h('section', { class: 'panel pd-half' },
+      h('h2', null, `What we’ll make, next ${ENTRY_WEEKS} weeks (cases)`),
+      h('p', { class: 'small muted' }, `Type the cases you plan to make each week. A grey number is the average weekly sales (last ${HISTORY_WEEKS} weeks with sales) and is used until you type over it. The Purchase Plan orders materials for this production.`),
+      h('div', { class: 'scroll-x' }, h('table', { class: 't natural plain-cells pd-prod' },
+        h('thead', null, h('tr', null, h('th', null, 'Product'), weeks.map(weekHead))),
+        h('tbody', null, plan.rows.map((r) => h('tr', null, h('td', null, r.item.name),
+          r.weeks.slice(0, ENTRY_WEEKS).map((c) => numberCell(c.typed ? c.production : null, (v) => saveCell('production_plan', { item_no: r.item.item_no, week: c.week }, 'cases', v),
+            { disabled: !admin, digits: 0, key: `pp|${r.item.item_no}|${c.week}`, placeholder: qty(Math.round(c.demand), 0), cls: c.typed ? 'typed' : 'suggested',
+              title: `${r.item.name}, week of ${longDate(c.week)} (average sales ${qty(c.demand, 1)} a week; clear to use it)` }))))),
+        h('tfoot', null, h('tr', { class: 'xt-totals' }, h('td', null, 'Total cases'), totals.map((v) => h('td', { class: 'num' }, qty(v, 0)))),
+          plan.batches.map((b) => h('tr', { class: 'pd-batches' }, h('td', null, `${b.recipe.name.replace(/^RECIPE:\s*/, '')} batches`), b.weeks.slice(0, ENTRY_WEEKS).map((w) => h('td', { class: 'num', title: `${qty(w.oz, 0)} ${b.unit} needed; batch = ${qty(b.size, 0)} ${b.unit}` }, w.batches || ''))))))));
     return h('div', null,
-      pageHead('Planning Dashboard', 'What to order now, what’s coming up, and what production the plan needs. Details are on Demand Plan, Purchase Plan and Safety Stocks.'),
-      h('div', { class: 'cards' },
-        stat('Order now', now.length, now.length ? 'Past or at the order-by date' : 'Nothing overdue', now.length ? 'alert' : ''),
-        stat('Order this week', soon.length, 'Order-by date in the next 7 days', soon.length ? 'warn' : ''),
-        stat('Could run short', short.length, short.length ? 'Before a new order could arrive' : 'Nothing at risk', short.length ? 'alert' : ''),
-        stat('Production, next 4 weeks', `${qty(prodWeeks.slice(0, 4).reduce((a, b) => a + b, 0), 0)} cases`, batchesNext.length ? `This week: ${batchesNext.map(([n, b]) => `${b} ${n.replace(/^RECIPE:\s*/, '')}`).join(', ')} batch${batchesNext.reduce((t, [, b]) => t + b, 0) === 1 ? '' : 'es'}` : null)),
-      h('div', { class: 'grid2', style: { marginTop: '16px' } },
-        h('section', { class: 'panel' }, h('h2', null, 'Order now'), orderList(now, 'Nothing needs ordering today.'),
-          short.length ? h('p', { class: 'note warn' }, `Could run short before a new order arrives: ${short.map((r) => r.item.name).join(', ')}. Expedite, or adjust production.`) : null),
-        h('section', { class: 'panel' }, h('h2', null, 'Coming up in the next 4 weeks'), orderList(upcoming, 'No orders due in the next 4 weeks.'))),
-      h('section', { class: 'panel', style: { marginTop: '16px' } }, h('h2', null, `Forecast sales and planned production, next ${PLAN_WEEKS} weeks (cases)`),
-        h('div', { class: 'body chart' }, barChart({ width: full, height: 260, money: false, title: 'Forecast and planned production by week', labels: plan.weeks.map(shortDate),
-          series: [{ name: 'Forecast sales', values: fcWeeks, cls: 'bar-b' }, { name: 'Planned production', values: prodWeeks, cls: 'bar-a' }] })),
-        h('div', { class: 'legend' }, h('span', null, h('i', { style: { background: 'var(--accent-2)' } }), 'Forecast sales'), h('span', null, h('i', { style: { background: 'var(--accent)' } }), 'Planned production'))),
-      lowFg.length ? h('section', { class: 'panel', style: { marginTop: '16px' } }, h('h2', null, 'Products below safety stock today'),
-        h('p', null, lowFg.map((r) => `${r.item.name} (${qty(r.onHand, 0)} on hand, safety ${qty(r.safety, 0)})`).join(' · '))) : null);
+      pageHead('Planning Dashboard', `Left: every raw material and packaging item. Red is below safety stock now; orange needs ordering by the end of this week; yellow by the end of next week; green doesn’t need ordering for at least a week after that. Order in QuickBooks. Right: the cases to make each week, which drive the Purchase Plan. Safety stock is enough for ${SAFETY_LEAD_MULTIPLE}× each item’s lead time (Safety Stocks tab).`,
+        ),
+      noData(),
+      h('div', { class: 'pd-grid' }, materials, production));
   },
 };

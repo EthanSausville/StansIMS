@@ -220,9 +220,9 @@ create table if not exists public.purchase_settings (
 alter table public.purchase_settings add column if not exists lead_days    int check (lead_days >= 0);
 alter table public.purchase_settings add column if not exists safety_stock numeric check (safety_stock >= 0);
 
--- Demand plan: cases of a finished good forecast for a week (weeks start Monday).
--- Weeks with no row use the product's average weekly sales.
-create table if not exists public.demand_forecast (
+-- Production plan: cases of a finished good to make in a week (weeks start
+-- Monday). Weeks with no row use the product's average weekly sales.
+create table if not exists public.production_plan (
   item_no int  not null references public.items (item_no) on update cascade on delete cascade,
   week    date not null check (extract(isodow from week) = 1),
   cases   numeric not null check (cases >= 0),
@@ -324,7 +324,7 @@ declare t text;
 begin
   -- Setup tables: everyone signed in reads, admins write.
   foreach t in array array['items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines',
-                           'boms', 'bom_lines', 'settings', 'year_settings', 'purchase_settings', 'labor_positions', 'demand_forecast'] loop
+                           'boms', 'bom_lines', 'settings', 'year_settings', 'purchase_settings', 'labor_positions', 'production_plan'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "read" on public.%I', t);
     execute format('drop policy if exists "admins write" on public.%I', t);
@@ -491,7 +491,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['items', 'standard_costs', 'standard_prices', 'boms', 'bom_lines', 'settings', 'year_settings',
-                           'purchase_settings', 'labor_positions', 'demand_forecast'] loop
+                           'purchase_settings', 'labor_positions', 'production_plan'] loop
     execute format('drop trigger if exists audit on public.%I', t);
     execute format('create trigger audit after insert or update or delete on public.%I for each row execute function public.audit_change()', t);
   end loop;

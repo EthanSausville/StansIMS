@@ -5,9 +5,9 @@ const KEYS = {
   items: ['item_no'], standard_costs: ['item_no', 'year'], standard_prices: ['item_no', 'year'], recipes: ['item_no'],
   recipe_lines: ['id'], fg_lines: ['id'], boms: ['item_no', 'year'], bom_lines: ['id'], settings: ['id'], year_settings: ['year'], purchase_settings: ['item_no'],
   production: ['date', 'item_no'], goods_receipts: ['date', 'item_no'], cycle_counts: ['date', 'item_no'], sales: ['id'], profiles: ['user_id'], sales_imports: ['id'], qb_name_map: ['kind', 'qb_name'],
-  labor_positions: ['id'], audit_log: ['id'], demand_forecast: ['item_no', 'week'],
+  labor_positions: ['id'], audit_log: ['id'], production_plan: ['item_no', 'week'],
 };
-const ADMIN_ONLY = new Set(['boms', 'bom_lines', 'items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines', 'settings', 'year_settings', 'purchase_settings', 'labor_positions', 'demand_forecast']);
+const ADMIN_ONLY = new Set(['boms', 'bom_lines', 'items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines', 'settings', 'year_settings', 'purchase_settings', 'labor_positions', 'production_plan']);
 
 export function createClient() {
   const db = window.__MOCK_DB__;

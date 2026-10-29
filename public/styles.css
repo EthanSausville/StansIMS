@@ -894,3 +894,29 @@ table.count-sheet .cnt-total { text-align: left; padding-top: 2px; }
 table.sched-table td, table.sched-table th { padding: 6px 10px; }
 table.sched-table tr.late td { color: var(--bad); }
 .scroll-x { overflow-x: auto; max-width: 100%; } .grid2 > * { min-width: 0; }
+/* Planning status colors: pastel backgrounds, bold text */
+:root { --st-red-bg: #fbd5d2; --st-red: #8f1d17; --st-orange-bg: #fde2c4; --st-orange: #8a4500; --st-yellow-bg: #fbf0b8; --st-yellow: #6b5600; --st-green-bg: #d6f1dd; --st-green: #1c6b37; }
+.status.red { background: var(--st-red-bg); color: var(--st-red); }
+.status.orange { background: var(--st-orange-bg); color: var(--st-orange); }
+.status.yellow { background: var(--st-yellow-bg); color: var(--st-yellow); }
+.status.green { background: var(--st-green-bg); color: var(--st-green); }
+.pd-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .pd-grid { grid-template-columns: minmax(0, 1fr); } }
+.pd-half h2 { margin: 0 0 8px; font-size: 16px; }
+.pd-half > p { margin: 0 0 10px; }
+.pd-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.pd-key { padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 700; }
+.pd-key.red, table.t.pd-status tbody tr.st-red td { background: var(--st-red-bg); color: var(--st-red); }
+.pd-key.orange, table.t.pd-status tbody tr.st-orange td { background: var(--st-orange-bg); color: var(--st-orange); }
+.pd-key.yellow, table.t.pd-status tbody tr.st-yellow td { background: var(--st-yellow-bg); color: var(--st-yellow); }
+.pd-key.green, table.t.pd-status tbody tr.st-green td { background: var(--st-green-bg); color: var(--st-green); }
+table.pd-status { width: 100%; border-collapse: separate; border-spacing: 0 4px; }
+table.pd-status td { font-weight: 700; padding: 8px 10px; border-bottom: 0; }
+table.pd-status td:first-child { border-radius: 8px 0 0 8px; }
+table.pd-status td:last-child { border-radius: 0 8px 8px 0; }
+table.pd-status tbody tr:hover td { filter: brightness(0.97); }
+table.pd-prod td.cell input { font-size: 15px; }
+table.pd-prod td.cell.suggested input::placeholder { color: var(--faint); font-weight: 400; opacity: 1; }
+table.pd-prod td.cell.typed input { font-weight: 700; color: var(--ink); }
+table.pd-prod tr.pd-batches td { font-weight: 400; color: var(--muted); font-size: 12px; border-top: 0; position: static; }
+.pd-grid > .panel { margin: 0; } table.t.pd-status td { white-space: nowrap; }

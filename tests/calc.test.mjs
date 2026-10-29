@@ -201,7 +201,7 @@ test('BOMs by year: a later year’s BOM leaves earlier years alone', () => {
 });
 
 test('planning: demand plan, material plan', () => {
-  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, demand_forecast: [] };
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, production_plan: [] };
   const today = '2026-10-28';
   assert.equal(C.mondayOf('2026-10-28'), '2026-10-26');
   assert.equal(C.mondayOf('2026-11-01'), '2026-10-26');
@@ -213,16 +213,25 @@ test('planning: demand plan, material plan', () => {
   // average of the 13 history weeks, each week's cases sold
   const hist = d.sales.filter((s) => s.item_no === fg.item.item_no && s.date >= p.history.from && s.date <= p.history.to).reduce((s, r) => s + r.quantity, 0);
   close(fg.avg, hist / 13, 'average weekly sales');
-  // every week ends at or above safety stock, and production only tops up to it
-  for (const r of p.rows) for (const c of r.weeks) assert.ok(c.endOnHand >= r.safety - 1e-9, `${r.item.name} ${c.week} ends above safety`);
-  // a typed-in forecast replaces the average for that week
-  const typed = C.demandPlan({ ...d, demand_forecast: [{ item_no: fg.item.item_no, week: p.weeks[2], cases: 500 }] }, { today, inv });
-  assert.equal(typed.rows[0].weeks[2].forecast, 500); assert.equal(typed.rows[0].weeks[2].typed, true);
+  // production defaults to the average weekly sales, in whole cases
+  for (const r of p.rows) for (const c of r.weeks) { assert.equal(c.production, Math.round(r.avg)); assert.equal(c.typed, false); }
+  // a typed-in production replaces the average for that week, and the materials follow
+  const typed = C.demandPlan({ ...d, production_plan: [{ item_no: fg.item.item_no, week: p.weeks[2], cases: 500 }] }, { today, inv });
+  assert.equal(typed.rows[0].weeks[2].production, 500); assert.equal(typed.rows[0].weeks[2].typed, true);
+  const box = C.perCaseUsage(d, 2026).get(fg.item.item_no);
+  const [mat, per] = [...box][0];
+  const needOf = (plan) => C.materialPlan(d, plan, { today, inv }).rows.find((r) => r.item.item_no === mat).weeks[2].need;
+  close(needOf(typed) - needOf(p), (500 - Math.round(fg.avg)) * per, 'typed production changes material needs');
   // materials: two-week lead time, never below safety stock after planned receipts, orders placed lead time ahead
   const m = C.materialPlan(d, p, { today, inv });
   for (const r of m.rows) {
     assert.equal(r.leadDays, 14);
-    assert.ok(r.safety >= r.avgPlanned - 1e-9, `${r.item.name} safety at least a week of use`);
+    close(r.safety, Math.max(r.avgPlanned, r.avgPast) * 2 * (14 / 7), `${r.item.name} safety = use over twice the lead time`);
+    assert.ok(['red', 'orange', 'yellow', 'green'].includes(r.status));
+    if (r.onHand < r.safety) assert.equal(r.status, 'red');
+    else if (r.next && r.next.orderBy <= '2026-11-01') assert.equal(r.status, 'orange');
+    else if (r.next && r.next.orderBy <= '2026-11-08') assert.equal(r.status, 'yellow');
+    else assert.equal(r.status, 'green');
     for (const c of r.weeks) if (c.week >= r.earliest) assert.ok(c.endOnHand >= r.safety - 1e-6, `${r.item.name} ${c.week} stays above safety once an order can arrive`);
     assert.equal(r.earliest, C.mondayOf(C.addDays(today, r.leadDays)));
     for (const o of r.orders) assert.ok(o.week >= r.earliest, 'no order planned to arrive sooner than the lead time allows');
@@ -271,7 +280,7 @@ test('journal entries balance and tie to the data', () => {
 });
 
 test('plan batches and count sheet', () => {
-  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, demand_forecast: [] };
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, production_plan: [] };
   const today = '2026-10-28'; const inv = C.dailyInventory(d, '2026-12-31');
   const p = C.demandPlan(d, { today, inv });
   assert.ok(p.batches.length >= 1);

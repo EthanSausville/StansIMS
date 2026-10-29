@@ -230,23 +230,6 @@ create table if not exists public.demand_forecast (
 );
 
 -- ---------- day-to-day activity (everyone signed in) ----------
--- Purchase orders: open until received or cancelled. Receiving one adds the
--- delivery to goods_receipts; unit_price against standard cost is the PPV.
-create table if not exists public.purchase_orders (
-  id           bigint generated always as identity primary key,
-  item_no      int  not null references public.items (item_no) on update cascade,
-  supplier     text,
-  ordered      date not null default current_date,
-  due          date not null,
-  qty          numeric not null check (qty > 0),
-  unit_price   numeric check (unit_price >= 0),
-  received     date,
-  received_qty numeric check (received_qty >= 0),
-  cancelled    boolean not null default false,
-  notes        text,
-  created_at   timestamptz not null default now()
-);
-create index if not exists purchase_orders_item_idx on public.purchase_orders (item_no);
 
 create table if not exists public.production (
   date       date not null,
@@ -349,7 +332,7 @@ begin
     execute format('create policy "admins write" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())', t);
   end loop;
   -- Activity tables: everyone signed in reads and writes.
-  foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales', 'sales_imports', 'qb_name_map', 'purchase_orders'] loop
+  foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales', 'sales_imports', 'qb_name_map'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "signed in" on public.%I', t);
     execute format('create policy "signed in" on public.%I for all to authenticated using (true) with check (true)', t);
@@ -478,7 +461,7 @@ update public.items set receiving_unit = lower(split_part(receiving_unit, ' (', 
 
 -- ---------- change history ----------
 -- Every change to setup data (items, costs, prices, BOMs, labor, settings,
--- planning) and to purchase orders: who, when, and the row before and after.
+-- planning): who, when, and the row before and after.
 -- Admins can read it; nobody can change it.
 create table if not exists public.audit_log (
   id         bigint generated always as identity primary key,
@@ -508,7 +491,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['items', 'standard_costs', 'standard_prices', 'boms', 'bom_lines', 'settings', 'year_settings',
-                           'purchase_settings', 'labor_positions', 'demand_forecast', 'purchase_orders'] loop
+                           'purchase_settings', 'labor_positions', 'demand_forecast'] loop
     execute format('drop trigger if exists audit on public.%I', t);
     execute format('create trigger audit after insert or update or delete on public.%I for each row execute function public.audit_change()', t);
   end loop;

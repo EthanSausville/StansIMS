@@ -18,13 +18,13 @@ function changed() { state.version++; derivedCache.clear(); for (const fn of lis
 const TABLES = {
   items: 'sort', standard_costs: 'year', standard_prices: 'year', boms: 'item_no', bom_lines: 'sort', year_settings: 'year', purchase_settings: 'item_no', production: 'date',
   sales_imports: 'created_at', qb_name_map: 'kind',
-  labor_positions: 'sort', demand_forecast: 'week', purchase_orders: 'due',
+  labor_positions: 'sort', demand_forecast: 'week',
   goods_receipts: 'date', cycle_counts: 'date', sales: 'date',
 };
 
 // Tables added after the first release: until the database has been updated
 // (schema.sql), they load as empty instead of stopping the whole site.
-const OPTIONAL = new Set(['labor_positions', 'demand_forecast', 'purchase_orders']);
+const OPTIONAL = new Set(['labor_positions', 'demand_forecast']);
 const missingTable = (e) => /does not exist|could not find the table|schema cache/i.test(e?.message || '') || e?.code === '42P01' || e?.code === 'PGRST205';
 
 const missing = new Set();
@@ -189,14 +189,6 @@ export async function undoSalesImport(id) {
   state.data.sales = state.data.sales.filter((l) => l.import_id !== id);
   state.data.sales_imports = state.data.sales_imports.filter((i) => i.id !== id);
   changed();
-}
-
-// Receives a purchase order: marks it received and adds the delivery to
-// Goods Receipt for that day (on top of anything already received that day).
-export async function receivePO(po, date, qty) {
-  const existing = state.data.goods_receipts.find((r) => r.date === date && r.item_no === po.item_no);
-  await updateRow('purchase_orders', 'id', po.id, { received: date, received_qty: qty });
-  await saveCell('goods_receipts', { date, item_no: po.item_no }, 'qty', (Number(existing?.qty) || 0) + qty);
 }
 
 export async function insertRow(table, row) {

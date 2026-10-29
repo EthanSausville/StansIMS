@@ -251,34 +251,8 @@ test('consumption: count to count', () => {
   close(byMonth.get(cheese).reduce((s, v) => s + v, 0), total, 'monthly usage total');
 });
 
-test('purchase orders: open orders count in the plan; price variance', () => {
-  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, demand_forecast: [] };
-  const today = '2026-10-28';
-  const inv = C.dailyInventory(d, '2026-12-31');
-  const p = C.demandPlan(d, { today, inv });
-  const base = C.materialPlan(d, p, { today, inv });
-  const cheese = base.rows.find((r) => r.item.name === 'Cheese');
-  const first = cheese.orders[0];
-  // an open order for the first suggested purchase, due that week, replaces the suggestion
-  const po = { id: 1, item_no: cheese.item.item_no, due: first.week, qty: first.qty, received: null, cancelled: false };
-  const withPo = C.materialPlan({ ...d, purchase_orders: [po] }, p, { today, inv }).rows.find((r) => r.item.item_no === cheese.item.item_no);
-  assert.equal(withPo.openQty, first.qty);
-  assert.ok(!withPo.orders.some((o) => o.week === first.week), 'no new suggestion in the week the order arrives');
-  // received or cancelled orders don't count
-  for (const done of [{ received: '2026-10-20', received_qty: first.qty }, { cancelled: true }]) {
-    const r = C.materialPlan({ ...d, purchase_orders: [{ ...po, ...done }] }, p, { today, inv }).rows.find((x) => x.item.item_no === cheese.item.item_no);
-    assert.equal(r.openQty, 0);
-  }
-  // PPV: (price paid - standard) x qty received
-  const cm = C.costModel(d); const std = cm.cost(cheese.item.item_no, 2026);
-  close(C.poVariance({ ...po, received: '2026-10-20', received_qty: 100, unit_price: std + 0.25 }, cm), 25, 'unfavorable PPV');
-  close(C.poVariance({ ...po, received: '2026-10-20', received_qty: 100, unit_price: std - 0.1 }, cm), -10, 'favorable PPV');
-  assert.equal(C.poVariance(po, cm), null);
-  assert.equal(C.poStatus(po, '2099-01-01'), 'late'); assert.equal(C.poStatus({ ...po, received: '2026-10-20' }, today), 'received');
-});
-
 test('journal entries balance and tie to the data', () => {
-  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, purchase_orders: [] };
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines };
   const inv = C.dailyInventory(d, '2026-12-31');
   for (let m = 1; m <= 12; m++) {
     for (const e of C.journalEntries(d, 2026, m, inv)) close(e.dr, e.cr, `2026-${m} entry ${e.code} balances`);

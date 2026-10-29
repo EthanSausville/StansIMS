@@ -6,7 +6,7 @@ import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton }
 
 let rows = null; let loading = false; let failed = false;
 const TABLES = { items: 'Item', standard_costs: 'Standard cost', standard_prices: 'Standard price', boms: 'BOM', bom_lines: 'BOM line', settings: 'Settings',
-  year_settings: 'Year settings', purchase_settings: 'Purchase settings', labor_positions: 'Labor position', demand_forecast: 'Forecast', purchase_orders: 'Purchase order' };
+  year_settings: 'Year settings', purchase_settings: 'Purchase settings', labor_positions: 'Labor position', demand_forecast: 'Forecast' };
 const ACTIONS = { insert: 'Added', update: 'Changed', delete: 'Removed' };
 const SKIP = new Set(['id', 'created_at', 'updated_at', 'sort']);
 const fmtVal = (v) => (v === null || v === undefined || v === '' ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));
@@ -21,7 +21,6 @@ function subject(r) {
   if (r.table_name === 'labor_positions' && row.name) parts.push(row.name);
   if (row.year) parts.push(String(row.year));
   if (row.week) parts.push(`week of ${row.week}`);
-  if (r.table_name === 'purchase_orders' && row.id) parts.push(`PO #${row.id}`);
   return [...new Set(parts)].filter(Boolean).join(' · ');
 }
 // The fields that changed, as "field: old → new".
@@ -54,7 +53,7 @@ export default {
     const shown = filteredRows({ id: 'history', columns, rows: list, defaultSort: { key: 'at', dir: 'desc' } });
     const nFilters = activeFilterCount('history');
     return h('div', null,
-      pageHead('Change history', 'Every change to items, standard costs and prices, BOMs, labor, settings, forecasts and purchase orders: who made it, when, and what changed. The database records it, so it can’t be edited. Shows the latest 500 changes.',
+      pageHead('Change history', 'Every change to items, standard costs and prices, BOMs, labor, settings and forecasts: who made it, when, and what changed. The database records it, so it can’t be edited. Shows the latest 500 changes.',
         h('button', { class: 'btn', onclick: () => { rows = null; failed = false; rerender(); } }, 'Refresh'),
         list.length ? downloadButton('change-history', columns, shown) : null,
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('history'); rerender(); } }, `Clear filters (${nFilters})`) : null),

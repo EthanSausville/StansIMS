@@ -883,3 +883,14 @@ table.count-sheet .cnt-line input { width: 72px; font-size: 16px; font-weight: 6
 table.count-sheet .cnt-line input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 table.count-sheet .cnt-u { font-size: 13px; color: var(--ink); }
 table.count-sheet .cnt-total { text-align: left; padding-top: 2px; }
+/* Planning dashboard and order schedule */
+.stat.alert { border-color: var(--bad); background: var(--bad-soft); }
+.stat.alert .value { color: var(--bad); }
+.stat.warn { border-color: #e9c46a; background: var(--warn-soft); }
+.schedule { display: flex; flex-direction: column; gap: 14px; max-width: 980px; }
+.sched-week h2 { margin: 0 0 8px; font-size: 15px; }
+.sched-week.urgent { border-color: var(--bad); }
+.sched-week.urgent h2 { color: var(--bad); }
+table.sched-table td, table.sched-table th { padding: 6px 10px; }
+table.sched-table tr.late td { color: var(--bad); }
+.scroll-x { overflow-x: auto; max-width: 100%; } .grid2 > * { min-width: 0; }

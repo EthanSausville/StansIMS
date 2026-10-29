@@ -591,12 +591,6 @@ export function materialPlan(data, plan, { today, inv }) {
     const w = mondayOf(d);
     for (const [it, q] of m) { const k = `${it}|${w}`; used.set(k, (used.get(k) || 0) + q); }
   }
-  // open purchase orders arrive in the week they're due (overdue ones: this week)
-  const onOrder = new Map();
-  for (const po of openOrders(data)) {
-    const w = po.due < plan.weeks[0] ? plan.weeks[0] : mondayOf(po.due);
-    const k = `${po.item_no}|${w}`; onOrder.set(k, (onOrder.get(k) || 0) + n(po.qty));
-  }
   const rows = mats.map((item) => {
     const s = settings.get(item.item_no) || {};
     const leadDays = s.lead_days === null || s.lead_days === undefined || s.lead_days === '' ? DEFAULT_LEAD_DAYS : n(s.lead_days);
@@ -612,12 +606,11 @@ export function materialPlan(data, plan, { today, inv }) {
     const onHand = inv?.byItem.get(item.item_no)?.get(today) ?? 0;
     const orders = [];
     let proj = onHand;
-    // A new order can't arrive before one lead time from today; until then only
-    // open orders help, and a week that ends below safety stock is a shortage.
+    // A new order can't arrive before one lead time from today; a week before
+    // then that ends below safety stock is a shortage (expedite, or adjust).
     const earliest = mondayOf(addDays(today, leadDays));
     for (const c of weeks) {
-      c.onOrder = onOrder.get(`${item.item_no}|${c.week}`) || 0;
-      proj += c.onOrder - c.need; c.receipt = 0;
+      proj -= c.need; c.receipt = 0;
       c.short = c.week < earliest && proj < safety;
       if (proj < safety && c.week >= earliest) {
         let qty = safety - proj + 2 * avgPlanned;
@@ -629,9 +622,8 @@ export function materialPlan(data, plan, { today, inv }) {
       c.endOnHand = proj;
     }
     const next = orders[0] || null;
-    const openQty = weeks.reduce((t, c) => t + c.onOrder, 0);
     const status = !next ? 'ok' : next.orderBy <= today ? 'now' : next.orderBy <= addDays(today, 7) ? 'soon' : 'planned';
-    return { item, leadDays, earliest, short: weeks.some((c) => c.short), safety, typedSafety, autoSafety, multiple, avgPlanned, avgPast, onHand, openQty,
+    return { item, leadDays, earliest, short: weeks.some((c) => c.short), safety, typedSafety, autoSafety, multiple, avgPlanned, avgPast, onHand,
       reorderPoint: avgPlanned * (leadDays / 7) + safety, weeks, orders, next, status };
   });
   return { weeks: plan.weeks, history: { from: histStart, to: histEnd }, rows };
@@ -679,30 +671,12 @@ export function usageByMonth(data, year) {
   return out;
 }
 
-// ---------- Purchase orders ----------
-// A purchase order is open until it's received or cancelled. Receiving one
-// records the delivery on Goods Receipt; its price against the standard cost
-// is the purchase price variance (PPV).
-export const openOrders = (data) => (data.purchase_orders || []).filter((po) => !po.received && !po.cancelled);
-export function poStatus(po, today) {
-  if (po.cancelled) return 'cancelled';
-  if (po.received) return 'received';
-  return po.due < today ? 'late' : 'open';
-}
-// PPV of a received order: (price paid - standard cost that year) x qty received.
-// Positive is unfavorable (paid more than standard).
-export function poVariance(po, cm) {
-  if (!po.received || po.unit_price === null || po.unit_price === undefined || po.unit_price === '') return null;
-  const std = cm.cost(po.item_no, yearOf(po.received)) || cm.latest(po.item_no);
-  return (n(po.unit_price) - std) * n(po.received_qty ?? po.qty);
-}
-
 // ---------- Journal entries ----------
 // The workbook's standard-cost entries (A-H) with amounts for a month, built
 // from the day-to-day data. Lines are { account, dr, cr, basis }; each entry's
 // debits equal its credits.
-//   A/B purchases: deliveries at standard cost; received purchase orders add the
-//       price variance (PPV); deliveries without an order are taken at standard.
+//   A/B purchases: deliveries at standard cost. Purchase orders and what was
+//       actually paid are in QuickBooks, so the price variance (PPV) isn't posted.
 //   C/D payroll and overhead paid: actual amounts come from the books, so they
 //       aren't posted here (the variance accounts show only what production absorbed).
 //   E production: finished goods at standard cost, built up from the BOMs into
@@ -744,15 +718,11 @@ export function journalEntries(data, year, month, inv) {
   const entries = [];
 
   // A / B purchases
-  for (const [code, type, inv_, ppv, title] of [['A', 'Raw Material', 'rm', 'ppvRm', 'Purchase of Raw Materials'], ['B', 'Component', 'cp', 'ppvCp', 'Purchase of Components']]) {
-    let stdTotal = 0; let unfav = 0; let fav = 0;
+  for (const [code, type, inv_, , title] of [['A', 'Raw Material', 'rm', 'ppvRm', 'Purchase of Raw Materials'], ['B', 'Component', 'cp', 'ppvCp', 'Purchase of Components']]) {
+    let stdTotal = 0;
     for (const r of data.goods_receipts) if (inMonth(r.date) && ix.items.get(r.item_no)?.type === type) stdTotal += n(r.qty) * std(r.item_no);
-    for (const po of data.purchase_orders || []) {
-      if (!inMonth(po.received) || ix.items.get(po.item_no)?.type !== type) continue;
-      const v = poVariance(po, cm); if (v > 0) unfav += v; else if (v < 0) fav -= v;
-    }
-    entries.push({ code, title, lines: [L(inv_, stdTotal, 0, 'Deliveries at standard cost'), L(ppv, unfav, 0, 'Paid more than standard'), L(ppv, 0, fav, 'Paid less than standard'),
-      L('cash', 0, stdTotal + unfav - fav, 'Actual cost (standard + price variance)')] });
+    entries.push({ code, title, note: 'Nothing delivered this month.', lines: [L(inv_, stdTotal, 0, 'Deliveries at standard cost'),
+      L('cash', 0, stdTotal, 'At standard; price variance against actual cost is in QuickBooks')] });
   }
   entries.push({ code: 'C', title: 'Paying Payroll', note: 'Actual payroll comes from the books, so it isn’t posted here.', lines: [] });
   entries.push({ code: 'D', title: 'Paying Overhead', note: 'Actual overhead comes from the books, so it isn’t posted here.', lines: [] });

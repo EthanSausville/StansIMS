@@ -80,7 +80,7 @@ def shot(page, name):
 GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
-    'Planning': ['Demand Plan', 'Purchase Plan', 'Purchase Orders'],
+    'Planning': ['Planning Dashboard', 'Demand Plan', 'Purchase Plan', 'Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
@@ -613,8 +613,8 @@ with sync_playwright() as p:
     check(rows_pp == mats, f'purchase plan lists every raw material and packaging item ({rows_pp})')
     st_first = page.locator('table.xtable tbody tr').first.locator('.status').first.inner_text()
     check(st_first in ('Order now', 'Order this week'), f'most urgent purchases first ({st_first})')
-    cq = float(page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(4).inner_text().replace(',', ''))
-    asr = page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(6).inner_text()
+    cq = float(page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(5).inner_text().split()[0].replace(',', ''))
+    asr = page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(4).inner_text()
     check(cq % 30 == 0 and asr == f'{int(cq / 30):,} boxes', f'cheese is ordered in whole 30 lb boxes ({cq} lb = {asr})')
     leads = set(page.locator('table.xtable tbody tr td:last-child').all_inner_texts())
     check(leads == {'14'}, f'every material has a two-week lead time ({leads})')
@@ -624,51 +624,33 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Weekly', exact=True).click(); page.wait_for_timeout(150)
     check(page.locator('table.plan-table td.wk .rcpt').count() > 0, 'week by week shows planned deliveries')
     shot(page, '52-purchase-weekly')
-    page.get_by_role('button', name='Settings', exact=True).click(); page.wait_for_timeout(150)
+    page.get_by_role('button', name='Look ahead').click(); page.wait_for_timeout(150)
+    check(page.locator('.sched-week').count() >= 2 and page.locator('.sched-week table tbody tr').count() >= 3, f'Look ahead lists the orders coming up, week by week ({page.locator(".sched-week").count()} weeks)')
+    shot(page, '61-look-ahead')
+    tab(page, 'Safety Stocks')
+    check(page.locator('table.xtable thead', has_text='Calculated safety stock').count() == 1, 'lead times and safety stocks are on their own tab')
+    shot(page, '62-safety-stocks')
     cheese_no = next(i['item_no'] for i in inputs['items'] if i['name'] == 'Cheese')
     c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill('21'); c.press('Tab'); page.wait_for_timeout(250)
     check(page.evaluate(f"window.__MOCK_DB__.purchase_settings.find(s => s.item_no === {cheese_no}).lead_days") == 21, 'lead time can be changed per material')
+    tab(page, 'Purchase Plan')
     page.get_by_role('button', name='To order', exact=True).click(); page.wait_for_timeout(150)
     lt = page.locator('table.xtable tbody tr', has_text='Cheese').locator('td').last.inner_text()
     check(lt == '21', f'the plan uses the new lead time ({lt})')
-    page.get_by_role('button', name='Settings', exact=True).click(); page.wait_for_timeout(150)
+    tab(page, 'Safety Stocks')
     c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(250)
-    page.get_by_role('button', name='To order', exact=True).click(); page.wait_for_timeout(100)
+    tab(page, 'Purchase Plan')
     tab(page, 'Dashboard')
     check(page.locator('.note.warn', has_text='Order now').count() == 1, 'the dashboard lists what to order now')
 
-    # ---- Purchase orders ----
-    tab(page, 'Purchase Plan')
-    row = page.locator('table.xtable tbody tr', has_text='Sodium Benzoate').first
-    sb_no = next(i['item_no'] for i in inputs['items'] if i['name'] == 'Sodium Benzoate')
-    sugg = row.locator('td').nth(4).inner_text().replace(',', '')
-    row.locator('td').first.click(); page.wait_for_timeout(120)
-    page.get_by_role('button', name='Create purchase order').click(); page.wait_for_timeout(400)
-    po = page.evaluate(f"window.__MOCK_DB__.purchase_orders.find(p => p.item_no === {sb_no})")
-    check(po and float(po['qty']) == float(sugg) and page.evaluate('location.hash') == '#orders', f'Create purchase order makes an order for the suggested qty and opens Purchase Orders ({po and po["qty"]})')
-    check(page.locator('table.xtable tbody tr.selected', has_text='Sodium Benzoate').count() == 1, 'the new order is selected')
-    tab(page, 'Purchase Plan')
-    r2 = page.locator('table.xtable tbody tr', has_text='Sodium Benzoate').first
-    st2 = r2.locator('.status').first.inner_text()
-    check(st2 != 'Order now', f'once ordered, the plan stops asking to order it now ({st2})')
-    tab(page, 'Purchase Orders')
-    before = sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == sb_no)
-    page.get_by_role('button', name='Receive order').click(); page.wait_for_timeout(120)
-    page.fill('#rcv-date', '2026-10-27'); page.fill('#rcv-price', str(float(po['unit_price'] or 0) + 0.5))
-    page.locator('.item-form').get_by_role('button', name='Receive').click(); page.wait_for_timeout(400)
-    after = sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == sb_no)
-    check(abs(after - before - float(po['qty'])) < 1e-6, f'receiving adds the delivery to Goods Receipt ({before} -> {after})')
-    page.get_by_role('button', name='All orders').click(); page.wait_for_timeout(150)
-    rr = page.locator('table.xtable tbody tr', has_text='Sodium Benzoate').first
-    check(rr.locator('.status').first.inner_text() == 'Received' and acct(rr.locator('td').last.inner_text()) == round(0.5 * float(po['qty']), 2), f'received order shows its price variance ({rr.locator("td").last.inner_text()!r})')
-    shot(page, '54-purchase-orders')
-    page.get_by_role('button', name='New order').click(); page.wait_for_timeout(120)
-    page.select_option('#po-item', label='Pepper'); page.fill('#po-qty', '50'); page.fill('#po-supplier', 'Spice Co')
-    page.locator('.po-form').get_by_role('button', name='Create order').click(); page.wait_for_timeout(300)
-    check(page.evaluate("window.__MOCK_DB__.purchase_orders.some(p => p.supplier === 'Spice Co' && p.qty === 50)"), 'New order creates an order from the side panel')
-    page.get_by_role('button', name='Cancel order').click(); page.locator('dialog[open]').get_by_role('button', name='Cancel order').click(); page.wait_for_timeout(300)
-    check(page.evaluate("window.__MOCK_DB__.purchase_orders.find(p => p.supplier === 'Spice Co').cancelled") is True, 'an order can be cancelled')
-    page.get_by_role('button', name='Open', exact=True).click(); page.wait_for_timeout(100)
+    # ---- Planning dashboard ----
+    tab(page, 'Planning Dashboard')
+    n_now = int(page.locator('.stat', has_text='Order now').locator('.value').inner_text())
+    check(n_now >= 1 and page.locator('section.panel', has_text='Order now').locator('tbody tr').count() == n_now, f'the planning dashboard lists what to order now ({n_now})')
+    check(page.locator('section.panel', has_text='Coming up in the next 4 weeks').count() == 1 and page.locator('svg').count() >= 1, 'it shows what is coming up and a production chart')
+    check(page.locator('section.panel', has_text='Order now').locator('tbody tr', has_text='Cheese').locator('td').nth(1).inner_text().endswith('boxes'), 'orders are shown in boxes / bags / cases')
+    shot(page, '60-planning-dashboard')
+    check(page.locator('text=Purchase Orders').count() == 0, 'no purchase orders (they are in QuickBooks)')
 
     # ---- Consumption ----
     tab(page, 'Consumption')
@@ -939,7 +921,7 @@ with sync_playwright() as p:
     check(overflow <= 0, f'no sideways page scroll on a phone (overflow {overflow}px)')
     shot(page, '24-phone-dashboard')
     tab(page, 'Production'); shot(page, '25-phone-production')
-    for i, t in enumerate(['New Receipts', 'New Counts', 'Purchase Plan', 'Purchase Orders', 'Sales Detail']):
+    for i, t in enumerate(['New Receipts', 'New Counts', 'Purchase Plan', 'Planning Dashboard', 'Sales Detail']):
         tab(page, t); page.wait_for_timeout(150)
         ov = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
         check(ov <= 0, f'{t}: no sideways page scroll on a phone ({ov}px)')

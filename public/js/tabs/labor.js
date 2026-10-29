@@ -255,10 +255,7 @@ export default {
 
     return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') + (rightFolded ? ' right-folded' : '') },
       pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate.' + (admin ? '' : ' Only admins can change these.'),
-        h('div', { class: 'side-title' }, 'Labor rate by year'),
         yearTable,
-        h('p', { class: 'small muted' }, 'Click a year to see it on the right.'),
-        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Standard Cost uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
       yearHead,
       rightFolded ? null : [summary, people, h('div', { class: 'labor-pair' }, peoplePanel, plant), recipes, build, whatPanel]);

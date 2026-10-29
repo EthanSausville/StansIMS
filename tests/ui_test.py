@@ -10,7 +10,9 @@ from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHOTS = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else None
-inputs = json.load(open(ROOT / 'tests/fixtures/workbook.json'))['inputs']
+sys.path.insert(0, str(ROOT / 'tools'))
+from itemnos import renumber
+inputs = renumber(json.load(open(ROOT / 'tests/fixtures/workbook.json'))['inputs'])  # six-digit item numbers, as in the database
 
 def mock_db():
     db = {k: v for k, v in inputs.items() if isinstance(v, list)}
@@ -69,7 +71,7 @@ GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Purchase Demand'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
-    'Standards': ['Standard Cost', 'BOMs', 'Labor'],
+    'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
 ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
@@ -206,18 +208,18 @@ with sync_playwright() as p:
     for _ in range(back): page.get_by_role('button', name='Previous month').click(); page.wait_for_timeout(60)
     page.wait_for_timeout(150)
     check(page.locator('.monthpick .label').inner_text() == 'Jul 2026', 'month picker goes back to July 2026')
-    c = cell(page, 'production|2026-07-14|20001')
+    c = cell(page, 'production|2026-07-14|500001')
     c.click(); c.fill('24*10'); c.press('Enter'); page.wait_for_timeout(300)
-    stored = page.evaluate("window.__MOCK_DB__.production.find(r => r.date==='2026-07-14' && r.item_no===20001)")
+    stored = page.evaluate("window.__MOCK_DB__.production.find(r => r.date==='2026-07-14' && r.item_no===500001)")
     check(stored and stored['cases'] == 240, 'typing 24*10 saves 240 cases')
-    oz = page.locator('tr:has(input[data-k="production|2026-07-14|20001"]) td.calc').nth(2).inner_text()
+    oz = page.locator('tr:has(input[data-k="production|2026-07-14|500001"]) td.calc').nth(2).inner_text()
     check(oz == '40,320', f'oz recalculates to 40,320 (got {oz})')
     focused = page.evaluate('document.activeElement.dataset.k')
-    check(focused == 'production|2026-07-15|20001', f'Enter moves to the next day (focus on {focused})')
-    c = cell(page, 'production|2026-07-14|20001'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(300)
-    gone = page.evaluate("!window.__MOCK_DB__.production.some(r => r.date==='2026-07-14' && r.item_no===20001)")
+    check(focused == 'production|2026-07-15|500001', f'Enter moves to the next day (focus on {focused})')
+    c = cell(page, 'production|2026-07-14|500001'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(300)
+    gone = page.evaluate("!window.__MOCK_DB__.production.some(r => r.date==='2026-07-14' && r.item_no===500001)")
     check(gone, 'clearing a cell deletes the entry')
-    c = cell(page, 'production|2026-07-14|20001'); c.click(); c.fill('abc'); c.press('Tab'); page.wait_for_timeout(200)
+    c = cell(page, 'production|2026-07-14|500001'); c.click(); c.fill('abc'); c.press('Tab'); page.wait_for_timeout(200)
     check(page.locator('.toast.bad').count() > 0, 'bad entry shows an error and is not saved')
     shot(page, '21-production-july')
 
@@ -225,14 +227,14 @@ with sync_playwright() as p:
     tab(page, 'Daily Inventory')
     before = page.evaluate("1")
     tab(page, 'Goods Receipt')
-    c = cell(page, 'goods_receipts|2026-07-20|10001'); c.click(); c.fill('30*100'); c.press('Enter'); page.wait_for_timeout(300)
-    stored = page.evaluate("window.__MOCK_DB__.goods_receipts.find(r => r.date==='2026-07-20' && r.item_no===10001)")
+    c = cell(page, 'goods_receipts|2026-07-20|100001'); c.click(); c.fill('30*100'); c.press('Enter'); page.wait_for_timeout(300)
+    stored = page.evaluate("window.__MOCK_DB__.goods_receipts.find(r => r.date==='2026-07-20' && r.item_no===100001)")
     check(stored and stored['qty'] == 3000, 'goods receipt of 30*100 lb cheese saved as 3000')
     tab(page, 'Daily Inventory')
     row = page.locator('tbody tr', has=page.locator('td.sticky-col', has_text='7/20/2026'))
     vals = row.locator('td').all_inner_texts()
     tab(page, 'Goods Receipt')
-    c = cell(page, 'goods_receipts|2026-07-20|10001'); c.click(); c.fill(''); c.press('Enter'); page.wait_for_timeout(300)
+    c = cell(page, 'goods_receipts|2026-07-20|100001'); c.click(); c.fill(''); c.press('Enter'); page.wait_for_timeout(300)
     tab(page, 'Daily Inventory')
     vals2 = page.locator('tbody tr', has=page.locator('td.sticky-col', has_text='7/20/2026')).locator('td').all_inner_texts()
     a = float(vals[1].replace(',', '')); b = float(vals2[1].replace(',', ''))
@@ -250,7 +252,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(100)
     price = page.input_value('form.inline-form input[placeholder="Per case"]')
     amount = page.input_value('form.inline-form input[placeholder="Qty × price"]')
-    std = next(p['price'] for p in inputs['standard_prices'] if p['item_no'] == 20003 and p['year'] == 2026)
+    std = next(p['price'] for p in inputs['standard_prices'] if p['item_no'] == 500003 and p['year'] == 2026)
     check(float(price) == std and abs(float(amount) - 10 * std) < 0.01, f'standard price fills in and amount = qty × price ({price}, {amount})')
     page.click('form.inline-form button[type=submit]'); page.wait_for_timeout(300)
     n1 = page.evaluate('window.__MOCK_DB__.sales.length')
@@ -356,7 +358,7 @@ with sync_playwright() as p:
     check(page.locator('dialog[open]', has_text='Close without saving').count() == 1, 'Cancel with changes asks first')
     page.locator('dialog[open]').get_by_role('button', name='Discard changes').click(); page.wait_for_timeout(150)
     check(page.locator('.bom-editor').count() == 0, 'Cancel closes the editor')
-    check(page.evaluate("window.__MOCK_DB__.boms.find(b => b.item_no === 10021).labor_minutes") != 60, 'Cancel does not save')
+    check(page.evaluate("window.__MOCK_DB__.boms.find(b => b.item_no === 400001).labor_minutes") != 60, 'Cancel does not save')
     tab(page, 'Labor')
     hrs = page.locator('table.whatif tbody tr td:first-child').all_inner_texts()
     check(hrs[0].startswith('16') and hrs[-1].startswith('120') and page.locator('table.whatif tr.current').count() == 1, f'what-if runs up to 120 production hours a week ({hrs})')
@@ -383,9 +385,9 @@ with sync_playwright() as p:
     check(st_fc[0] == 'italic' and int(st_fc[1]) >= 700 and st_fc[2] == 'rgb(107, 63, 196)', f'forecast numbers are bold purple italics ({st_fc})')
     check(page.locator('table.side-people.is-forecast').count() == 1 and page.locator('table.side-people input[data-k*="headcount"]').first.is_disabled(), 'forecast people are shown read-only')
     shot(page, '39-labor-forecast')
-    tab(page, 'Standard Cost')
-    col = 5 + (nxt - 2026)
-    lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).inner_text().strip('$'))
+    tab(page, 'Master List')
+    col = 4 + (nxt - 2026)
+    lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).get_attribute('data-v'))
     check(abs(lab_next - this_rate * 1.03) < 1e-4, f'Standard Cost uses the {nxt} forecast rate ({lab_next})')
     tab(page, 'Labor')
     page.locator('.people-panel').get_by_role('button', name=f'Give {nxt} its own people').click(); page.wait_for_timeout(400)
@@ -402,9 +404,9 @@ with sync_playwright() as p:
     pb = page.evaluate(f"window.__MOCK_DB__.labor_positions.find(p => p.id === {hid})")
     check(pb['name'] == 'Line lead' and pb['pay_type'] == 'salaried', f'a position can be renamed and switched to salaried in place ({pb["name"]}, {pb["pay_type"]})')
     page.get_by_label('How Line lead is paid').select_option('hourly'); page.wait_for_timeout(250)
-    tab(page, 'Standard Cost')
-    lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(5).inner_text().strip('$'))
-    lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).inner_text().strip('$'))
+    tab(page, 'Master List')
+    lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(4).get_attribute('data-v'))
+    lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).get_attribute('data-v'))
     check(abs(lab_next - r_next) < 1e-4 and abs(lab_this - this_rate) < 1e-4, f'Standard Cost uses each year’s own labor rate ({lab_this}, {lab_next})')
     tab(page, 'Labor')
     page.get_by_role('button', name='Show 2026').click(); page.wait_for_timeout(200)
@@ -414,14 +416,24 @@ with sync_playwright() as p:
     check(abs(rate_now() - want()) < 1e-4, 'back to the workbook rate')
 
     # ---- admin edits a standard cost and recipe cost follows ----
-    tab(page, 'Standard Cost')
-    rec = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).inner_text()
-    orig = cell(page, 'sc|10001|2026').input_value()
-    c = cell(page, 'sc|10001|2026'); c.click(); c.fill(str(float(orig) + 1)); c.press('Tab'); page.wait_for_timeout(300)
-    rec2 = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).inner_text()
+    tab(page, 'Master List')
+    rec = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(4).get_attribute('data-v')
+    orig = cell(page, 'sc|100001|2026').input_value()
+    check(orig.startswith('$') is False and cell(page, 'sc|100001|2026').evaluate("e => getComputedStyle(e.closest('td'), '::before').content") == '"$"', f'entered costs show a $ at the left of the cell ({orig})')
+    cells = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(4)
+    check(cells.locator('.cur').inner_text() == '$' and cells.inner_text().replace('$', '').strip() == '0.13', f'calculated costs: $ at the left, to the penny or two significant digits ({cells.inner_text()!r})')
+    ls = page.locator('tr', has_text='Sodium Benzoate').locator('td').nth(4).locator('input')
+    check(ls.input_value() in ('0.14',), f'entered costs show to the penny ({ls.input_value()})')
+    check(page.locator('th', has_text='Latest cost').count() == 0, 'no Latest cost column')
+    check(page.locator('text=Type in the yellow').count() == 0, 'no “Type in the yellow cells” note')
+    check(page.locator('.sidebar').evaluate("e => Math.round(e.getBoundingClientRect().width)") == 170, 'the Master List side bar is narrower (170px)')
+    nos = page.locator('table.t tbody tr td:nth-child(3)').all_inner_texts()
+    check(all(len(n) == 6 for n in nos) and page.locator('tr', has_text='Cheese').locator('td').nth(2).inner_text() == '100001' and page.locator('tr', has_text='Original gallon').locator('td').nth(2).inner_text() == '500003', f'item numbers are 6 digits by type ({nos[:3]})')
+    c = cell(page, 'sc|100001|2026'); c.click(); orig = c.input_value(); c.fill(str(float(orig) + 1)); c.press('Tab'); page.wait_for_timeout(300)
+    rec2 = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(4).get_attribute('data-v')
     check(rec != rec2, f'recipe cost recalculates when cheese cost changes ({rec} -> {rec2})')
-    c = cell(page, 'sc|10001|2026'); c.click(); c.fill(orig); c.press('Tab'); page.wait_for_timeout(300)
-    check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).inner_text() == rec, 'restoring cheese cost restores recipe cost')
+    c = cell(page, 'sc|100001|2026'); c.click(); c.fill(orig); c.press('Tab'); page.wait_for_timeout(300)
+    check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(4).get_attribute('data-v') == rec, 'restoring cheese cost restores recipe cost')
     check(not errors, 'no browser errors during edits' + (f': {errors[:3]}' if errors else ''))
 
     # ---- sales summaries ----
@@ -569,8 +581,8 @@ with sync_playwright() as p:
     q = rows_.nth(box).locator('input[type=text]'); q.fill('2'); q.press('Tab'); page.wait_for_timeout(100)
     page.get_by_role('button', name='Save changes').click(); page.wait_for_timeout(300)
     check(page.locator('.bom-editor').count() == 0, 'saving an edit closes the editor')
-    v27 = page.evaluate("window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === 20001 && l.year === 2027).length")
-    v26 = page.evaluate("window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === 20001 && l.year === 2026).find(l => l.item_no === window.__MOCK_DB__.items.find(i => i.name === '7 oz Case Box').item_no).qty")
+    v27 = page.evaluate("window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === 500001 && l.year === 2027).length")
+    v26 = page.evaluate("window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === 500001 && l.year === 2026).find(l => l.item_no === window.__MOCK_DB__.items.find(i => i.name === '7 oz Case Box').item_no).qty")
     check(v27 >= 6 and v26 == 1, f'the 2027 change is saved as its own BOM; 2026 keeps 1 box ({v27} lines, 2026 qty {v26})')
     def box_qty():
         top = page.locator('tr.d0', has=page.locator('.tree-name', has_text='Original 7 oz.'))
@@ -586,7 +598,7 @@ with sync_playwright() as p:
     check(page.locator('.cb-future', has_text='Changes apply from 2027').is_visible() and page.get_by_role('button', name='Delete 2027 BOM').count() == 1, 'a year with its own BOM can delete just that year')
     page.get_by_role('button', name='Delete 2027 BOM').click(); page.wait_for_timeout(100)
     page.locator('dialog[open]').get_by_role('button', name='Delete').click(); page.wait_for_timeout(300)
-    check(page.evaluate("window.__MOCK_DB__.boms.filter(b => b.item_no === 20001).length") == 1, 'deleting the 2027 BOM goes back to 2026’s')
+    check(page.evaluate("window.__MOCK_DB__.boms.filter(b => b.item_no === 500001).length") == 1, 'deleting the 2027 BOM goes back to 2026’s')
     page.locator('.sidebar label.field', has_text='Year').locator('select').select_option('2026'); page.wait_for_timeout(150)
     # The tree now goes three levels deep under a product.
     tab(page, 'BOMs')
@@ -624,9 +636,9 @@ with sync_playwright() as p:
     page.locator('.gear').click(); page.wait_for_timeout(80)
     check(page.locator('.gear-menu a', has_text='Users').count() == 0, 'staff does not see Users in the gear menu')
     page.keyboard.press('Escape')
-    check(cell(page, 'sc|10001|2026').is_disabled(), 'staff cannot edit standard costs')
+    check(cell(page, 'sc|100001|2026').is_disabled(), 'staff cannot edit standard costs')
     tab(page, 'Production')
-    check(not cell(page, 'production|' + page.evaluate("(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01'})()") + '|20001').is_disabled(), 'staff can enter production')
+    check(not cell(page, 'production|' + page.evaluate("(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01'})()") + '|500001').is_disabled(), 'staff can enter production')
     shot(page, '23-staff-production')
     page.goto(BASE + '/#users'); page.wait_for_timeout(200)
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'staff going to #users lands on the dashboard')

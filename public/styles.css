@@ -753,3 +753,11 @@ table.side-people .pos-pay { display: block; box-sizing: border-box; max-width: 
 .bom-selected { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .bom-selected .btn { align-self: stretch; }
 .bom-editor .cb-future { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--ink); }
+
+/* Accounting format: $ at the far left of the cell, the amount at the right */
+td.acct { white-space: nowrap; }
+td.acct .cur { float: left; margin-right: 10px; }
+td.acct-cell { position: relative; }
+td.acct-cell::before { content: '$'; position: absolute; left: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; z-index: 1; }
+td.acct-cell:has(input:placeholder-shown)::before, td.acct-cell:has(input:focus)::before { content: none; }
+td.acct-cell input { padding-left: 18px; }

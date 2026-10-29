@@ -24,7 +24,6 @@ export default {
     const nFilters = activeFilterCount('prices');
     return h('div', null,
       pageHead('Standard Price', 'Price per case by year. The bottom row is the average price per oz across all products, which values the leftover from partial batches on Production.' + (admin ? '' : ' Only admins can change these.'),
-        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('prices'); rerender(); } }, `Clear filters (${nFilters})`) : null),
       h('div', { class: 'tablewrap', 'data-scroll': 'prices' },
         xtable({ id: 'prices', columns, allRows: fgs, rows, rerender, showTotals: prefTotals('prices'),

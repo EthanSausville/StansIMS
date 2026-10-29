@@ -14,8 +14,7 @@ export default {
       pageHead('Goods Receipt', 'Quantities received each day, in each item’s unit (pounds, cups or each). Typing math like 175*45 works.',
         monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); }),
         chip('Receipts', month.length),
-        chip('Delivery days', new Set(month.map((r) => r.date)).size),
-        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells')),
+        chip('Delivery days', new Set(month.map((r) => r.date)).size)),
       entryGrid({
         table: 'goods_receipts', field: 'qty', rerender, items, ym: view.ym, rows: state.data.goods_receipts,
         editable: { allowed: true, save: (date, item_no, v) => saveCell('goods_receipts', { date, item_no }, 'qty', v) },

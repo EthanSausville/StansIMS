@@ -5,8 +5,23 @@
 // against the numbers Excel calculated.
 
 export const TYPES = ['Raw Material', 'Component', 'Indirect Cost', 'Recipe', 'Finished Good'];
-export const LABOR_ITEM = 10019;    // "Direct Labor" (cost per minute comes from Labor Scenarios)
-export const OVERHEAD_ITEM = 10020; // "Overhead" (cost per minute is entered)
+// Item numbers are six digits; the first digit says the type.
+export const ITEM_PREFIX = { 'Raw Material': 1, Component: 2, 'Indirect Cost': 3, Recipe: 4, 'Finished Good': 5 };
+export const LABOR_ITEM = 300001; // "Direct Labor": its cost per minute comes from the Labor tab
+const LEGACY_LABOR_ITEM = 10019;  // the workbook's number for it
+export const isLaborItem = (itemNo) => itemNo === LABOR_ITEM || itemNo === LEGACY_LABOR_ITEM;
+// The next free number for a type (e.g. 100010 after raw material 100009).
+export function nextItemNo(items, type) {
+  const p = ITEM_PREFIX[type] || 1;
+  return Math.max(p * 100000, ...items.map((i) => i.item_no).filter((no) => Math.floor(no / 100000) === p)) + 1;
+}
+// Why an item number won't do for a type, or '' if it's fine.
+export function itemNoProblem(itemNo, type) {
+  const no = Number(itemNo); const p = ITEM_PREFIX[type];
+  if (!Number.isInteger(no) || no < 100000 || no > 999999) return 'Item numbers are 6 digits.';
+  if (p && Math.floor(no / 100000) !== p) return `${type} item numbers start with ${p} (${p}00001 to ${p}99999).`;
+  return '';
+}
 export const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
 // ---------- dates (ISO strings, UTC math so time zones never shift a day) ----------
@@ -273,7 +288,7 @@ export function costModel(data) {
     else if (yx.bom.has(itemNo)) {
       // Built from that year's BOM: cost of one run divided by what one run makes.
       v = yx.children(itemNo).reduce((s, l) => s + cost(l.item_no, year) * yx.lineQty(l), 0) / yx.yieldOf(itemNo);
-    } else if (itemNo === LABOR_ITEM) {
+    } else if (isLaborItem(itemNo)) {
       v = labor.rateFor(year);
     } else v = entered.get(key) ?? 0;
     memo.set(key, v);

@@ -39,7 +39,6 @@ export default {
       const nFilters = activeFilterCount('purchase-settings');
       return h('div', null,
         pageHead('Purchase Settings', 'Safety stock = safety threshold × lead time × planning usage. A purchase is suggested when inventory plus purchases already suggested drops below it.' + (admin ? '' : ' Only admins can change these.'), switcher,
-          h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells'),
           nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('purchase-settings'); rerender(); } }, `Clear filters (${nFilters})`) : null),
         h('div', { class: 'tablewrap', 'data-scroll': 'purchase-settings' }, xtable({ id: 'purchase-settings', columns, allRows: items, rows, rerender })));
     }

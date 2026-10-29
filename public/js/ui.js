@@ -33,6 +33,17 @@ export function fmt(v, digits = 0, min = digits) {
   return s === '-0' ? '0' : s;
 }
 export const money = (v, digits = 2) => (v === null || v === undefined ? '' : (v < 0 ? '-$' : '$') + fmt(Math.abs(v), digits));
+// Money to the penny, or to two significant digits when that shows more
+// ($0.0035, $0.13, $1.94, $1,250.00). acctText leaves off the $; acctCell
+// puts the $ at the far left of the cell, like Excel's Accounting format.
+export function acctText(v) {
+  if (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) return '';
+  const a = Math.abs(Number(v));
+  const d = a ? Math.min(8, Math.max(2, 1 - Math.floor(Math.log10(a)))) : 2;
+  return (v < 0 ? '(' : '') + fmt(a, d, 2) + (v < 0 ? ')' : '');
+}
+export const acctCell = (v, { class: cls = '', title } = {}) => h('td', { class: `num acct ${cls}`.trim(), title, 'data-v': v || null },
+  v ? [h('span', { class: 'cur' }, '$'), acctText(v)] : '');
 export const pct = (v) => (Number.isFinite(v) ? fmt(v * 100, 1, 1) + '%' : '');
 // Shows a quantity like Excel's General format: up to `digits` decimals, no trailing zeros.
 export const qty = (v, digits = 2) => fmt(v, digits, 0);

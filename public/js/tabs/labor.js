@@ -179,7 +179,7 @@ export default {
     const people = empty ? h('section', { class: 'panel' },
       h('h2', null, `${selYear} isn’t set up yet`),
       h('div', { class: 'empty-year' },
-        h('p', null, 'Add this year’s people and pay. Standard Cost has no labor cost for this year until it is set up.'),
+        h('p', null, 'Add this year’s people and pay. Master List has no labor cost for this year until it is set up.'),
         can ? h('div', { class: 'controls' }, h('button', { class: 'btn primary', onclick: addPosition }, '+ Add position')) : null)) : forecastNote;
 
     const setYear = (k, title, placeholder) => numberCell(ys[k] ?? null, (v) => saveRow('year_settings', { year: selYear }, { [k]: v }), { disabled: !can, key: `ly|${selYear}|${k}`, title,
@@ -222,7 +222,7 @@ export default {
     return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') },
       pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate. Click a year in the table to change it on the left.' + (admin ? '' : ' Only admins can change these.'),
         h('div', { class: 'labor-side' + (isFc ? ' fc-year' : '') }, yearHead, people, peoplePanel, plant),
-        !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Standard Cost uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
+        !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Master List uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
       h('section', { class: 'panel years-panel' }, h('div', { class: 'tablewrap flat' }, yearTable)),
       summary, whatPanel);
   },

@@ -16,8 +16,7 @@ export default {
     const clashes = days.filter((d) => items.some((it) => conflict(d, it)));
     return h('div', null,
       pageHead('Cycle Counts', 'What is physically on hand. A count replaces the running inventory for that item from that day on. Finished goods are counted in cases. Count on a day with no production and no deliveries; otherwise that day’s usage and receipts are applied on top of the count.',
-        monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); }),
-        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells')),
+        monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); })),
       clashes.length ? h('div', { class: 'note bad' }, `Counts this month on a day with production or a delivery (outlined below): ${clashes.map(longDate).join(', ')}.`) : null,
       entryGrid({
         table: 'cycle_counts', field: 'qty', items, ym: view.ym, rows: state.data.cycle_counts, footer: false,

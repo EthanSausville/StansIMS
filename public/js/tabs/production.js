@@ -20,8 +20,7 @@ export default {
         chip('Cases', qty(sum((d) => Object.values(d.cases).reduce((a, b) => a + b, 0)))),
         chip('Batches', fmt(sum((d) => d.batches))),
         chip('Oz', fmt(sum((d) => d.oz))),
-        chip('Est. loss', money(sum((d) => d.loss))),
-        h('span', { class: 'legend-entry' }, h('i'), 'Type in the yellow cells')),
+        chip('Est. loss', money(sum((d) => d.loss)))),
       entryGrid({
         table: 'production', field: 'cases', rerender, items: fgs, ym: view.ym, rows: state.data.production, notes: false, digits: 2,
         beforeLabels: ['Est. loss', 'Batches', 'Oz'], before: calc,

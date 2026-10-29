@@ -401,3 +401,31 @@ begin
   end if;
 end $$;
 create index if not exists bom_lines_parent_year_idx on public.bom_lines (parent_item_no, year);
+
+-- Item numbers are six digits and the first digit says the type:
+-- 1 raw material, 2 component (packaging), 3 indirect cost (labor, overhead,
+-- marketing, ...), 4 recipe, 5 finished good. Older five-digit numbers are
+-- renumbered once (each type in old-number order); every table that refers to
+-- an item follows along (on update cascade).
+do $$
+begin
+  if exists (select 1 from public.items where item_no < 100000) then
+    with p as (
+      select item_no, type, case type when 'Raw Material' then 1 when 'Component' then 2 when 'Indirect Cost' then 3
+                                      when 'Recipe' then 4 when 'Finished Good' then 5 end as prefix
+      from public.items where item_no < 100000
+    ), ranked as (
+      select p.item_no,
+             greatest(p.prefix * 100000, coalesce((select max(i.item_no) from public.items i where i.item_no / 100000 = p.prefix and i.item_no >= 100000), 0))
+               + row_number() over (partition by p.prefix order by p.item_no) as new_no
+      from p
+    )
+    update public.items i set item_no = r.new_no from ranked r where i.item_no = r.item_no;
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.items'::regclass and conname = 'items_item_no_by_type') then
+    alter table public.items add constraint items_item_no_by_type check (
+      item_no / 100000 = case type when 'Raw Material' then 1 when 'Component' then 2 when 'Indirect Cost' then 3
+                                   when 'Recipe' then 4 when 'Finished Good' then 5 end
+      and item_no < 600000);
+  end if;
+end $$;

@@ -7,9 +7,11 @@ Usage:
 The seed is safe to run more than once: keyed rows are skipped if they already
 exist, and sales are only loaded into an empty sales table.
 """
-import json, sys
+import json, sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from itemnos import renumber
 
-data = json.load(open(sys.argv[1]))['inputs']
+data = renumber(json.load(open(sys.argv[1]))['inputs'])  # six-digit item numbers
 out = []
 
 def lit(v):

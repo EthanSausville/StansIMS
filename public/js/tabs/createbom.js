@@ -5,7 +5,7 @@
 // Nothing is saved until Save.
 import { h, qty, money, fmt, toast, niceError, confirmDialog } from '../ui.js';
 import { state, derived, isAdmin, saveBom, deleteBom } from '../store.js';
-import { costModel, wouldLoop, index, evalEntry, TYPES } from '../calc.js';
+import { costModel, wouldLoop, index, evalEntry, TYPES, nextItemNo as nextNo, itemNoProblem } from '../calc.js';
 
 const stat = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'small muted' }, sub) : null);
 
@@ -15,11 +15,7 @@ let rerenderRef = () => {};
 
 const blankLine = () => ({ key: Math.random().toString(36).slice(2), id: null, item_no: null, qty: null, uses_batch_minutes: false });
 
-function nextItemNo(type) {
-  const nums = state.data.items.map((i) => i.item_no);
-  const base = type === 'Finished Good' ? 20000 : type === 'Recipe' ? 30000 : 10000;
-  return Math.max(base, ...nums.filter((n) => n > base && n < base + 10000)) + 1;
-}
+const nextItemNo = (type) => nextNo(state.data.items, type);
 
 function freshDraft(year) {
   return { year, mode: 'new', itemNo: null, newItem: { name: '', item_no: nextItemNo('Finished Good'), type: 'Finished Good', unit: 'ea' },
@@ -71,7 +67,8 @@ function problems() {
     const n = draft.newItem;
     if (!n.name.trim()) out.push('Give the new item a name.');
     else if (state.data.items.some((i) => i.name.toLowerCase() === n.name.trim().toLowerCase())) out.push(`An item named “${n.name.trim()}” already exists. Choose “Existing item” to give it a BOM.`);
-    if (!Number.isInteger(Number(n.item_no)) || Number(n.item_no) <= 0) out.push('The item # must be a whole number.');
+    const bad = itemNoProblem(n.item_no, n.type);
+    if (bad) out.push(bad);
     else if (state.data.items.some((i) => i.item_no === Number(n.item_no))) out.push(`Item # ${n.item_no} is already used.`);
   } else if (!draft.itemNo) out.push('Choose the item this BOM makes.');
   if (!(Number(draft.yieldQty) > 0)) out.push('“One run makes” must be more than 0.');

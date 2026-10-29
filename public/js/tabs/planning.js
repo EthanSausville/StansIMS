@@ -165,17 +165,19 @@ export const planningDashboardTab = {
     const stock = (r) => (hasReceiving(r.item) ? asReceived(r.item, r.onHand) : `${qty(r.onHand, 0)} ${unitWord(r.item.unit, r.onHand)}`);
     const materials = h('section', { class: 'panel pd-half' },
       h('h2', null, 'Materials and packaging'),
+      h('div', { class: 'body' },
       h('div', { class: 'pd-legend' }, ORDER.map((k) => h('span', { class: `pd-key ${k}` }, `${STATUS[k][0]} · ${counts[k]}`))),
       h('div', { class: 'scroll-x' }, h('table', { class: 't natural pd-status' },
         h('thead', null, h('tr', null, h('th', null, 'Item'), h('th', null, 'Status'), h('th', { class: 'num' }, 'On hand'), h('th', null, 'Order by'), h('th', null, 'How much'))),
         h('tbody', null, rows.map((r) => h('tr', { class: `st-${r.status}`, title: `${r.item.name}: ${qty(r.onHand, 1)} on hand, safety stock ${qty(r.safety, 1)} ${unitWord(r.item.unit, 2)}` },
           h('td', null, r.item.name), h('td', null, STATUS[r.status][0]), h('td', { class: 'num' }, stock(r)),
           h('td', null, r.next ? (r.next.orderBy < today ? 'Now' : longDate(r.next.orderBy)) : ''),
-          h('td', null, r.next ? orderText(r.item, r.next.qty) : '')))))));
+          h('td', null, r.next ? orderText(r.item, r.next.qty) : ''))))))));
     const weeks = plan.weeks.slice(0, ENTRY_WEEKS);
     const totals = weeks.map((_, i) => plan.rows.reduce((t, r) => t + r.weeks[i].production, 0));
     const production = h('section', { class: 'panel pd-half' },
       h('h2', null, `What we’ll make, next ${ENTRY_WEEKS} weeks (cases)`),
+      h('div', { class: 'body' },
       h('p', { class: 'small muted' }, `Type the cases you plan to make each week. A grey number is the average weekly sales (last ${HISTORY_WEEKS} weeks with sales) and is used until you type over it. The Purchase Plan orders materials for this production.`),
       h('div', { class: 'scroll-x' }, h('table', { class: 't natural plain-cells pd-prod' },
         h('thead', null, h('tr', null, h('th', null, 'Product'), weeks.map(weekHead))),
@@ -184,7 +186,7 @@ export const planningDashboardTab = {
             { disabled: !admin, digits: 0, key: `pp|${r.item.item_no}|${c.week}`, placeholder: qty(Math.round(c.demand), 0), cls: c.typed ? 'typed' : 'suggested',
               title: `${r.item.name}, week of ${longDate(c.week)} (average sales ${qty(c.demand, 1)} a week; clear to use it)` }))))),
         h('tfoot', null, h('tr', { class: 'xt-totals' }, h('td', null, 'Total cases'), totals.map((v) => h('td', { class: 'num' }, qty(v, 0)))),
-          plan.batches.map((b) => h('tr', { class: 'pd-batches' }, h('td', null, `${b.recipe.name.replace(/^RECIPE:\s*/, '')} batches`), b.weeks.slice(0, ENTRY_WEEKS).map((w) => h('td', { class: 'num', title: `${qty(w.oz, 0)} ${b.unit} needed; batch = ${qty(b.size, 0)} ${b.unit}` }, w.batches || ''))))))));
+          plan.batches.map((b) => h('tr', { class: 'pd-batches' }, h('td', null, `${b.recipe.name.replace(/^RECIPE:\s*/, '')} batches`), b.weeks.slice(0, ENTRY_WEEKS).map((w) => h('td', { class: 'num', title: `${qty(w.oz, 0)} ${b.unit} needed; batch = ${qty(b.size, 0)} ${b.unit}` }, w.batches || '')))))))));
     return h('div', null,
       pageHead('Planning Dashboard', `Left: every raw material and packaging item. Red is below safety stock now; orange needs ordering by the end of this week; yellow by the end of next week; green doesn’t need ordering for at least a week after that. Order in QuickBooks. Right: the cases to make each week, which drive the Purchase Plan. Safety stock is enough for ${SAFETY_LEAD_MULTIPLE}× each item’s lead time (Safety Stocks tab).`,
         ),

@@ -922,3 +922,12 @@ table.pd-prod td.cell.suggested input::placeholder { color: var(--faint); font-w
 table.pd-prod td.cell.typed input { font-weight: 700; color: var(--ink); }
 table.pd-prod tr.pd-batches td { font-weight: 400; color: var(--muted); font-size: 12px; border-top: 0; position: static; }
 .pd-grid > .panel { margin: 0; } table.t.pd-status td { white-space: nowrap; }
+/* Planning dashboard cards: content inset from the card edge, tables full width */
+.pd-half > .body { padding: 12px 14px 14px; }
+.pd-half table.pd-status, .pd-half table.pd-prod { width: 100%; }
+table.t.pd-status thead th, table.t.pd-prod thead th { background: transparent; position: static; }
+table.t.pd-prod th:first-child, table.t.pd-prod td:first-child { width: 40%; }
+table.t.pd-prod tfoot tr.xt-totals td { position: static; background: transparent; box-shadow: none; border-top: 1px solid var(--line-strong); color: var(--ink); font-size: 13px; }
+table.t.pd-prod tfoot tr.pd-batches td { position: static; background: transparent; border-top: 0; color: var(--muted); font-weight: 400; font-size: 12px; padding-top: 2px; padding-bottom: 2px; }
+.pd-legend { margin-bottom: 12px; }
+.pd-half > .body > p { margin: 0 0 10px; }

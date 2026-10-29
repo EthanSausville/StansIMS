@@ -177,3 +177,25 @@ test('multi-level BOMs: a BOM inside a BOM inside a BOM', () => {
   assert.equal(C.wouldLoop(nested, 10021, 30001), false);
   assert.equal(C.wouldLoop(nested, 30001, 30001), true);
 });
+
+test('BOMs by year: a later year’s BOM leaves earlier years alone', () => {
+  const base = { ...data, boms: C.bomData(data).boms.map((b) => ({ ...b, year: 2026 })), bom_lines: C.bomData(data).lines.map((l) => ({ ...l, year: 2026 })) };
+  const box = base.bom_lines.find((l) => l.parent_item_no === 20001 && !l.uses_batch_minutes && base.items.find((i) => i.item_no === l.item_no)?.type === 'Component' && Number(l.qty) === 1);
+  assert.ok(box, 'the 7 oz case has a one-per-case component');
+  const v27 = base.bom_lines.filter((l) => l.parent_item_no === 20001).map((l) => ({ ...l, id: `y${l.id}`, year: 2027, qty: l === box ? 2 : l.qty }));
+  const byYear = { ...base, boms: [...base.boms, { ...base.boms.find((b) => b.item_no === 20001), year: 2027 }], bom_lines: [...base.bom_lines, ...v27] };
+  // usage: 2026 (and earlier) keep one box per case, 2027 and later use two
+  assert.equal(C.perCaseUsage(byYear, 2026).get(20001).get(box.item_no), 1);
+  assert.equal(C.perCaseUsage(byYear, 2025).get(20001).get(box.item_no), 1);
+  assert.equal(C.perCaseUsage(byYear, 2027).get(20001).get(box.item_no), 2);
+  assert.equal(C.perCaseUsage(byYear, 2030).get(20001).get(box.item_no), 2);
+  // costs: 2026 unchanged; 2027 adds one box at the 2027 box cost
+  const a = C.costModel(base); const b = C.costModel(byYear);
+  close(b.cost(20001, 2026), a.cost(20001, 2026), '2026 case cost unchanged');
+  close(b.cost(20001, 2027), a.cost(20001, 2027) + a.cost(box.item_no, 2027), '2027 case cost has one more box');
+  // production on a 2027 date uses up the 2027 BOM
+  const prod = { ...byYear, production: [{ date: '2026-12-31', item_no: 20001, cases: 10 }, { date: '2027-01-04', item_no: 20001, cases: 10 }] };
+  const cons = C.consumptionByDate(prod);
+  assert.equal(cons.get('2026-12-31').get(box.item_no), 10);
+  assert.equal(cons.get('2027-01-04').get(box.item_no), 20);
+});

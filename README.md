@@ -7,7 +7,7 @@ Tabs are grouped across the top:
 - **Accounting:** Journals, T-Accounts
 - **Sales:** Sales Detail (the workbook's SalesReport; load QuickBooks reports onto it), By Customer, By Product, Standard Price
 - **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Purchase Demand
-- **Standards:** Standard Cost, BOMs (every bill of materials as an expandable tree; New BOM or Edit opens the editor in the left side bar, with a warning that a BOM edit applies to every year; BOMs can contain other BOMs to any depth), Labor
+- **Standards:** Standard Cost, BOMs (every bill of materials for a year as an expandable tree; New BOM, or select a BOM and Edit BOM, opens the editor in the left side bar. BOMs are by year: a year without its own BOM carries the latest earlier one, so next year's BOMs can be changed freely; editing the current or a past year shows a warning; BOMs can contain other BOMs to any depth), Labor
 - **Users** (admins, from the gear menu at the right of the blue bar)
 
 On table tabs, the actions (loading a report, month and year pickers, Add item, Clear filters …) are in a side bar on the left. Drag its edge to resize it, or fold it away with the ‹ button; both are remembered. The (i) at the right of the page tabs explains the page.

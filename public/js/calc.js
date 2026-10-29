@@ -58,21 +58,37 @@ export function evalEntry(text) {
 //
 // Data from before multi-level BOMs (recipes / recipe_lines / fg_lines) is
 // converted here, so older exports still calculate the same way.
-export function bomData(data) {
-  if (Array.isArray(data.boms) && Array.isArray(data.bom_lines)) return { boms: data.boms, lines: data.bom_lines };
-  const boms = []; const lines = [];
-  for (const r of data.recipes || []) boms.push({ item_no: r.item_no, yield_qty: r.batch_size, yield_unit: 'oz' });
-  for (const l of data.recipe_lines || []) lines.push({ id: `r${lines.length}`, parent_item_no: l.recipe_item_no, item_no: l.item_no, qty: l.qty, uses_batch_minutes: !!l.uses_batch_minutes, sort: l.sort });
-  for (const fg of new Set((data.fg_lines || []).map((l) => l.fg_item_no))) boms.push({ item_no: fg, yield_qty: 1, yield_unit: 'case' });
-  for (const l of data.fg_lines || []) lines.push({ id: `f${lines.length}`, parent_item_no: l.fg_item_no, item_no: l.item_no, qty: l.qty, uses_batch_minutes: false, sort: l.sort });
-  return { boms, lines };
+export function bomData(data, year) {
+  let boms; let lines;
+  if (Array.isArray(data.boms) && Array.isArray(data.bom_lines)) { boms = data.boms; lines = data.bom_lines; } else {
+    boms = []; lines = [];
+    for (const r of data.recipes || []) boms.push({ item_no: r.item_no, yield_qty: r.batch_size, yield_unit: 'oz' });
+    for (const l of data.recipe_lines || []) lines.push({ id: `r${lines.length}`, parent_item_no: l.recipe_item_no, item_no: l.item_no, qty: l.qty, uses_batch_minutes: !!l.uses_batch_minutes, sort: l.sort });
+    for (const fg of new Set((data.fg_lines || []).map((l) => l.fg_item_no))) boms.push({ item_no: fg, yield_qty: 1, yield_unit: 'case' });
+    for (const l of data.fg_lines || []) lines.push({ id: `f${lines.length}`, parent_item_no: l.fg_item_no, item_no: l.item_no, qty: l.qty, uses_batch_minutes: false, sort: l.sort });
+  }
+  // BOMs by year: each BOM row starts in its `year` and carries forward until a
+  // later year has its own. A year before an item's first BOM uses that first one.
+  const vy = (r) => (r.year === null || r.year === undefined ? -Infinity : Number(r.year));
+  const pick = new Map();
+  for (const b of boms) {
+    const y = vy(b); const cur = pick.get(b.item_no);
+    const better = !cur || (y <= year ? (cur.y > year || y > cur.y) : (cur.y > year && y < cur.y));
+    if (better) pick.set(b.item_no, { y, b });
+  }
+  const versionYear = new Map([...pick].map(([k, v]) => [k, v.y]));
+  return { boms: [...pick.values()].map((v) => v.b), lines: lines.filter((l) => vy(l) === versionYear.get(l.parent_item_no)), versionYear };
 }
 
+// The years that have their own BOM for an item (sorted).
+export const bomYears = (data, itemNo) => [...new Set((data.boms || []).filter((b) => b.item_no === itemNo).map((b) => b.year ?? null))].sort((a, b) => (a ?? -1e9) - (b ?? -1e9));
+
 // ---------- lookups ----------
-export function index(data) {
+// `year` picks which year's BOMs to use (this year when not given).
+export function index(data, year = new Date().getFullYear()) {
   const items = new Map(data.items.map((i) => [i.item_no, i]));
   const byType = (t) => data.items.filter((i) => i.type === t).sort((a, b) => a.sort - b.sort);
-  const { boms, lines } = bomData(data);
+  const { boms, lines, versionYear } = bomData(data, year);
   const bom = new Map(boms.map((b) => [b.item_no, b]));
   const linesOf = new Map();
   for (const l of [...lines].sort((a, b) => n(a.sort) - n(b.sort))) {
@@ -93,7 +109,9 @@ export function index(data) {
   // Items that appear inside another BOM are not top-level.
   const usedIn = new Map();
   for (const l of lines) { if (!usedIn.has(l.item_no)) usedIn.set(l.item_no, new Set()); usedIn.get(l.item_no).add(l.parent_item_no); }
-  return { items, byType, bom, children, yieldOf, laborMinutesOf, lineQty, fgCaseOz, usedIn };
+  // The year whose BOM is in use for an item (-Infinity for BOMs with no year).
+  const bomYear = (itemNo) => versionYear.get(itemNo);
+  return { year, items, byType, bom, children, yieldOf, laborMinutesOf, lineQty, fgCaseOz, usedIn, bomYear };
 }
 
 // True when putting `child` into `parent`'s BOM would make a loop
@@ -181,7 +199,7 @@ export function laborRate(data, { year, lineHours } = {}) {
   const sum = (f) => rows.reduce((t, r) => t + f(r), 0);
   const burdened = sum((r) => r.burdened); const minutes = sum((r) => r.minutes);
   const rate = minutes ? burdened / minutes : 0;
-  const ix = data.items ? index(data) : null;
+  const ix = data.items ? index(data, year) : null;
   const recipes = ix ? ix.byType('Recipe').filter((r) => ix.bom.has(r.item_no)).map((r) => {
     const batchOz = ix.yieldOf(r.item_no); const minutesPer = ix.laborMinutesOf(r.item_no);
     return { item: r, batchOz, minutesPer, perBatch: rate * minutesPer, perOz: batchOz ? (rate * minutesPer) / batchOz : 0, batchesPerYear: minutesPer ? minutes / minutesPer : 0 };
@@ -228,8 +246,14 @@ export function laborModel(data) {
 
 // ---------- Standard Cost ----------
 // Returns { years, cost(item_no, year), latest(item_no), recipeDetail, fgDetail }.
+// Index of BOMs for each year, built when first needed.
+function indexByYear(data) {
+  const m = new Map();
+  return (y) => { if (!m.has(y)) m.set(y, index(data, y)); return m.get(y); };
+}
+
 export function costModel(data) {
-  const ix = index(data);
+  const ixFor = indexByYear(data); const ix = ixFor(new Date().getFullYear());
   const entered = new Map(data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, n(c.cost)]));
   const labor = laborModel(data);
   const yearsSet = new Set([...data.standard_costs.map((c) => c.year), ...data.year_settings.map((y) => y.year),
@@ -244,17 +268,17 @@ export function costModel(data) {
     const item = ix.items.get(itemNo);
     memo.set(key, 0); // guards against a BOM loop
     let v = 0;
+    const yx = ixFor(year);
     if (!item) v = 0;
-    else if (ix.bom.has(itemNo)) {
-      // Built from its BOM: cost of one run divided by what one run makes.
-      v = ix.children(itemNo).reduce((s, l) => s + cost(l.item_no, year) * lineQty(l), 0) / ix.yieldOf(itemNo);
+    else if (yx.bom.has(itemNo)) {
+      // Built from that year's BOM: cost of one run divided by what one run makes.
+      v = yx.children(itemNo).reduce((s, l) => s + cost(l.item_no, year) * yx.lineQty(l), 0) / yx.yieldOf(itemNo);
     } else if (itemNo === LABOR_ITEM) {
       v = labor.rateFor(year);
     } else v = entered.get(key) ?? 0;
     memo.set(key, v);
     return v;
   }
-  const { lineQty } = ix;
   // "Latest Cost": the last year with a non-zero cost.
   const latest = (itemNo) => { for (let i = years.length - 1; i >= 0; i--) { const v = cost(itemNo, years[i]); if (v) return v; } return 0; };
   // Cost for a year, falling back to the nearest year that has standards.
@@ -263,7 +287,7 @@ export function costModel(data) {
     const ys = years.filter((y) => cost(itemNo, y)).sort((a, b) => Math.abs(a - year) - Math.abs(b - year) || a - b);
     return ys.length ? cost(itemNo, ys[0]) : 0;
   };
-  return { years, cost, latest, nearest, labor, ix, lineQty };
+  return { years, cost, latest, nearest, labor, ix, ixFor };
 }
 
 // Price per case, with the same nearest-year fallback.
@@ -282,7 +306,7 @@ export function priceModel(data) {
 // StandardPrice!C1: average price per oz across every finished good for a year
 // (a finished good without a price counts as 0, as in the workbook).
 export function avgPricePerOz(data, year) {
-  const ix = index(data); const pm = priceModel(data);
+  const ix = index(data, year); const pm = priceModel(data);
   const fgs = ix.byType('Finished Good');
   if (!fgs.length) return 0;
   return fgs.reduce((s, f) => s + (ix.fgCaseOz.get(f.item_no) ? pm.price(f.item_no, year) / ix.fgCaseOz.get(f.item_no) : 0), 0) / fgs.length;
@@ -293,15 +317,20 @@ export function avgPricePerOz(data, year) {
 // last, partly-used batch (Production!D:F). Each recipe is batched on its own,
 // in its own batch size (the recipe BOM's "one run makes").
 export function productionDays(data) {
-  const ix = index(data);
+  const ixFor = indexByYear(data);
   const fallbackB = n(data.settings.production_batch_size);
-  // oz of each recipe in one case of each finished good
-  const recipeOz = new Map();
-  for (const fg of ix.byType('Finished Good')) {
-    const m = new Map();
-    for (const l of ix.children(fg.item_no)) if (ix.items.get(l.item_no)?.type === 'Recipe') m.set(l.item_no, (m.get(l.item_no) || 0) + n(l.qty) / ix.yieldOf(fg.item_no));
-    recipeOz.set(fg.item_no, m);
-  }
+  // oz of each recipe in one case of each finished good, per year's BOMs
+  const ozCache = new Map();
+  const recipeOzFor = (ix) => {
+    if (ozCache.has(ix.year)) return ozCache.get(ix.year);
+    const recipeOz = new Map();
+    for (const fg of ix.byType('Finished Good')) {
+      const m = new Map();
+      for (const l of ix.children(fg.item_no)) if (ix.items.get(l.item_no)?.type === 'Recipe') m.set(l.item_no, (m.get(l.item_no) || 0) + n(l.qty) / ix.yieldOf(fg.item_no));
+      recipeOz.set(fg.item_no, m);
+    }
+    ozCache.set(ix.year, recipeOz); return recipeOz;
+  };
   const byDate = new Map();
   for (const p of data.production) {
     if (!byDate.has(p.date)) byDate.set(p.date, { date: p.date, cases: {} });
@@ -310,6 +339,7 @@ export function productionDays(data) {
   const avgCache = new Map();
   const avg = (y) => { if (!avgCache.has(y)) avgCache.set(y, avgPricePerOz(data, y)); return avgCache.get(y); };
   return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).map((row) => {
+    const ix = ixFor(yearOf(row.date)); const recipeOz = recipeOzFor(ix);
     const perRecipe = new Map(); let oz = 0;
     for (const [fg, c] of Object.entries(row.cases)) {
       const m = recipeOz.get(Number(fg));
@@ -330,8 +360,8 @@ export function productionDays(data) {
 // How much of each raw material and packaging item one unit of a finished good
 // uses, following its BOM down through every level. Labor and overhead are
 // costs, not stock, so they are skipped.
-export function perCaseUsage(data) {
-  const ix = index(data); const out = new Map();
+export function perCaseUsage(data, year) {
+  const ix = index(data, year); const out = new Map();
   const expand = (itemNo, per, m, path) => {
     if (path.has(itemNo)) return; path.add(itemNo);
     for (const l of ix.children(itemNo)) {
@@ -348,9 +378,10 @@ export function perCaseUsage(data) {
 }
 
 export function consumptionByDate(data) {
-  const usage = perCaseUsage(data); const out = new Map();
+  const byYear = new Map(); const out = new Map();
+  const usageFor = (y) => { if (!byYear.has(y)) byYear.set(y, perCaseUsage(data, y)); return byYear.get(y); };
   for (const p of data.production) {
-    const u = usage.get(p.item_no); if (!u) continue;
+    const u = usageFor(yearOf(p.date)).get(p.item_no); if (!u) continue;
     if (!out.has(p.date)) out.set(p.date, new Map());
     const day = out.get(p.date);
     for (const [item, q] of u) day.set(item, (day.get(item) || 0) + q * n(p.cases));
@@ -415,9 +446,9 @@ export function purchaseDemand(data, inv) {
 
 // ---------- Sales Report ----------
 export function salesRows(data) {
-  const ix = index(data); const cm = costModel(data); const pm = priceModel(data);
+  const cm = costModel(data); const pm = priceModel(data);
   return data.sales.map((s) => {
-    const y = yearOf(s.date); const q = n(s.quantity);
+    const y = yearOf(s.date); const q = n(s.quantity); const ix = cm.ixFor(y);
     const fg = s.item_no && ix.items.get(s.item_no)?.type === 'Finished Good' ? s.item_no : null;
     const oz = fg ? (ix.fgCaseOz.get(fg) || 0) * q : 0;
     const stdPrice = fg ? pm.nearest(fg, y) * q : 0;

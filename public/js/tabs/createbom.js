@@ -10,6 +10,7 @@ import { costModel, wouldLoop, index, evalEntry, TYPES } from '../calc.js';
 const stat = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'small muted' }, sub) : null);
 
 let draft = null;
+const THIS_YEAR = new Date().getFullYear();
 let rerenderRef = () => {};
 
 const blankLine = () => ({ key: Math.random().toString(36).slice(2), id: null, item_no: null, qty: null, uses_batch_minutes: false });
@@ -20,17 +21,22 @@ function nextItemNo(type) {
   return Math.max(base, ...nums.filter((n) => n > base && n < base + 10000)) + 1;
 }
 
-function freshDraft() {
-  return { mode: 'new', itemNo: null, newItem: { name: '', item_no: nextItemNo('Finished Good'), type: 'Finished Good', unit: 'ea' },
+function freshDraft(year) {
+  return { year, mode: 'new', itemNo: null, newItem: { name: '', item_no: nextItemNo('Finished Good'), type: 'Finished Good', unit: 'ea' },
     yieldQty: 1, yieldUnit: 'case', laborMinutes: null, lines: [blankLine()], dirty: false };
 }
 
-function loadExisting(itemNo) {
-  const b = state.data.boms.find((x) => x.item_no === itemNo);
-  const lines = state.data.bom_lines.filter((l) => l.parent_item_no === itemNo).sort((a, c) => a.sort - c.sort)
-    .map((l) => ({ key: String(l.id), id: l.id, item_no: l.item_no, qty: l.qty, uses_batch_minutes: !!l.uses_batch_minutes }));
+// Loads the BOM an item uses in `year`. If that BOM started in an earlier year,
+// the draft is a copy: saving it gives the item its own BOM from `year` on.
+function loadExisting(itemNo, year) {
+  const ix = index(state.data, year);
+  const b = ix.bom.get(itemNo);
+  const from = b ? ix.bomYear(itemNo) : null;
+  const own = !!b && from === year;
+  const lines = b ? ix.children(itemNo)
+    .map((l) => ({ key: Math.random().toString(36).slice(2), id: own ? l.id : null, item_no: l.item_no, qty: l.qty, uses_batch_minutes: !!l.uses_batch_minutes })) : [];
   const it = state.data.items.find((i) => i.item_no === itemNo);
-  return { mode: b ? 'edit' : 'existing', itemNo, newItem: null,
+  return { year, mode: b ? 'edit' : 'existing', itemNo, newItem: null, own, from: b && !own && Number.isFinite(from) ? from : null,
     yieldQty: b ? Number(b.yield_qty) : 1, yieldUnit: b ? (b.yield_unit || '') : (it?.type === 'Finished Good' ? 'case' : it?.unit || ''),
     laborMinutes: b && b.labor_minutes !== null && b.labor_minutes !== undefined ? Number(b.labor_minutes) : (lines.some((l) => l.uses_batch_minutes) ? Number(state.data.settings.minutes_per_batch) || null : null),
     lines: lines.length ? lines : [blankLine()], dirty: false };
@@ -39,9 +45,9 @@ function loadExisting(itemNo) {
 export const editorOpen = () => !!draft;
 const closeEditor = () => { draft = null; rerenderRef(); };
 
-// Opens the editor on an item's BOM (or a blank new BOM when itemNo is null).
-export function openInEditor(itemNo) {
-  draft = itemNo === null ? freshDraft() : loadExisting(itemNo);
+// Opens the editor on an item's BOM for a year (or a blank new BOM when itemNo is null).
+export function openInEditor(itemNo, year) {
+  draft = itemNo === null ? freshDraft(year) : loadExisting(itemNo, year);
   if (location.hash !== '#bom') location.hash = 'bom';
   window.dispatchEvent(new Event('stans:side-open'));
   rerenderRef();
@@ -52,9 +58,10 @@ function previewData() {
   const d = state.data;
   const target = draft.mode === 'new' ? Number(draft.newItem.item_no) : draft.itemNo;
   const items = draft.mode === 'new' && target ? [...d.items, { ...draft.newItem, item_no: target, sort: 1e9 }] : d.items;
-  const boms = [...d.boms.filter((b) => b.item_no !== target), { item_no: target, yield_qty: Number(draft.yieldQty) || 1, yield_unit: draft.yieldUnit, labor_minutes: draft.laborMinutes }];
-  const lines = [...d.bom_lines.filter((l) => l.parent_item_no !== target),
-    ...draft.lines.filter((l) => l.item_no).map((l, i) => ({ id: `draft${i}`, parent_item_no: target, item_no: l.item_no, qty: l.qty, uses_batch_minutes: l.uses_batch_minutes, sort: i + 1 }))];
+  const y = draft.year; const other = (r, k) => !(r[k] === target && r.year === y);
+  const boms = [...d.boms.filter((b) => other(b, 'item_no')), { item_no: target, year: y, yield_qty: Number(draft.yieldQty) || 1, yield_unit: draft.yieldUnit, labor_minutes: draft.laborMinutes }];
+  const lines = [...d.bom_lines.filter((l) => other(l, 'parent_item_no')),
+    ...draft.lines.filter((l) => l.item_no).map((l, i) => ({ id: `draft${i}`, parent_item_no: target, year: y, item_no: l.item_no, qty: l.qty, uses_batch_minutes: l.uses_batch_minutes, sort: i + 1 }))];
   return { target, data: { ...d, items, boms, bom_lines: lines } };
 }
 
@@ -73,7 +80,9 @@ function problems() {
   if (!filled.length) out.push('Add at least one line.');
   for (const l of filled) {
     const it = state.data.items.find((i) => i.item_no === l.item_no);
-    if (!l.uses_batch_minutes && !(Number(l.qty) > 0)) out.push(`Enter a quantity for ${it?.name || 'each line'}.`);
+    // Labor and overhead lines may be left blank (no cost); everything else needs a quantity.
+    const blankOk = it?.type === 'Indirect Cost' && (l.qty === null || l.qty === undefined || l.qty === '');
+    if (!l.uses_batch_minutes && !blankOk && !(Number(l.qty) > 0)) out.push(`Enter a quantity for ${it?.name || 'each line'}.`);
   }
   const seen = new Set();
   for (const l of filled) { if (seen.has(l.item_no)) out.push(`${state.data.items.find((i) => i.item_no === l.item_no)?.name} is listed twice.`); seen.add(l.item_no); }
@@ -81,13 +90,14 @@ function problems() {
 }
 
 // The editor, laid out for the side bar. `year` is the cost year shown.
-export function bomEditor({ rerender, year }) {
+export function bomEditor({ rerender }) {
   rerenderRef = rerender;
   if (!isAdmin() || !draft) return [];
-  const ix = derived.ix(); const cmNow = derived.costs();
+  const { year } = draft;
+  const ix = index(state.data, year); const cmNow = derived.costs();
   const touch = () => { draft.dirty = true; rerender(); };
   const { target, data: preview } = previewData();
-  const pix = index(preview); const pcm = costModel(preview);
+  const pix = index(preview, year); const pcm = costModel(preview);
   const unitOf = (itemNo) => (itemNo === target && draft.mode === 'new' ? draft.newItem.unit : ix.items.get(itemNo)?.unit) || '';
   const name = draft.mode === 'new' ? (draft.newItem.name.trim() || 'New item') : ix.items.get(draft.itemNo)?.name;
 
@@ -95,14 +105,14 @@ export function bomEditor({ rerender, year }) {
   const makesExisting = draft.mode !== 'new';
   const editing = draft.mode === 'edit';
   // A new BOM can be for an existing item that doesn't have one yet; BOMs that exist are changed with Edit.
-  const candidates = state.data.items.filter((i) => i.type !== 'Indirect Cost' && !ix.bom.has(i.item_no)).sort((a, b) => a.name.localeCompare(b.name));
+  const candidates = state.data.items.filter((i) => i.type !== 'Indirect Cost' && !(ix.bom.has(i.item_no) && ix.bomYear(i.item_no) <= year)).sort((a, b) => a.name.localeCompare(b.name));
   const what = h('section', { class: 'cb-part' }, h('h3', null, editing ? 'What it makes' : '1. What does it make?'),
     editing ? null : h('div', { class: 'seg', role: 'group', 'aria-label': 'New or existing item' },
-      h('button', { 'aria-pressed': String(!makesExisting), onclick: () => { if (makesExisting) { draft = freshDraft(); rerender(); } } }, 'New item'),
+      h('button', { 'aria-pressed': String(!makesExisting), onclick: () => { if (makesExisting) { draft = freshDraft(year); rerender(); } } }, 'New item'),
       h('button', { 'aria-pressed': String(makesExisting), onclick: () => { if (!makesExisting) { draft = { ...draft, mode: 'existing', itemNo: null, newItem: null }; rerender(); } } }, 'Existing item')),
     editing ? null : makesExisting
       ? h('label', { class: 'field' }, 'Item',
-        h('select', { id: 'cb-item', onchange: (e) => { const v = Number(e.target.value) || null; draft = v ? loadExisting(v) : { ...draft, itemNo: null }; rerender(); } },
+        h('select', { id: 'cb-item', onchange: (e) => { const v = Number(e.target.value) || null; draft = v ? loadExisting(v, year) : { ...draft, itemNo: null }; rerender(); } },
           h('option', { value: '' }, 'Choose an item…'),
           candidates.map((i) => h('option', { value: i.item_no, selected: i.item_no === draft.itemNo }, `${i.name} (#${i.item_no})`))))
       : h('div', { class: 'cb-fields' },
@@ -189,7 +199,7 @@ export function bomEditor({ rerender, year }) {
       const itemNo = draft.mode === 'new' ? Number(draft.newItem.item_no) : draft.itemNo;
       const newItem = draft.mode === 'new' ? { item_no: itemNo, name: draft.newItem.name.trim(), type: draft.newItem.type, unit: draft.newItem.unit || null,
         sort: Math.max(0, ...state.data.items.map((i) => i.sort)) + 1 } : null;
-      await saveBom({ newItem, itemNo, yieldQty: Number(draft.yieldQty), yieldUnit: draft.yieldUnit, laborMinutes: draft.laborMinutes, lines });
+      await saveBom({ newItem, itemNo, year, yieldQty: Number(draft.yieldQty), yieldUnit: draft.yieldUnit, laborMinutes: draft.laborMinutes, lines });
       toast(`Saved the BOM for ${name}.`);
       closeEditor();
     } catch (err) { toast(niceError(err), 'bad'); }
@@ -200,17 +210,21 @@ export function bomEditor({ rerender, year }) {
     h('div', { class: 'small muted' }, `One run makes ${qty(Number(draft.yieldQty) || 0, 2)} ${draft.yieldUnit} and costs ${money(runCost, 2)}.`),
     issues.length && draft.dirty ? h('ul', { class: 'cb-issues' }, issues.map((i) => h('li', null, i))) : null,
     h('div', { class: 'controls' },
-      draft.mode === 'edit' ? h('button', { class: 'btn danger', onclick: async () => {
-        if (!(await confirmDialog(`Delete the BOM for ${name}? The item stays; it just won’t have a BOM.`))) return;
-        try { await deleteBom(draft.itemNo); toast('BOM deleted.'); closeEditor(); } catch (err) { toast(niceError(err), 'bad'); }
-      } }, 'Delete BOM') : null,
+      draft.mode === 'edit' && draft.own ? h('button', { class: 'btn danger', onclick: async () => {
+        const earlier = state.data.boms.some((b) => b.item_no === draft.itemNo && b.year < year);
+        if (!(await confirmDialog(earlier ? `Delete the ${year} BOM for ${name}? From ${year} on it goes back to the earlier year’s BOM.` : `Delete the BOM for ${name}? The item stays; it just won’t have a BOM.`))) return;
+        try { await deleteBom(draft.itemNo, year); toast('BOM deleted.'); closeEditor(); } catch (err) { toast(niceError(err), 'bad'); }
+      } }, `Delete ${year} BOM`) : null,
       h('button', { class: 'btn', onclick: async () => { if (draft.dirty && !(await confirmDialog('Close without saving? Your changes will be lost.', 'Discard changes'))) return; closeEditor(); } }, 'Cancel'),
       h('button', { class: 'btn primary', disabled: !draft.dirty && draft.mode === 'edit', onclick: save }, draft.mode === 'edit' ? 'Save changes' : 'Save BOM')));
 
   return h('div', { class: 'bom-editor' },
-    h('div', { class: 'cb-head' }, h('strong', { class: 'tb-title' }, editing ? `Editing: ${name}` : 'New BOM')),
-    editing ? h('div', { class: 'note warn cb-warning', role: 'note' },
-      h('strong', null, 'Edit BOMs only when setting up a new year or a new BOM.'),
-      h('div', null, 'Small fixes (a typo’d quantity, a missed line) are the exception. A BOM has no history: a change here applies to every year, so it recalculates past standard costs, sales margins and inventory values, and the ingredients that past production used up.')) : null,
+    h('div', { class: 'cb-head' }, h('strong', { class: 'tb-title' }, editing ? `Editing ${year}: ${name}` : `New BOM for ${year}`)),
+    editing && year <= THIS_YEAR ? h('div', { class: 'note warn cb-warning', role: 'note' },
+      h('strong', null, `Careful: ${year} is ${year === THIS_YEAR ? 'the current year' : 'a past year'}. Changing its BOM can break things.`),
+      h('div', null, `It recalculates ${year}’s standard costs, sales margins and inventory values, and the ingredients that production already used up. Only fix real mistakes here; make planned changes in a future year.`)) : null,
+    editing && year > THIS_YEAR ? h('p', { class: 'small muted cb-future' }, draft.from !== null
+      ? `Starts as a copy of the ${draft.from} BOM. Saving gives ${name} its own BOM from ${year} on; ${draft.from} keeps its BOM.`
+      : `Changes apply from ${year} on. Earlier years keep their BOM.`) : null,
     what, linesPart, laborPart, savePart);
 }

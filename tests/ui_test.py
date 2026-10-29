@@ -20,7 +20,8 @@ def mock_db():
     db['boms'] += [dict(item_no=f, yield_qty=1, yield_unit='case') for f in dict.fromkeys(l['fg_item_no'] for l in inputs['fg_lines'])]
     db['bom_lines'] = [dict(parent_item_no=l['recipe_item_no'], item_no=l['item_no'], qty=l['qty'], uses_batch_minutes=l['uses_batch_minutes'], sort=l['sort']) for l in inputs['recipe_lines']]
     db['bom_lines'] += [dict(parent_item_no=l['fg_item_no'], item_no=l['item_no'], qty=l['qty'], uses_batch_minutes=False, sort=l['sort']) for l in inputs['fg_lines']]
-    db['bom_lines'] = [dict(l, id=i + 1) for i, l in enumerate(db['bom_lines'])]
+    db['bom_lines'] = [dict(l, id=i + 1, year=2026) for i, l in enumerate(db['bom_lines'])]
+    db['boms'] = [dict(b, year=2026) for b in db['boms']]
     db['sales'] = [dict({k: v for k, v in r.items() if k != 'row'}, id=i + 1) for i, r in enumerate(inputs['sales'])]
     db['settings'] = [dict(inputs['settings'], id=1)]
     db['sales_imports'] = []
@@ -75,7 +76,8 @@ ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
 
 def edit_bom(page, name):
     row = page.locator('table.tree-table tr.d0', has=page.locator('.tree-name', has_text=name)).first
-    row.get_by_role('button', name='Edit').click(); page.wait_for_timeout(150)
+    row.click(); page.wait_for_timeout(100)
+    page.get_by_role('button', name='Edit BOM').click(); page.wait_for_timeout(150)
 
 
 def tab(page, label):
@@ -476,6 +478,8 @@ with sync_playwright() as p:
 
     # ---- BOMs tree ----
     tab(page, 'BOMs')
+    while page.locator('table.tree-table button.twisty[aria-expanded=true]').count():
+        page.locator('table.tree-table button.twisty[aria-expanded=true]').first.click(); page.wait_for_timeout(60)
     rows = page.locator('table.tree-table tbody tr')
     tops = rows.locator('.tree-name').all_inner_texts()
     check(rows.count() == 8 and 'RECIPE: Original' in tops and 'RECIPE: Jalapeños' in tops, f'BOMs lists all 8 BOMs at top level, recipes included ({rows.count()} rows)')
@@ -506,11 +510,13 @@ with sync_playwright() as p:
     check(fit == 0, f'BOM editor fits the side bar width ({fit} overflowing)')
     page.get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100)
     check(page.locator('.bom-editor').count() == 0, 'Cancel on an untouched new BOM closes it')
-    page.locator('.side-fold').click(); page.wait_for_timeout(80)
+    check(page.locator('.bom-year-head h2').inner_text() == '2026 BOMs', 'the BOMs show which year they are for')
+    check(page.locator('table.tree-table button', has_text='Edit').count() == 0, 'no Edit buttons on the rows')
     edit_bom(page, 'Original 7 oz.')
-    check(page.evaluate("location.hash") == '#bom', 'Edit stays on the BOMs tab')
-    check('folded' not in page.locator('.sidebar').get_attribute('class'), 'Edit unfolds the side bar')
-    check(page.locator('.bom-editor .tb-title', has_text='Editing').count() == 1, 'Edit loads the BOM into the editor')
+    check(page.locator('tr.d0.selected .tree-name').first.inner_text().startswith('Original 7 oz.'), 'clicking a BOM selects it')
+    check(page.evaluate("location.hash") == '#bom', 'Edit BOM stays on the BOMs tab')
+    check(page.locator('.bom-editor .tb-title', has_text='Editing 2026').count() == 1, 'Edit BOM loads the BOM into the editor')
+    check(page.locator('.cb-warning', has_text='can break things').is_visible(), 'editing the current year warns that it could break things')
     shot(page, 'bom-editor')
     page.get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100)
     page.get_by_role('button', name='New BOM').click(); page.wait_for_timeout(60)
@@ -535,7 +541,7 @@ with sync_playwright() as p:
     check(mix is not None and page.evaluate(f"window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === {mix['item_no']}).length") == 2, 'saving creates the item, its BOM and 2 lines')
     # Put 2 c. of Spice Mix into the Original recipe.
     edit_bom(page, 'RECIPE: Original')
-    check(page.locator('.cb-warning', has_text='only when setting up a new year or a new BOM').is_visible(), 'editing a BOM shows the history warning')
+    check(page.locator('.cb-warning', has_text='current year').is_visible(), 'editing a current-year BOM shows the warning')
     check(page.locator('#cb-item').count() == 0, 'editing does not offer to switch items')
     n_lines = page.locator('table.cb-lines tbody tr').count()
     check(n_lines == 10, f'editing an existing BOM loads its lines ({n_lines})')
@@ -548,6 +554,40 @@ with sync_playwright() as p:
     edit_bom(page, 'Spice Mix')
     opt = page.locator('table.cb-lines tbody tr').last.locator('option', has_text='RECIPE: Original')
     check(opt.is_disabled() and 'contains this item' in opt.inner_text(), 'items that contain this BOM are blocked (no loops)')
+    # ---- BOMs by year: changing next year leaves this year alone ----
+    tab(page, 'BOMs')
+    page.locator('.bom-editor').get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100)
+    check(not page.locator('.sidebar label.field', has_text='Year').locator('select').is_disabled(), 'the year can be changed once the editor is closed')
+    page.locator('.sidebar label.field', has_text='Year').locator('select').select_option('2027'); page.wait_for_timeout(150)
+    check(page.locator('.bom-year-head h2').inner_text() == '2027 BOMs' and 'Same as 2026' in page.locator('.bom-year-head').inner_text(), 'a future year shows the BOMs carried over from 2026')
+    cost26 = page.evaluate("1")
+    edit_bom(page, 'Original 7 oz.')
+    check(page.locator('.cb-warning').count() == 0, 'editing a future year has no warning')
+    check(page.locator('.cb-future', has_text='copy of the 2026 BOM').is_visible(), 'a future-year edit starts as a copy of 2026')
+    rows_ = page.locator('table.cb-lines tbody tr')
+    box = [i for i in range(rows_.count()) if rows_.nth(i).locator('select option:checked').inner_text() == '7 oz Case Box'][0]
+    q = rows_.nth(box).locator('input[type=text]'); q.fill('2'); q.press('Tab'); page.wait_for_timeout(100)
+    page.get_by_role('button', name='Save changes').click(); page.wait_for_timeout(300)
+    check(page.locator('.bom-editor').count() == 0, 'saving an edit closes the editor')
+    v27 = page.evaluate("window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === 20001 && l.year === 2027).length")
+    v26 = page.evaluate("window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === 20001 && l.year === 2026).find(l => l.item_no === window.__MOCK_DB__.items.find(i => i.name === '7 oz Case Box').item_no).qty")
+    check(v27 >= 6 and v26 == 1, f'the 2027 change is saved as its own BOM; 2026 keeps 1 box ({v27} lines, 2026 qty {v26})')
+    def box_qty():
+        top = page.locator('tr.d0', has=page.locator('.tree-name', has_text='Original 7 oz.'))
+        if top.locator('button.twisty').get_attribute('aria-expanded') == 'false': top.locator('button.twisty').click(); page.wait_for_timeout(100)
+        return page.locator('tr.d1', has=page.locator('.tree-name', has_text='7 oz Case Box')).first.locator('td').nth(4).inner_text()
+    q27 = box_qty()
+    page.locator('.sidebar label.field', has_text='Year').locator('select').select_option('2026'); page.wait_for_timeout(150)
+    q26 = box_qty()
+    check(q27.startswith('2') and q26.startswith('1'), f'the tree shows 2 case boxes in 2027 and 1 in 2026 ({q27}, {q26})')
+    page.locator('.sidebar label.field', has_text='Year').locator('select').select_option('2027'); page.wait_for_timeout(150)
+    check('1 of 9 carried' not in page.locator('.bom-year-head').inner_text() and 'carried over' in page.locator('.bom-year-head').inner_text(), 'the year heading says how many BOMs are carried over')
+    edit_bom(page, 'Original 7 oz.')
+    check(page.locator('.cb-future', has_text='Changes apply from 2027').is_visible() and page.get_by_role('button', name='Delete 2027 BOM').count() == 1, 'a year with its own BOM can delete just that year')
+    page.get_by_role('button', name='Delete 2027 BOM').click(); page.wait_for_timeout(100)
+    page.locator('dialog[open]').get_by_role('button', name='Delete').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.boms.filter(b => b.item_no === 20001).length") == 1, 'deleting the 2027 BOM goes back to 2026’s')
+    page.locator('.sidebar label.field', has_text='Year').locator('select').select_option('2026'); page.wait_for_timeout(150)
     # The tree now goes three levels deep under a product.
     tab(page, 'BOMs')
     for _ in range(12):  # open the Original products, then the recipe and Spice Mix inside each

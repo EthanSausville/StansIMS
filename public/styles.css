@@ -745,3 +745,11 @@ table.side-people .pos-pay { display: block; box-sizing: border-box; max-width: 
 .grouprow .brand { flex: none; align-self: center; display: flex; margin: 0 10px 8px 4px; }
 .grouprow .brand img { height: 34px; width: auto; display: block; }
 @media (max-width: 700px) { .grouprow .brand img { height: 28px; } }
+.bom-year-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.bom-year-head h2 { margin: 0; font-size: 20px; }
+.bom-year-head .chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
+.tree-table tr.selected > td { background: #fff4c2 !important; }
+.tree-table tr.selected > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.bom-selected { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.bom-selected .btn { align-self: stretch; }
+.bom-editor .cb-future { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--ink); }

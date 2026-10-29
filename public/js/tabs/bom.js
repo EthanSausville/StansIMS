@@ -2,11 +2,15 @@
 // that are also used inside other BOMs (a recipe inside a product). Click a row to open the
 // next level; anything that has its own BOM opens further, to any depth.
 // Quantities and line costs are for one run of the BOM directly above.
+// BOMs are by year: a year shows its own BOMs, or carries the latest earlier one.
+// Click a BOM to select it; Edit BOM (left) opens it in the editor.
 import { h, pageHead, qty, money, fmt, yearSelect, typePill } from '../ui.js';
 import { state, derived, isAdmin } from '../store.js';
 import { openInEditor, bomEditor, editorOpen } from './createbom.js';
 
-let year = new Date().getFullYear();
+const THIS_YEAR = new Date().getFullYear();
+let year = THIS_YEAR;
+let selected = null; // item_no of the selected BOM
 const open = new Set(); // open rows, by path of item numbers ("20001>10021")
 
 const unitCostFmt = (v) => (v ? '$' + fmt(v, Math.abs(v) < 1 ? 5 : 2, 2) : '—');
@@ -23,10 +27,13 @@ export default {
   get sideWidth() { return editorOpen() ? 0.4 : null; },
   sideKey: 'bom-edit',
   render({ rerender }) {
-    const ix = derived.ix(); const cm = derived.costs(); const admin = isAdmin();
-    if (!cm.years.includes(year)) year = cm.years[0];
+    const cm = derived.costs(); const admin = isAdmin();
+    if (!cm.years.includes(year)) year = cm.years.includes(THIS_YEAR) ? THIS_YEAR : cm.years[0];
+    const ix = cm.ixFor(year);
     const typeOrder = { 'Finished Good': 0, Recipe: 1 };
-    const tops = state.data.boms.map((b) => ix.items.get(b.item_no)).filter(Boolean)
+    // BOMs that exist in this year (a BOM first made in a later year isn't listed).
+    const inYear = (itemNo) => ix.bom.has(itemNo) && !(ix.bomYear(itemNo) > year);
+    const tops = [...ix.bom.keys()].filter(inYear).map((no) => ix.items.get(no)).filter(Boolean)
       .sort((a, b) => (typeOrder[a.type] ?? 2) - (typeOrder[b.type] ?? 2) || a.sort - b.sort);
 
     const usedInText = (itemNo) => {
@@ -43,15 +50,16 @@ export default {
       const isOpen = !!b && open.has(key);
       const unit = cm.cost(itemNo, year);
       const blankQty = line && !line.uses_batch_minutes && (line.qty === null || line.qty === undefined);
-      const q = line && !blankQty ? cm.lineQty(line) : null;
+      const q = line && !blankQty ? ix.lineQty(line) : null;
       const toggle = () => { if (!b) return; isOpen ? open.delete(key) : open.add(key); rerender(); };
+      const pick = () => { if (!b) return; if (!editorOpen()) selected = itemNo; toggle(); };
       const nameCell = h('td', { class: 'sticky-col tree-cell' }, h('div', { class: 'tree' },
         guides.map((cont) => h('span', { class: 'guide ' + (cont ? 'pipe' : 'blank'), 'aria-hidden': 'true' })),
         depth > 0 ? h('span', { class: 'guide ' + (isLast ? 'elbow' : 'tee'), 'aria-hidden': 'true' }) : null,
         b ? h('button', { class: 'twisty' + (isOpen ? ' open' : ''), 'aria-expanded': String(isOpen), 'aria-label': `${isOpen ? 'Close' : 'Open'} ${it.name}`, onclick: (e) => { e.stopPropagation(); toggle(); } }, isOpen ? '−' : '+')
           : h('span', { class: 'leaf', 'aria-hidden': 'true' }),
         h('span', { class: 'tree-name' + (depth === 0 ? ' top' : '') }, it.name)));
-      rows.push(h('tr', { class: `tree-row d${Math.min(depth, 3)}` + (b ? ' has-bom' : ''), onclick: b ? toggle : null },
+      rows.push(h('tr', { class: `tree-row d${Math.min(depth, 3)}` + (b ? ' has-bom' : '') + (b && itemNo === selected ? ' selected' : ''), onclick: b ? pick : null, 'aria-selected': b ? String(itemNo === selected) : null },
         nameCell,
         h('td', { class: 'muted' }, itemNo),
         h('td', null, typePill(it.type)),
@@ -60,8 +68,7 @@ export default {
         h('td', { class: 'muted' }, line ? (it.unit || '') : ''),
         h('td', { class: 'muted' }, b ? makes(b, it, ix) : ''),
         h('td', { class: 'num' }, unitCostFmt(unit)),
-        h('td', { class: 'num' }, line && q !== null ? money(unit * q, 2) : ''),
-        admin ? h('td', null, b ? h('button', { class: 'btn ghost', onclick: (e) => { e.stopPropagation(); openInEditor(itemNo); } }, 'Edit') : null) : null));
+        h('td', { class: 'num' }, line && q !== null ? money(unit * q, 2) : '')));
       if (!isOpen) return;
       const kids = ix.children(itemNo);
       kids.forEach((l, i) => {
@@ -71,16 +78,31 @@ export default {
     };
     tops.forEach((t, i) => walk(t.item_no, [t.item_no], 0, [], i === tops.length - 1, null));
 
+    if (selected && !inYear(selected)) selected = null;
+    const sel = selected ? ix.items.get(selected) : null;
+    const carried = tops.filter((t) => ix.bomYear(t.item_no) < year).length;
+    const firstYear = Math.min(...tops.map((t) => ix.bomYear(t.item_no)).filter(Number.isFinite));
+    const yearSel = yearSelect(cm.years, year, (y) => { year = y; rerender(); }, 'Year');
+    if (editorOpen()) { yearSel.querySelector('select').disabled = true; yearSel.title = 'Close the editor to change the year'; }
+
     return h('div', null,
-      pageHead('BOMs', 'Every bill of materials, including recipes used inside products. Click one to open the next level. Quantities and line costs are for one run of the BOM directly above (one case, one batch). Build a new BOM (New BOM) or change one (Edit) on the left: a line can be another item with its own BOM, such as a recipe inside a product. Nothing is saved until you click Save.',
-        yearSelect(cm.years, year, (y) => { year = y; rerender(); }, 'Cost year'),
-        admin && !editorOpen() ? h('button', { class: 'btn primary', onclick: () => openInEditor(null) }, 'New BOM') : null,
-        admin ? bomEditor({ rerender, year }) : h('p', { class: 'small muted' }, 'Only admins can create or change BOMs.')),
+      pageHead('BOMs', 'Every bill of materials for the year, including recipes used inside products. Click one to select it and open the next level. Quantities and line costs are for one run of the BOM directly above (one case, one batch). BOMs are by year: a year without its own BOM for an item carries the latest earlier one. Change next year’s BOMs freely; changing the current or a past year recalculates its costs and inventory. Nothing is saved until you click Save.',
+        yearSel,
+        admin && !editorOpen() ? h('button', { class: 'btn primary', onclick: () => openInEditor(null, year) }, 'New BOM') : null,
+        admin && !editorOpen() ? (sel
+          ? h('div', { class: 'bom-selected' }, h('div', { class: 'small muted' }, 'Selected'), h('strong', null, sel.name),
+            h('button', { class: 'btn', onclick: () => openInEditor(selected, year) }, 'Edit BOM'))
+          : h('p', { class: 'small muted' }, 'Click a BOM on the right to select it for editing.')) : null,
+        admin ? bomEditor({ rerender }) : h('p', { class: 'small muted' }, 'Only admins can create or change BOMs.')),
+      h('div', { class: 'bom-year-head' }, h('h2', null, `${year} BOMs`),
+        year > THIS_YEAR ? h('span', { class: 'chip' }, 'Future year: safe to change') : year === THIS_YEAR ? h('span', { class: 'chip' }, 'Current year') : h('span', { class: 'chip' }, 'Past year'),
+        carried && Number.isFinite(firstYear) && carried === tops.length && firstYear < year ? h('span', { class: 'small muted' }, `Same as ${firstYear} until changed`)
+          : carried ? h('span', { class: 'small muted' }, `${carried} of ${tops.length} carried over from earlier years`) : null),
       tops.length ? h('div', { class: 'tablewrap', 'data-scroll': 'bomtree' }, h('table', { class: 't tree-table' },
         h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Item #'), h('th', null, 'Type'), h('th', null, 'Used in'),
           h('th', { class: 'num' }, 'Qty'), h('th', null, 'Unit'), h('th', null, 'One run makes'),
-          h('th', { class: 'num' }, `Unit cost (${year})`), h('th', { class: 'num' }, 'Line cost'), admin ? h('th') : null)),
+          h('th', { class: 'num' }, `Unit cost (${year})`), h('th', { class: 'num' }, 'Line cost'))),
         h('tbody', null, rows)))
-        : h('div', { class: 'panel empty' }, 'No BOMs yet.', admin ? h('div', null, h('button', { class: 'btn primary', style: { marginTop: '10px' }, onclick: () => openInEditor(null) }, 'New BOM')) : null));
+        : h('div', { class: 'panel empty' }, `No BOMs in ${year} yet.`, admin ? h('div', null, h('button', { class: 'btn primary', style: { marginTop: '10px' }, onclick: () => openInEditor(null, year) }, 'New BOM')) : null));
   },
 };

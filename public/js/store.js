@@ -118,19 +118,21 @@ export async function saveField(table, key, field, value) {
 
 // Saves a whole BOM: optionally creates the item it makes, sets what one run
 // makes, and makes its lines match `lines` (updating, adding and removing).
-export async function saveBom({ newItem, itemNo, yieldQty, yieldUnit, laborMinutes, lines }) {
+// Saves an item's BOM for one year (from that year on, until a later year has
+// its own). Lines with an id are that year's existing lines.
+export async function saveBom({ newItem, itemNo, year, yieldQty, yieldUnit, laborMinutes, lines }) {
   const d = state.data;
   if (newItem) d.items.push(await run(sb.from('items').insert(newItem).select().single()));
-  const bom = await run(sb.from('boms').upsert({ item_no: itemNo, yield_qty: yieldQty, yield_unit: yieldUnit || null, labor_minutes: laborMinutes ?? null }, { onConflict: 'item_no' }).select().single());
-  const bi = d.boms.findIndex((b) => b.item_no === itemNo); if (bi >= 0) d.boms[bi] = bom; else d.boms.push(bom);
-  const existing = d.bom_lines.filter((l) => l.parent_item_no === itemNo);
+  const bom = await run(sb.from('boms').upsert({ item_no: itemNo, year, yield_qty: yieldQty, yield_unit: yieldUnit || null, labor_minutes: laborMinutes ?? null }, { onConflict: 'item_no,year' }).select().single());
+  const bi = d.boms.findIndex((b) => b.item_no === itemNo && b.year === year); if (bi >= 0) d.boms[bi] = bom; else d.boms.push(bom);
+  const existing = d.bom_lines.filter((l) => l.parent_item_no === itemNo && l.year === year);
   const keep = new Set(lines.filter((l) => l.id).map((l) => l.id));
   for (const old of existing.filter((l) => !keep.has(l.id))) {
     await run(sb.from('bom_lines').delete().eq('id', old.id));
     d.bom_lines.splice(d.bom_lines.findIndex((l) => l.id === old.id), 1);
   }
   for (const [i, l] of lines.entries()) {
-    const row = { parent_item_no: itemNo, item_no: l.item_no, qty: l.uses_batch_minutes ? null : l.qty, uses_batch_minutes: !!l.uses_batch_minutes, sort: i + 1 };
+    const row = { parent_item_no: itemNo, year, item_no: l.item_no, qty: l.uses_batch_minutes ? null : l.qty, uses_batch_minutes: !!l.uses_batch_minutes, sort: i + 1 };
     if (l.id) {
       const saved = await run(sb.from('bom_lines').update(row).eq('id', l.id).select().single());
       d.bom_lines[d.bom_lines.findIndex((x) => x.id === l.id)] = saved;
@@ -139,12 +141,13 @@ export async function saveBom({ newItem, itemNo, yieldQty, yieldUnit, laborMinut
   changed();
 }
 
-// Removes an item's BOM (its lines go with it). The item itself stays.
-export async function deleteBom(itemNo) {
-  await run(sb.from('boms').delete().eq('item_no', itemNo));
+// Removes an item's BOM for one year (its lines go with it); an earlier
+// year's BOM, if any, then carries on. The item itself stays.
+export async function deleteBom(itemNo, year) {
+  await run(sb.from('boms').delete().eq('item_no', itemNo).eq('year', year));
   const d = state.data;
-  d.boms = d.boms.filter((b) => b.item_no !== itemNo);
-  d.bom_lines = d.bom_lines.filter((l) => l.parent_item_no !== itemNo);
+  d.boms = d.boms.filter((b) => !(b.item_no === itemNo && b.year === year));
+  d.bom_lines = d.bom_lines.filter((l) => !(l.parent_item_no === itemNo && l.year === year));
   changed();
 }
 

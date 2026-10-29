@@ -373,10 +373,31 @@ begin
       select item_no, batch_size, 'oz' from public.recipes;
     insert into public.boms (item_no, yield_qty, yield_unit)
       select distinct fg_item_no, 1, 'case' from public.fg_lines
-      on conflict (item_no) do nothing;
+      on conflict do nothing;
     insert into public.bom_lines (parent_item_no, item_no, qty, uses_batch_minutes, sort)
       select recipe_item_no, item_no, qty, uses_batch_minutes, sort from public.recipe_lines;
     insert into public.bom_lines (parent_item_no, item_no, qty, uses_batch_minutes, sort)
       select fg_item_no, item_no, qty, false, sort from public.fg_lines;
   end if;
 end $$;
+
+-- BOMs by year. Each BOM row starts in its `year` and carries forward until a
+-- later year has its own, so changing next year's BOM leaves this year (and
+-- the past) alone. BOMs from before this existed start in 2026, the first year.
+alter table public.boms add column if not exists year int not null default 2026;
+alter table public.bom_lines add column if not exists year int not null default 2026;
+do $$
+begin
+  if exists (select 1 from pg_constraint where conrelid = 'public.bom_lines'::regclass and conname = 'bom_lines_parent_item_no_fkey') then
+    alter table public.bom_lines drop constraint bom_lines_parent_item_no_fkey;
+  end if;
+  if exists (select 1 from pg_constraint where conrelid = 'public.boms'::regclass and conname = 'boms_pkey' and array_length(conkey, 1) = 1) then
+    alter table public.boms drop constraint boms_pkey;
+    alter table public.boms add constraint boms_pkey primary key (item_no, year);
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.bom_lines'::regclass and conname = 'bom_lines_parent_year_fkey') then
+    alter table public.bom_lines add constraint bom_lines_parent_year_fkey foreign key (parent_item_no, year)
+      references public.boms (item_no, year) on update cascade on delete cascade;
+  end if;
+end $$;
+create index if not exists bom_lines_parent_year_idx on public.bom_lines (parent_item_no, year);

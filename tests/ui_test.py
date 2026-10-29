@@ -669,6 +669,18 @@ with sync_playwright() as p:
     check(page.locator('table.t td.cell input').count() > 0, 'the month grid is still there')
     page.get_by_role('button', name='Count sheet').click(); page.wait_for_timeout(100)
 
+    # ---- Production lots ----
+    tab(page, 'Production')
+    page.get_by_role('button', name='Lots', exact=True).click(); page.wait_for_timeout(200)
+    nl = page.locator('table.xtable tbody tr').count()
+    want_lots = len({(p['date'], p['item_no']) for p in inputs['production'] if p['cases']})
+    check(nl == want_lots, f'one lot per product per production day ({nl} vs {want_lots})')
+    page.locator('table.xtable tbody tr').nth(5).locator('td').first.click(); page.wait_for_timeout(150)
+    code = page.locator('table.xtable tbody tr.selected td').first.inner_text()
+    check(re.match(r'^\d{6}-\d{6}$', code) and f'Lot {code}' in page.locator('.side-detail').inner_text(), f'selecting a lot shows who it shipped to ({code})')
+    shot(page, '57-lots')
+    page.get_by_role('button', name='Daily', exact=True).click(); page.wait_for_timeout(100)
+
     # ---- Demand Plan: adjust a product, batches ----
     tab(page, 'Demand Plan')
     page.get_by_role('button', name='Forecast', exact=True).click(); page.wait_for_timeout(100)
@@ -881,6 +893,11 @@ with sync_playwright() as p:
     check(overflow <= 0, f'no sideways page scroll on a phone (overflow {overflow}px)')
     shot(page, '24-phone-dashboard')
     tab(page, 'Production'); shot(page, '25-phone-production')
+    for i, t in enumerate(['Goods Receipt', 'Cycle Counts', 'Purchase Plan', 'Purchase Orders', 'Sales Detail']):
+        tab(page, t); page.wait_for_timeout(150)
+        ov = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
+        check(ov <= 0, f'{t}: no sideways page scroll on a phone ({ov}px)')
+        shot(page, f'25{chr(98 + i)}-phone-{t.lower().replace(" ", "-")}')
     ctx.close()
 
     # ---- not configured ----

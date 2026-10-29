@@ -84,6 +84,7 @@ export const derived = {
   plan: () => memo('plan', () => C.demandPlan(state.data, { today: todayIso(), inv: derived.inventory() })),
   materials: () => memo('materials', () => C.materialPlan(state.data, derived.plan(), { today: todayIso(), inv: derived.inventory() })),
   counts: () => memo('counts', () => C.countToCount(state.data)),
+  lots: () => memo('lots', () => C.productionLots(state.data)),
   sales: () => memo('sales', () => C.salesRows(state.data)),
   // 2026 through next year, everywhere on the site.
   years: () => memo('years', () => C.siteYears()),

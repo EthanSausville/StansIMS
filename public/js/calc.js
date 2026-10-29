@@ -844,3 +844,37 @@ export function missingStandards(data, year) {
   const typed = data.items.filter((i) => i.type === 'Raw Material' || i.type === 'Component' || (i.type === 'Indirect Cost' && !isLaborItem(i.item_no)));
   return { costs: typed.filter((i) => !costs.has(i.item_no)), prices: ix.byType('Finished Good').filter((i) => !prices.has(i.item_no)) };
 }
+
+// ---------- Production lots ----------
+// Each day's production of a product is a lot, coded YYMMDD-item (e.g.
+// 260714-500001). Sales of the product are matched to lots first in, first out
+// (oldest lot first, only lots made on or before the sale date), so a lot can
+// be traced to the customers who received it.
+export const lotCode = (date, itemNo) => `${date.slice(2, 4)}${date.slice(5, 7)}${date.slice(8, 10)}-${itemNo}`;
+export function productionLots(data) {
+  const byItem = new Map();
+  for (const p of data.production) {
+    if (!(n(p.cases) > 0)) continue;
+    if (!byItem.has(p.item_no)) byItem.set(p.item_no, new Map());
+    const m = byItem.get(p.item_no); m.set(p.date, (m.get(p.date) || 0) + n(p.cases));
+  }
+  const ix = index(data);
+  const lots = []; const unmatched = [];
+  for (const [itemNo, days] of byItem) {
+    const list = [...days].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, cases]) => ({ code: lotCode(date, itemNo), item: ix.items.get(itemNo), date, cases, left: cases, shipments: [] }));
+    lots.push(...list);
+    const sales = data.sales.filter((s) => s.item_no === itemNo && n(s.quantity) > 0).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    for (const s of sales) {
+      let need = n(s.quantity);
+      for (const lot of list) {
+        if (need <= 1e-9) break;
+        if (lot.date > s.date || lot.left <= 1e-9) continue;
+        const q = Math.min(lot.left, need); lot.left -= q; need -= q;
+        lot.shipments.push({ date: s.date, customer: s.customer, invoice: s.invoice, cases: q });
+      }
+      if (need > 1e-9) unmatched.push({ sale: s, cases: need });
+    }
+  }
+  lots.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.item.sort - b.item.sort));
+  return { lots, unmatched };
+}

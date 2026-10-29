@@ -312,3 +312,20 @@ test('plan batches and count sheet', () => {
   close(row.diff, row.counted - row.expected, 'difference');
   assert.equal(row.flag, Math.abs(row.pct) > 0.1);
 });
+
+test('production lots: FIFO trace to customers', () => {
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines };
+  const { lots, unmatched } = C.productionLots(d);
+  assert.ok(lots.length > 0);
+  for (const l of lots) {
+    const shipped = l.shipments.reduce((s, x) => s + x.cases, 0);
+    close(shipped + l.left, l.cases, `${l.code} cases = shipped + left`);
+    for (const x of l.shipments) assert.ok(x.date >= l.date, 'never ships before it is made');
+  }
+  // every case sold is either matched to a lot or reported as unmatched
+  const fg = new Set(d.items.filter((i) => i.type === 'Finished Good').map((i) => i.item_no));
+  const sold = d.sales.filter((s) => fg.has(s.item_no) && s.quantity > 0).reduce((s, x) => s + x.quantity, 0);
+  const matched = lots.reduce((s, l) => s + l.shipments.reduce((a, x) => a + x.cases, 0), 0);
+  close(matched + unmatched.reduce((s, u) => s + u.cases, 0), sold, 'all cases sold accounted for');
+  assert.equal(C.lotCode('2026-07-14', 500001), '260714-500001');
+});

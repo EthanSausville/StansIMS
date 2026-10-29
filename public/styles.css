@@ -205,7 +205,7 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
 .journal tr.entry td { border-top: 1px solid var(--line-strong); }
 .journal .cr { padding-left: 32px !important; }
 
-/* ---------- blue header band ---------- */
+/* ---------- brown header band ---------- */
 .topbar { background: var(--panel); box-shadow: 0 1px 0 var(--line); }
 .brandrow { background: linear-gradient(90deg, var(--banner), var(--banner-2)); color: #fff; padding: 10px 20px; }
 .who { color: #f3e6d6; }
@@ -232,7 +232,7 @@ table.t td.cell.entry input:focus { background: var(--entry-focus); }
 .legend-entry { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .legend-entry i { width: 14px; height: 14px; border-radius: 3px; background: var(--entry); border: 1px solid #e6d58a; }
 
-/* ---------- section groups in the blue header ---------- */
+/* ---------- section groups in the brown header ---------- */
 .brandrow { flex-wrap: wrap; row-gap: 6px; }
 .groups { display: flex; gap: 4px; margin-left: 18px; }
 .group { appearance: none; border: 0; background: none; color: #f3e6d6; padding: 6px 14px; border-radius: 999px; font-weight: 600; cursor: pointer; white-space: nowrap; }
@@ -318,7 +318,7 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13
 .cb-issues { margin: 0; padding-left: 18px; color: var(--warn); font-size: 13px; }
 table.tree-table td.used-in { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 
-/* ---------- three-row header: gray bar, blue section tabs, white page tabs ---------- */
+/* ---------- three-row header: gray bar, brown section tabs, white page tabs ---------- */
 :root { --bar: #efe8e0; --bar-ink: #2a1c12; --bar-line: #ddd1c4; --tabrow: #ffffff; }
 .topbar { box-shadow: none; }
 .brandrow { background: var(--bar); color: var(--bar-ink); padding: 8px 20px; border-bottom: 1px solid var(--bar-line); flex-wrap: nowrap; }

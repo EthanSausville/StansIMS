@@ -27,7 +27,9 @@ const FIELDS = [
 ];
 
 // Every detail of one position, with its cost build-up as you type.
-function positionDialog(p, can) {
+// Every detail of a position, shown in the side bar under the people table.
+let detailsFor = null; // id of the position whose details are open
+function positionPanel(p, can, done) {
   const plant = laborRate(state.data, { year: p.year }).plant;
   const inputs = {}; const rows = [];
   for (const [k, label, kind, only] of FIELDS) {
@@ -58,25 +60,24 @@ function positionDialog(p, can) {
         .map(([a, b]) => h('tr', null, h('td', null, a), h('td', { class: 'num strong' }, b))))));
   };
   for (const el of Object.values(inputs)) el.addEventListener('input', refresh);
-  const dlg = h('dialog', { class: 'group-dialog' }, h('form', { method: 'dialog', onsubmit: async (e) => {
-      if (e.submitter?.value !== 'save') return;
+  const form = h('form', { class: 'panel group-panel', onsubmit: async (e) => {
       e.preventDefault();
       try {
         const x = read(); const patch = { notes: x.notes };
         for (const [k] of FIELDS) patch[k] = x[k];
         if (!patch.name) throw new Error('Give the position a name.');
         for (const k of ['headcount', 'payroll_tax_pct']) patch[k] = patch[k] ?? 0;
-        await updateRow('labor_positions', 'id', p.id, patch); dlg.close(); toast(`${patch.name} saved.`);
+        await updateRow('labor_positions', 'id', p.id, patch); toast(`${patch.name} saved.`); done();
       } catch (err) { toast(niceError(err), 'bad'); }
     } },
-    h('h3', null, `Position: ${p.name}`),
+    h('h2', null, `Position: ${p.name}`),
     h('div', { class: 'pd-grid' }, rows.map((r) => r.el)),
     h('label', { class: 'field' }, 'Notes', inputs.notes),
     h('h4', { class: 'pd-sub' }, `For ${p.year}`),
     summary,
-    h('div', { class: 'actions' }, h('button', { class: 'btn', value: 'cancel', formnovalidate: true }, can ? 'Cancel' : 'Close'), can ? h('button', { class: 'btn primary', value: 'save' }, 'Save') : null)));
-  dlg.addEventListener('close', () => dlg.remove());
-  refresh(); document.body.append(dlg); dlg.showModal();
+    h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: done }, can ? 'Cancel' : 'Close'), can ? h('button', { type: 'submit', class: 'btn primary' }, 'Save') : null));
+  refresh();
+  return form;
 }
 
 let selYear = new Date().getFullYear();
@@ -162,7 +163,7 @@ export default {
           cellOf(payKey, sal ? 'annual salary per person' : 'hourly rate per person', sal ? 'unit-yr' : 'unit-hr', sal ? 2 : 4, sal ? cash : (v) => money(n(v), 2)),
           cellOf(fixedKey, sal ? 'annual fixed cost per person' : 'monthly fringe per person', sal ? 'unit-yr' : 'unit-mo', 2, cash),
           cellOf('headcount', 'number of people'),
-          h('td', { class: 'row-actions' }, h('button', { class: 'btn icon-btn', title: 'Details', 'aria-label': `Details for ${p.name}`, onclick: () => positionDialog(p, edit) }, '✎'),
+          h('td', { class: 'row-actions' }, h('button', { class: 'btn icon-btn', title: 'Details', 'aria-label': `Details for ${p.name}`, onclick: () => { detailsFor = detailsFor === p.id ? null : p.id; rerender(); } }, '✎'),
             edit ? h('button', { class: 'btn icon-btn danger', title: 'Remove', 'aria-label': `Remove ${p.name}`, onclick: async () => {
               if (await confirmDialog(`Remove ${p.name} from ${selYear}?`, 'Remove')) deleteRow('labor_positions', 'id', p.id).catch((err) => toast(niceError(err), 'bad'));
             } }, '×') : null));
@@ -218,10 +219,12 @@ export default {
         can && !ownRows && !empty ? h('button', { class: 'btn ghost', onclick: confirmForecast }, F.needsReview ? `Confirm ${selYear}’s people` : `Give ${selYear} its own people`) : null),
       ps.length ? h('div', { class: 'people-body' }, peopleTable) : h('p', { class: 'panel-note' }, `No one entered for ${selYear} yet.`),
       h('p', { class: 'panel-note' }, 'Pay and fringe are per person. Hourly: pay per hour, fringe per month. Salaried: salary and fringe per year. # = number of people. ✎ opens every detail.'));
+    const detailP = detailsFor ? ps.find((p) => p.id === detailsFor) : null;
+    const details = detailP ? positionPanel(detailP, edit, () => { detailsFor = null; rerender(); }) : null;
 
     return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') },
       pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate. Click a year in the table to change it on the left.' + (admin ? '' : ' Only admins can change these.'),
-        h('div', { class: 'labor-side' + (isFc ? ' fc-year' : '') }, yearHead, people, peoplePanel, plant),
+        h('div', { class: 'labor-side' + (isFc ? ' fc-year' : '') }, yearHead, people, peoplePanel, details, plant),
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Master List uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
       h('section', { class: 'panel years-panel' }, h('div', { class: 'tablewrap flat' }, yearTable)),
       summary, whatPanel);

@@ -1,6 +1,6 @@
 import { h, pageHead, numberCell, qty, acctText } from '../ui.js';
 import { state, derived, saveCell, isAdmin } from '../store.js';
-import { avgPricePerOz } from '../calc.js';
+import { avgPricePerOz, missingStandards } from '../calc.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
 
 export default {
@@ -25,6 +25,7 @@ export default {
     return h('div', null,
       pageHead('Standard Price', 'Price per case by year. The bottom row is the average price per oz across all products, which values the leftover from partial batches on Production.' + (admin ? '' : ' Only admins can change these.'),
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('prices'); rerender(); } }, `Clear filters (${nFilters})`) : null),
+      cm.years.map((y) => { const m = missingStandards(state.data, y).prices; return m.length ? h('div', { class: 'note warn missing-prices' }, `No ${y} standard price yet for ${m.map((i) => i.name).join(', ')}. Sales margins use the nearest year that has one.`) : null; }),
       h('div', { class: 'tablewrap', 'data-scroll': 'prices' },
         xtable({ id: 'prices', columns, allRows: fgs, rows, rerender, className: 'natural', showTotals: prefTotals('prices'),
           onToggleTotals: (on) => { setPrefTotals('prices', on); rerender(); }, totalsLabel: () => 'Average $/oz' })));

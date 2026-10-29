@@ -16,6 +16,7 @@ import prices from './tabs/prices.js';
 import labor from './tabs/labor.js';
 import journals from './tabs/journals.js';
 import users from './tabs/users.js';
+import history from './tabs/history.js';
 
 // Groups across the top; the open group's tabs show in the row beneath.
 // Users isn't in a group: admins reach it from the gear menu.
@@ -27,7 +28,7 @@ const GROUPS = [
   { id: 'planning', label: 'Planning', tabs: [demandPlanTab, purchasePlanTab, purchaseOrdersTab] },
   { id: 'costing', label: 'Standards', tabs: [costs, bom, labor] },
 ];
-const TABS = [...GROUPS.flatMap((g) => g.tabs), users];
+const TABS = [...GROUPS.flatMap((g) => g.tabs), users, history];
 const groupOf = (id) => GROUPS.find((g) => g.tabs.some((t) => t.id === id));
 const lastInGroup = new Map(); // remembers the tab you were on in each group
 const app = document.getElementById('app');
@@ -101,6 +102,7 @@ function gearMenu() {
   const menu = h('div', { class: 'gear-menu', role: 'menu', hidden: true },
     h('div', { class: 'gear-who' }, h('div', { class: 'gear-email' }, p.email || state.user?.email || ''), h('span', { class: 'role' }, p.role || 'staff')),
     isAdmin() ? h('a', { class: 'gear-item', role: 'menuitem', href: '#users', onclick: () => close() }, 'Users') : null,
+    isAdmin() ? h('a', { class: 'gear-item', role: 'menuitem', href: '#history', onclick: () => close() }, 'Change history') : null,
     h('button', { class: 'gear-item', role: 'menuitem', title: 'Reload data from the database', onclick: () => { close(); refresh(true); } }, 'Refresh data'),
     h('button', { class: 'gear-item', role: 'menuitem', onclick: () => sb.auth.signOut() }, 'Sign out'));
   const btn = h('button', { class: 'gear', 'aria-label': 'Account and settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Account and settings',

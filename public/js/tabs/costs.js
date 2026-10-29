@@ -1,7 +1,7 @@
 import { h, pageHead, numberCell, typePill, toast, niceError, confirmDialog, acctText, acctCell } from '../ui.js';
 import { state, derived, saveCell, isAdmin, insertRow, updateRow, deleteRow } from '../store.js';
-import { TYPES, isLaborItem, nextItemNo, itemNoProblem } from '../calc.js';
-import { xtable, filteredRows, activeFilterCount, clearFilters } from '../xtable.js';
+import { TYPES, isLaborItem, nextItemNo, itemNoProblem, missingStandards } from '../calc.js';
+import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 
 // Costs typed in: raw materials, packaging, and indirect costs other than direct labor (overhead, marketing, ...).
 const enterable = (it) => it.type === 'Raw Material' || it.type === 'Component' || (it.type === 'Indirect Cost' && !isLaborItem(it.item_no));
@@ -91,7 +91,9 @@ export default {
         admin && !editing ? h('button', { class: 'btn primary', onclick: () => { editing = 'new'; rerender(); } }, 'Add item') : null,
         admin && editing ? itemForm(editing === 'new' ? null : items.find((it) => it.item_no === editing), (no) => { editing = null; selected = no; rerender(); }) : null,
         admin && !editing && sel ? h('button', { class: 'btn primary', onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item') : null,
-        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('costs'); rerender(); } }, `Clear filters (${nFilters})`) : null),
+        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('costs'); rerender(); } }, `Clear filters (${nFilters})`) : null,
+        !editing ? downloadButton('master-list', columns, rows) : null),
+      cm.years.map((y) => { const m = missingStandards(state.data, y).costs; return m.length ? h('div', { class: 'note warn missing-costs' }, `${m.length} item${m.length > 1 ? 's have' : ' has'} no ${y} standard cost yet: ${m.map((i) => i.name).join(', ')}. Until ${m.length > 1 ? 'they’re' : 'it’s'} entered, ${y} product costs count ${m.length > 1 ? 'them' : 'it'} as $0.`) : null; }),
       h('div', { class: 'tablewrap tall', 'data-scroll': 'costs' },
         xtable({ id: 'costs', columns, allRows: items, rows, rerender, className: 'natural plain-cells' + (admin ? ' selectable' : ''),
           rowClass: (it) => (it.item_no === selected ? 'selected' : null),

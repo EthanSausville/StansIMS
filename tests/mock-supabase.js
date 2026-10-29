@@ -5,7 +5,7 @@ const KEYS = {
   items: ['item_no'], standard_costs: ['item_no', 'year'], standard_prices: ['item_no', 'year'], recipes: ['item_no'],
   recipe_lines: ['id'], fg_lines: ['id'], boms: ['item_no', 'year'], bom_lines: ['id'], settings: ['id'], year_settings: ['year'], purchase_settings: ['item_no'],
   production: ['date', 'item_no'], goods_receipts: ['date', 'item_no'], cycle_counts: ['date', 'item_no'], sales: ['id'], profiles: ['user_id'], sales_imports: ['id'], qb_name_map: ['kind', 'qb_name'],
-  labor_positions: ['id'], demand_forecast: ['item_no', 'week'], purchase_orders: ['id'],
+  labor_positions: ['id'], audit_log: ['id'], demand_forecast: ['item_no', 'week'], purchase_orders: ['id'],
 };
 const ADMIN_ONLY = new Set(['boms', 'bom_lines', 'items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines', 'settings', 'year_settings', 'purchase_settings', 'labor_positions', 'demand_forecast']);
 
@@ -20,7 +20,7 @@ export function createClient() {
   class Query {
     constructor(table) { this.t = table; this.filters = []; this.op = 'select'; this.one = false; this.maybe = false; this.orders = []; this.rng = null; }
     select() { if (this.op === 'select') this.op = 'select'; this.returning = true; return this; }
-    order(col) { this.orders.push(col); return this; }
+    order(col, opts) { this.orders.push([col, opts?.ascending === false ? -1 : 1]); return this; }
     range(a, b) { this.rng = [a, b]; return this; }
     eq(col, v) { this.filters.push([col, v]); return this; }
     single() { this.one = true; return this; }
@@ -43,7 +43,7 @@ export function createClient() {
       };
       if (this.op === 'select') {
         let list = rows.filter((r) => this.match(r));
-        for (const o of [...this.orders].reverse()) list = [...list].sort((a, b) => (a[o] < b[o] ? -1 : a[o] > b[o] ? 1 : 0));
+        for (const [o, dir] of [...this.orders].reverse()) list = [...list].sort((a, b) => dir * (a[o] < b[o] ? -1 : a[o] > b[o] ? 1 : 0));
         if (this.rng) list = list.slice(this.rng[0], this.rng[1] + 1);
         return out(list);
       }

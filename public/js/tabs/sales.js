@@ -2,7 +2,7 @@ import { h, pageHead, money, qty, toast, niceError, confirmDialog, todayIso, acc
 import { state, derived, insertRow, updateRow, deleteRow } from '../store.js';
 import { MONTHS, yearOf, evalEntry } from '../calc.js';
 import { loadButton, pendingPreview, historyTable, importCount } from './qbpanel.js';
-import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, setFilter, showValue } from '../xtable.js';
+import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, setFilter, showValue, downloadButton } from '../xtable.js';
 
 let open = null;     // 'history': past QuickBooks loads shown above the table
 let form = null;     // null, 'add' or 'edit': the sale form in the side bar
@@ -138,7 +138,8 @@ export default {
         !form && sel ? h('button', { class: 'btn primary', onclick: () => { form = 'edit'; rerender(); } }, 'Edit sale') : null,
         form ? saleForm(form === 'edit' ? sel : null, done) : null,
         importCount() ? h('button', { class: 'btn ghost' + (open === 'history' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'history'), onclick: flip('history') }, `Loaded reports (${importCount()})`) : null,
-        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(TID); rerender(); } }, `Clear filters (${nFilters})`) : null),
+        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(TID); rerender(); } }, `Clear filters (${nFilters})`) : null,
+        !form ? downloadButton('sales-detail', COLUMNS, rows) : null),
       body ? h('section', { class: 'panel sales-body' }, body) : null,
       h('div', { class: 'tablewrap tall', 'data-scroll': 'sales' },
         xtable({ id: TID, columns: COLUMNS, allRows: rowsAll, rows, rerender, defaultSort: DEFAULT_SORT, showTotals, onToggleTotals: (on) => { setPrefTotals(TID, on); rerender(); }, className: 'sales-report selectable',

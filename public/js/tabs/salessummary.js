@@ -2,7 +2,7 @@
 // for the chosen year and measure. Built from the same lines as Invoices.
 import { h, pageHead, money, qty, pct, seg, yearSelect, acctParts } from '../ui.js';
 import { derived } from '../store.js';
-import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
+import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 import { MONTHS } from '../calc.js';
 
 const MEASURES = [
@@ -57,7 +57,8 @@ function summaryTab({ id, label, title, keyOf, description, colLabel }) {
         pageHead(title, description,
           seg(MEASURES.map(([k, l]) => [k, l]), measure, (m) => { measure = m; rerender(); }),
           yearSelect(years, year, (y) => { year = y; rerender(); }),
-          nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null),
+          nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null,
+          list.length ? downloadButton(`${id}-${year}-${measure}`, columns, shown) : null),
         list.length ? h('div', { class: 'tablewrap', 'data-scroll': id },
           xtable({ id: tid, columns, allRows: list, rows: shown, rerender, defaultSort: sort, showTotals: prefTotals(id),
             onToggleTotals: (on) => { setPrefTotals(id, on); rerender(); }, totalsLabel: (rs, all) => (rs.length === all.length ? 'Total' : `Total (${rs.length} of ${all.length})`) }))

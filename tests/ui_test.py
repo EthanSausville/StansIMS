@@ -36,6 +36,10 @@ def mock_db():
         if y['year'] == min(r['year'] for r in db['year_settings']): y['labor_line_hours'] = 16
     nm = ROOT / 'tests/fixtures/qb-name-map.json'
     db['qb_name_map'] = json.load(open(nm)) if nm.exists() else []
+    db['audit_log'] = [dict(id=2, at='2026-10-27T15:04:00Z', user_id='u1', email='owner@stans.test', table_name='standard_costs', action='update',
+                            old_row=dict(item_no=100001, year=2026, cost=1.9), new_row=dict(item_no=100001, year=2026, cost=1.937)),
+                       dict(id=1, at='2026-10-26T09:00:00Z', user_id='u1', email='owner@stans.test', table_name='items', action='insert',
+                            old_row=None, new_row=dict(item_no=300003, name='Marketing', type='Indirect Cost'))]
     db['profiles'] = [dict(user_id='u1', email='owner@stans.test', role='admin', created_at='2026-10-27T12:00:00Z'),
                       dict(user_id='u2', email='staff@stans.test', role='staff', created_at='2026-10-27T12:00:00Z')]
     return db
@@ -75,7 +79,7 @@ GROUPS = {
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
-ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
+ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users', 'Change history']
 
 def edit_bom(page, name):
     row = page.locator('table.tree-table tr.d0', has=page.locator('.tree-name', has_text=name)).first
@@ -84,8 +88,8 @@ def edit_bom(page, name):
 
 
 def tab(page, label):
-    if label == 'Users':
-        page.locator('.gear').click(); page.locator('.gear-menu a', has_text='Users').click()
+    if label in ('Users', 'Change history'):
+        page.locator('.gear').click(); page.locator('.gear-menu a', has_text=label).click()
     else:
         group = next(g for g, ts in GROUPS.items() if label in ts)
         page.locator('.groups .group', has_text=group).first.click(); page.wait_for_timeout(80)
@@ -385,11 +389,12 @@ with sync_playwright() as p:
     w = page.locator('table.whatif tbody tr').last.locator('td').nth(1).inner_text()
     check(abs(float(w.strip('$')) - want(120, 20000, 450)) < 1e-4, f'what-if: at 120 hours the same people cost less per minute ({w})')
     page.get_by_role('button', name='Details for Hourly (A)').click(); page.wait_for_timeout(150)
-    dlg = page.locator('dialog.group-dialog')
+    dlg = page.locator('.sidebar form.group-panel')
+    check(page.locator('dialog[open]').count() == 0 and dlg.count() == 1, 'position details open in the side bar, not a popup')
     dlg.get_by_label('Notes').fill('Line crew'); page.wait_for_timeout(100)
     shot(page, '38-position-details')
     dlg.get_by_role('button', name='Save').click(); page.wait_for_timeout(300)
-    check(page.evaluate("window.__MOCK_DB__.labor_positions.find(p => p.id === 2).notes") == 'Line crew', 'details save notes')
+    check(page.evaluate("window.__MOCK_DB__.labor_positions.find(p => p.id === 2).notes") == 'Line crew' and page.locator('.sidebar form.group-panel').count() == 0, 'details save notes and close')
     # next year: a forecast from this year + inflation until it has its own people
     nxt = datetime.date.today().year + 1
     this_rate = rate_now()
@@ -808,6 +813,19 @@ with sync_playwright() as p:
     want = 28.947849217391 + 168 * 2 * want_mix / 3220
     check(abs(got - want) < 0.006, f'Original 7 oz case cost includes the Spice Mix ({got:.4f} vs {want:.4f})')
     shot(page, '28-boms-three-levels')
+
+    # ---- Change history, downloads, missing standards ----
+    tab(page, 'Change history')
+    hist = page.locator('table.xtable tbody tr')
+    check(hist.count() == 2 and 'cost: 1.9 → 1.937' in hist.first.inner_text() and 'Cheese' in hist.first.inner_text(), f'change history shows who changed what ({hist.first.inner_text()!r})')
+    tab(page, 'Master List')
+    with page.expect_download() as dl: page.get_by_role('button', name='⤓ Download for Excel').click()
+    path = dl.value.path(); csv = open(path, encoding='utf-8-sig').read().splitlines()
+    check(csv[0].startswith('Item,Type,Item #') and len(csv) == 1 + page.evaluate('window.__MOCK_DB__.items.length') and any(l.startswith('Cheese,') and ',1.937' in l for l in csv), f'Master List downloads for Excel ({len(csv)} lines)')
+    nxt_y = datetime.date.today().year + 1
+    check(page.locator('.note.warn.missing-costs', has_text=f'no {nxt_y} standard cost').count() == 1, f'Master List warns that {nxt_y} costs are missing')
+    tab(page, 'Standard Price')
+    check(page.locator('.note.warn.missing-prices', has_text=str(nxt_y)).count() == 1, f'Standard Price warns that {nxt_y} prices are missing')
 
     # ---- Accounting with amounts ----
     tab(page, 'Journals')

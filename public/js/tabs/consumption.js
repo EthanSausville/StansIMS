@@ -6,7 +6,7 @@
 import { h, pageHead, monthPicker, seg, yearSelect, qty, typePill, longDate, acctText, acctCell, chip } from '../ui.js';
 import { state, derived } from '../store.js';
 import { viewGrid, view } from './grid.js';
-import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
+import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 import * as C from '../calc.js';
 
 let mode = 'month';
@@ -63,7 +63,7 @@ export default {
       const nFilters = activeFilterCount(tid);
       return h('div', null,
         pageHead('Count to Count', 'Actual usage between two cycle counts of an item (first count + deliveries received − second count) next to what production should have used by the BOMs. A positive variance means more was used than the BOMs account for (waste, loss, a BOM that’s low, or a delivery not entered); negative means less (a missed production entry or a BOM that’s high). Dollars are at standard cost.',
-          switcher, chip('Count periods', rows.length),
+          switcher, chip('Count periods', rows.length), rows.length ? downloadButton('count-to-count', columns, shown) : null,
           nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null),
         rows.length ? h('div', { class: 'tablewrap tall', 'data-scroll': tid },
           xtable({ id: tid, columns, allRows: rows, rows: shown, rerender, defaultSort: { key: 'to', dir: 'desc' }, className: 'natural plain-cells',
@@ -95,6 +95,7 @@ export default {
       pageHead('Consumption', `Standard usage of each raw material and packaging item by month: the cases produced times what each product’s BOM uses. ${show === 'qty' ? 'In each item’s unit.' : `In dollars at the ${year} standard cost.`} Count to count compares it with actual usage from cycle counts.`,
         switcher, seg([['qty', 'Quantity'], ['dollars', 'Dollars']], show, (s) => { show = s; rerender(); }),
         yearSelect(years, year, (y) => { year = y; rerender(); }),
+        downloadButton(`consumption-${year}-${show}`, columns, shown),
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null),
       h('div', { class: 'tablewrap tall', 'data-scroll': tid },
         xtable({ id: tid, columns, allRows: rows, rows: shown, rerender, className: 'natural plain-cells',

@@ -459,3 +459,47 @@ begin
       and item_no < 600000);
   end if;
 end $$;
+
+-- ---------- change history ----------
+-- Every change to setup data (items, costs, prices, BOMs, labor, settings,
+-- planning) and to purchase orders: who, when, and the row before and after.
+-- Admins can read it; nobody can change it.
+create table if not exists public.audit_log (
+  id         bigint generated always as identity primary key,
+  at         timestamptz not null default now(),
+  user_id    uuid,
+  email      text,
+  table_name text not null,
+  action     text not null,
+  old_row    jsonb,
+  new_row    jsonb
+);
+create index if not exists audit_log_at_idx on public.audit_log (at desc);
+
+create or replace function public.audit_change() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare who uuid := auth.uid(); em text;
+begin
+  select p.email into em from public.profiles p where p.user_id = who;
+  insert into public.audit_log (user_id, email, table_name, action, old_row, new_row)
+  values (who, em, tg_table_name, lower(tg_op),
+          case when tg_op <> 'INSERT' then to_jsonb(old) end,
+          case when tg_op <> 'DELETE' then to_jsonb(new) end);
+  return coalesce(new, old);
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['items', 'standard_costs', 'standard_prices', 'boms', 'bom_lines', 'settings', 'year_settings',
+                           'purchase_settings', 'labor_positions', 'demand_forecast', 'purchase_orders'] loop
+    execute format('drop trigger if exists audit on public.%I', t);
+    execute format('create trigger audit after insert or update or delete on public.%I for each row execute function public.audit_change()', t);
+  end loop;
+end $$;
+
+alter table public.audit_log enable row level security;
+drop policy if exists "admins read" on public.audit_log;
+create policy "admins read" on public.audit_log for select to authenticated using (public.is_admin());
+grant select on public.audit_log to authenticated;
+revoke insert, update, delete on public.audit_log from authenticated;

@@ -832,3 +832,15 @@ export function countSheet(data, inv, date, items) {
     return { item, expected: expected ?? null, counted, diff, pct, flag: pct !== null && Math.abs(pct) > COUNT_TOLERANCE };
   });
 }
+
+// ---------- Missing standards ----------
+// Items whose standard cost is typed in (raw materials, packaging, indirect
+// costs other than direct labor) with no cost for the year, and finished goods
+// with no standard price for the year.
+export function missingStandards(data, year) {
+  const ix = index(data, year);
+  const has = (list, field) => new Set(list.filter((r) => r.year === year && r[field] !== null && r[field] !== undefined && r[field] !== '').map((r) => r.item_no));
+  const costs = has(data.standard_costs, 'cost'); const prices = has(data.standard_prices, 'price');
+  const typed = data.items.filter((i) => i.type === 'Raw Material' || i.type === 'Component' || (i.type === 'Indirect Cost' && !isLaborItem(i.item_no)));
+  return { costs: typed.filter((i) => !costs.has(i.item_no)), prices: ix.byType('Finished Good').filter((i) => !prices.has(i.item_no)) };
+}

@@ -1,7 +1,7 @@
 import { h, pageHead, monthPicker, seg, yearSelect, qty, money, typePill, todayIso, longDate, acctParts } from '../ui.js';
 import { state, derived } from '../store.js';
 import { viewGrid, view } from './grid.js';
-import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
+import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 import * as C from '../calc.js';
 
 let mode = 'daily'; // 'daily' or 'monthend' (usage moved to the Consumption tab)
@@ -54,6 +54,7 @@ export default {
         + ` The totals row is in dollars at the ${year} standard cost (or the latest one entered); filter Type to total one kind of item. Month-ends after today are projections.`,
         switcher, seg([['qty', 'Quantity'], ['value', 'Value $']], show, (s) => { show = s; rerender(); }),
         yearSelect(years, year, (y) => { year = y; rerender(); }),
+        downloadButton(`month-end-inventory-${year}-${show}`, columns, shown),
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null),
       notes,
       h('div', { class: 'tablewrap tall', 'data-scroll': tid },

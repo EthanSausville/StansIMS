@@ -220,6 +220,7 @@ export async function saveSettings(patch) {
   state.data.settings = saved; changed();
 }
 
+export async function listAudit(limit = 500) { return run(sb.from('audit_log').select('*').order('at', { ascending: false }).range(0, limit - 1)); }
 export async function listProfiles() { return run(sb.from('profiles').select('*').order('created_at')); }
 export async function setRole(userId, role) { return run(sb.from('profiles').update({ role }).eq('user_id', userId).select().single()); }
 

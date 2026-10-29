@@ -179,3 +179,20 @@ export function totalsFoot({ id, rerender, label = 'Total', cells, width }) {
     h('td', { class: 'sticky-col' }, h('span', { class: 'ft-label' }, label, h('button', { type: 'button', class: 'xt-toggle', onclick: flip(false) }, 'Hide'))),
     cells));
 }
+
+// Downloads rows as a CSV file that opens in Excel: numbers stay numbers,
+// everything else as shown on screen.
+export function downloadCsv(name, columns, rows) {
+  const esc = (v) => { const s = v === null || v === undefined ? '' : String(v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const head = columns.map((c) => esc(c.label + (c.sub ? ` (${c.sub})` : '')));
+  const lines = rows.map((r) => columns.map((c) => {
+    const v = c.value(r);
+    if (c.num && typeof v === 'number' && Number.isFinite(v)) return String(Math.round(v * 1e6) / 1e6);
+    return esc(c.text ? c.text(r) : v);
+  }));
+  const csv = '﻿' + [head, ...lines].map((l) => l.join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = h('a', { href: url, download: `${name}.csv` }); document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+export const downloadButton = (name, columns, rows) => h('button', { class: 'btn ghost download', title: 'Download the rows showing as a CSV file (opens in Excel)', onclick: () => downloadCsv(name, columns, rows) }, '⤓ Download for Excel');

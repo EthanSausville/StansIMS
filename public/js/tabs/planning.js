@@ -5,7 +5,7 @@
 import { h, pageHead, numberCell, qty, seg, chip, longDate, typePill, todayIso, toast, niceError, confirmDialog, acctCell, acctParts, acctText } from '../ui.js';
 import { state, derived, saveCell, saveField, isAdmin, insertRow, updateRow, deleteRow, receivePO } from '../store.js';
 import { DEFAULT_LEAD_DAYS, FG_SAFETY_WEEKS, PLAN_WEEKS, HISTORY_WEEKS, addDays, yearOf, evalEntry, poStatus, poVariance } from '../calc.js';
-import { xtable, filteredRows, activeFilterCount, clearFilters } from '../xtable.js';
+import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton, downloadCsv } from '../xtable.js';
 
 const shortDate = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 const weekHead = (w) => h('th', { class: 'num', title: `Week of ${longDate(w)}` }, h('span', { class: 'wk-label' }, 'Wk of'), h('br'), shortDate(w));
@@ -81,6 +81,9 @@ export const demandPlanTab = {
         seg(views, dpView, (v) => { dpView = v; rerender(); }),
         chip('Production, next 4 wks', `${qty(next4, 0)} cases`),
         chip('Forecast basis', `${shortDate(plan.history.from)}–${shortDate(plan.history.to)}`),
+        h('button', { class: 'btn ghost download', onclick: () => downloadCsv(`demand-plan-${dpView}`, [
+          { key: 'p', label: 'Product', value: (r) => r.item.name }, { key: 'a', label: 'Avg / wk', num: true, value: (r) => r.avg }, { key: 'o', label: 'On hand', num: true, value: (r) => r.onHand }, { key: 's', label: 'Safety', num: true, value: (r) => r.safety },
+          ...plan.weeks.map((w, i) => ({ key: w, label: `Week of ${w}`, num: true, value: (r) => (dpView === 'forecast' ? r.weeks[i].forecast : dpView === 'production' ? r.weeks[i].production : r.weeks[i].endOnHand) }))], plan.rows) }, '⤓ Download for Excel'),
         dpView === 'forecast' && admin && dpSelected && plan.rows.find((r) => r.item.item_no === dpSelected) ? adjustForm(plan.rows.find((r) => r.item.item_no === dpSelected), plan, rerender) : null,
         dpView === 'forecast' ? h('p', { class: 'small muted' }, 'Grey numbers are the average; type over them to plan a promotion, a new account or a slow week, or click a product to adjust several weeks at once.') : null),
       noData(),
@@ -129,7 +132,7 @@ export const purchasePlanTab = {
         } catch (err) { toast(niceError(err), 'bad'); }
       } }, 'Create purchase order') : null) : h('p', { class: 'small muted' }, 'Click a material to see its orders.');
 
-    let body;
+    let body; let planDownload = null;
     if (ppView === 'settings') {
       const settings = new Map(state.data.purchase_settings.map((s) => [s.item_no, s]));
       const columns = [
@@ -170,6 +173,7 @@ export const purchasePlanTab = {
         { key: 'lead', label: 'Lead (days)', num: true, value: (r) => r.leadDays, cell: (r) => h('td', { class: 'num' }, r.leadDays) },
       ];
       const shown = filteredRows({ id: 'purchase-plan', columns, rows, defaultSort: { key: 'status', dir: 'asc' } });
+      planDownload = downloadButton('purchase-plan', columns, shown);
       body = h('div', { class: 'tablewrap', 'data-scroll': 'purchase-plan' }, xtable({ id: 'purchase-plan', columns, allRows: rows, rows: shown, rerender, defaultSort: { key: 'status', dir: 'asc' },
         className: 'natural plain-cells selectable', rowClass: (r) => (r.item.item_no === selected ? 'selected' : null),
         onRowClick: (r) => { selected = r.item.item_no === selected ? null : r.item.item_no; rerender(); } }));
@@ -180,7 +184,8 @@ export const purchasePlanTab = {
         seg(views, ppView, (v) => { ppView = v; rerender(); }),
         chip('Order now', nNow), chip('Order this week', nSoon),
         ppView !== 'settings' ? side : null,
-        nFilters && ppView === 'plan' ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('purchase-plan'); rerender(); } }, `Clear filters (${nFilters})`) : null),
+        nFilters && ppView === 'plan' ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('purchase-plan'); rerender(); } }, `Clear filters (${nFilters})`) : null,
+        planDownload),
       noData(),
       body);
   },
@@ -311,7 +316,8 @@ export const purchaseOrdersTab = {
         poForm === 'new' ? poFormEl(null, done) : poForm === 'edit' && sel ? poFormEl(sel, done) : poForm === 'receive' && sel ? receiveForm(sel, done) : null,
         !poForm ? seg([['open', 'Open'], ['all', 'All orders']], poShow, (v) => { poShow = v; rerender(); }) : null,
         !poForm ? chip('Late', late) : null,
-        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null),
+        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null,
+        !poForm && rows.length ? downloadButton('purchase-orders', columns, shown) : null),
       missing ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for purchase orders yet. They’ll work after the next deploy to main.') : null,
       rows.length ? h('div', { class: 'tablewrap', 'data-scroll': tid }, xtable({ id: tid, columns, allRows: rows, rows: shown, rerender, defaultSort: { key: 'due', dir: 'asc' },
         className: 'selectable', rowClass: (p) => (p.id === poSelected ? 'selected' : null), showTotals: true,

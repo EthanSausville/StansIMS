@@ -18,9 +18,9 @@ export default {
     const today = todayIso();
     const negatives = tracked.filter((it) => (inv.byItem.get(it.item_no)?.get(today) ?? 0) < 0);
     const notes = [];
-    if (!inv.from) notes.push(h('div', { class: 'note info' }, 'Inventory starts from each item’s first cycle count. Enter a count on the Cycle Counts tab to begin.'));
+    if (!inv.from) notes.push(h('div', { class: 'note info' }, 'Inventory starts from each item’s first cycle count. Enter a count on New Counts to begin.'));
     if (negatives.length) notes.push(h('div', { class: 'note warn' },
-      `${negatives.length} item${negatives.length > 1 ? 's are' : ' is'} below zero today (${negatives.map((i) => i.name).join(', ')}). Usually that means deliveries haven’t been entered on Goods Receipt, or a cycle count is due.`));
+      `${negatives.length} item${negatives.length > 1 ? 's are' : ' is'} below zero today (${negatives.map((i) => i.name).join(', ')}). Usually that means deliveries haven’t been entered on New Receipts, or a count is due.`));
 
     if (mode === 'daily') {
       return h('div', null,

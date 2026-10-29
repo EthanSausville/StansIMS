@@ -83,7 +83,7 @@ function itemForm(item, done) {
       holdsWrap,
       h('div', { class: 'span2' }, rcvSentence)),
     h('p', { class: 'small muted' }, 'Base unit is what recipes and BOMs use (lb, c, ea). Comes in is how it’s delivered: deliveries are entered as boxes, bags or cases and turned into the base unit for you.'),
-    isNew ? h('p', { class: 'small muted' }, 'Item numbers are 6 digits and start with the type: 1 raw material, 2 packaging, 3 indirect (labor, overhead, marketing), 4 recipe, 5 finished good. New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory; new finished goods appear on Production. Build what an item is made of on the BOMs tab.') : null,
+    isNew ? h('p', { class: 'small muted' }, 'Item numbers are 6 digits and start with the type: 1 raw material, 2 packaging, 3 indirect (labor, overhead, marketing), 4 recipe, 5 finished good. New raw materials and packaging appear on New Receipts, New Counts and Daily Inventory; new finished goods appear on Production. Build what an item is made of on the BOMs tab.') : null,
     h('div', { class: 'controls' },
       !isNew ? h('button', { type: 'button', class: 'btn danger', onclick: remove }, 'Delete item') : null,
       h('button', { type: 'button', class: 'btn', onclick: () => done(item?.item_no ?? null) }, 'Cancel'),

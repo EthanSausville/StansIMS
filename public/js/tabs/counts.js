@@ -1,12 +1,14 @@
-// Cycle counts: the month grid of counts, and a count sheet for one day that
-// shows what the running inventory expects next to what was counted.
+// Cycle counts, as two tabs:
+//   New Counts  the count sheet for one day: type what's on the shelf (full
+//               boxes + loose). Blind: it doesn't show what's expected.
+//   All Counts  every count by day (the month grid), and Check a day:
+//               expected vs. counted, with differences flagged.
 import { h, pageHead, monthPicker, longDate, seg, qty, todayIso, acctCell, chip, toast, niceError } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
 import { countSheet, COUNT_TOLERANCE, yearOf, hasReceiving, splitReceiving, unitWord, evalEntry } from '../calc.js';
 
-let mode = 'sheet';
-let checking = false; // show expected and differences (for whoever reviews the count); off while counting
+let mode = 'month'; // All Counts: 'month' or 'check'
 
 // Counting an item that comes in boxes / bags / cases: full ones, plus what's
 // loose in the base unit (12 boxes + 15 lb of cheese = 375 lb).
@@ -33,53 +35,97 @@ function plainCountCell(item, value, save) {
 }
 let sheetDate = todayIso();
 
-export default {
-  id: 'counts',
-  label: 'Cycle Counts',
+const countItems = () => { const ix = derived.ix(); return [...ix.byType('Raw Material'), ...ix.byType('Component'), ...ix.byType('Finished Good')]; };
+const groupName = (t) => (t === 'Component' ? 'Packaging' : t === 'Finished Good' ? 'Finished goods (cases)' : 'Raw materials');
+const comesIn = (it) => (hasReceiving(it) ? `1 ${it.receiving_unit} = ${qty(Number(it.units_per_receiving))} ${unitWord(it.unit, 2)}` : '');
+// A count as people say it: "12 boxes + 15 lb" (and the base total).
+function countText(it, v) {
+  if (v === null || v === undefined) return '';
+  const sp = splitReceiving(it, v);
+  if (!sp) return `${qty(v, 2)} ${unitWord(it.unit, v)}`;
+  const parts = [sp.full ? `${qty(sp.full)} ${unitWord(it.receiving_unit, sp.full)}` : '', sp.loose ? `${qty(sp.loose, 2)} ${unitWord(it.unit, sp.loose)}` : ''].filter(Boolean);
+  return `${parts.join(' + ') || '0'}${sp.full ? ` (${qty(v, 2)} ${unitWord(it.unit, v)})` : ''}`;
+}
+const dateField = (value, onPick, max) => h('label', { class: 'field' }, 'Count date', h('input', { type: 'date', class: 'big-date', value, max, 'aria-label': 'Count date',
+  onchange: (e) => { if (e.target.value) onPick(e.target.value); } }));
+const busyNote = (date) => {
+  const busy = state.data.production.some((p) => p.date === date) || state.data.goods_receipts.some((r) => r.date === date);
+  return busy ? h('div', { class: 'note warn' }, `There’s production or a delivery entered on ${longDate(date)}. Counts are taken at the start of the day, so count before anything is made or received, or count on another day.`) : null;
+};
+
+export const newCounts = {
+  id: 'newcounts',
+  label: 'New Counts',
   render({ rerender }) {
-    const ix = derived.ix(); const inv = derived.inventory(); const cm = derived.costs();
-    const items = [...ix.byType('Raw Material'), ...ix.byType('Component'), ...ix.byType('Finished Good')];
+    const items = countItems();
+    const rows = countSheet(state.data, derived.inventory(), sheetDate, items);
+    const done = rows.filter((r) => r.counted !== null).length;
+    let group = null; const body = [];
+    for (const r of rows) {
+      if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 3 }, groupName(group)))); }
+      const saveIt = (v) => saveCell('cycle_counts', { date: sheetDate, item_no: r.item.item_no }, 'qty', v);
+      body.push(h('tr', null,
+        h('td', { class: 'sticky-col cnt-name' }, h('strong', null, r.item.name)),
+        h('td', { class: 'muted' }, comesIn(r.item)),
+        hasReceiving(r.item) ? boxCountCell(r.item, r.counted, saveIt) : plainCountCell(r.item, r.counted, saveIt)));
+    }
+    return h('div', null,
+      pageHead('New Counts', 'Count what’s on the shelf and type it in: full boxes, bags or cases, plus anything loose. Each count saves as soon as you move to the next box. The sheet doesn’t show what the system expects, so the count isn’t steered by it; All Counts → Check a day compares them afterwards.',
+        dateField(sheetDate, (d) => { sheetDate = d; rerender(); }, todayIso()),
+        h('div', { class: 'dl-day' }, sheetDate === todayIso() ? 'Today' : longDate(sheetDate)),
+        sheetDate !== todayIso() ? h('button', { class: 'btn', onclick: () => { sheetDate = todayIso(); rerender(); } }, 'Back to today') : null,
+        chip('Counted', `${done} of ${rows.length}`)),
+      busyNote(sheetDate),
+      h('h2', { class: 'dl-title' }, `What’s on the shelf on ${longDate(sheetDate)}?`),
+      h('div', { class: 'tablewrap', 'data-scroll': 'count-sheet' }, h('table', { class: 't count-sheet' },
+        h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Comes in'), h('th', null, 'How many are there?'))),
+        h('tbody', null, body))));
+  },
+};
+
+let checkDate = null; // All Counts → Check a day: the day shown (latest count day by default)
+
+export const allCounts = {
+  id: 'counts',
+  label: 'All Counts',
+  render({ rerender }) {
+    const inv = derived.inventory(); const cm = derived.costs();
+    const items = countItems();
     const prodDays = new Set(state.data.production.map((p) => p.date));
     const receipt = new Set(state.data.goods_receipts.map((r) => `${r.date}|${r.item_no}`));
     const counted = new Set(state.data.cycle_counts.map((c) => `${c.date}|${c.item_no}`));
     const conflict = (d, it) => counted.has(`${d}|${it.item_no}`) && (prodDays.has(d) || receipt.has(`${d}|${it.item_no}`));
-    const switcher = seg([['sheet', 'Count sheet'], ['month', 'Month']], mode, (m) => { mode = m; rerender(); });
+    const switcher = seg([['month', 'Month'], ['check', 'Check a day']], mode, (m) => { mode = m; rerender(); });
     const tolerance = `${Math.round(COUNT_TOLERANCE * 100)}%`;
+    const countDays = [...new Set(state.data.cycle_counts.map((c) => c.date))].sort();
 
-    if (mode === 'sheet') {
-      const rows = countSheet(state.data, inv, sheetDate, items);
-      const busy = prodDays.has(sheetDate) || state.data.goods_receipts.some((r) => r.date === sheetDate);
+    if (mode === 'check') {
+      if (!checkDate || !countDays.includes(checkDate)) checkDate = countDays.at(-1) || todayIso();
+      const rows = countSheet(state.data, inv, checkDate, items).filter((r) => r.counted !== null);
       const flagged = rows.filter((r) => r.flag).length;
-      const done = rows.filter((r) => r.counted !== null).length;
-      const dateInput = h('input', { type: 'date', value: sheetDate, 'aria-label': 'Count date', onchange: (e) => { if (e.target.value) { sheetDate = e.target.value; rerender(); } } });
-      let group = null;
-      const body = [];
+      let group = null; const body = [];
       for (const r of rows) {
-        if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: checking ? 7 : 3 }, group === 'Component' ? 'Packaging' : group === 'Finished Good' ? 'Finished goods (cases)' : 'Raw materials'))); }
-        const std = cm.cost(r.item.item_no, yearOf(sheetDate)) || cm.latest(r.item.item_no);
-        const saveIt = (v) => saveCell('cycle_counts', { date: sheetDate, item_no: r.item.item_no }, 'qty', v);
-        body.push(h('tr', { class: checking && r.flag ? 'flagged' : null },
+        if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 6 }, groupName(group)))); }
+        const std = cm.cost(r.item.item_no, yearOf(checkDate)) || cm.latest(r.item.item_no);
+        body.push(h('tr', { class: r.flag ? 'flagged' : null },
           h('td', { class: 'sticky-col cnt-name' }, h('strong', null, r.item.name)),
-          h('td', { class: 'muted' }, hasReceiving(r.item) ? `1 ${r.item.receiving_unit} = ${qty(Number(r.item.units_per_receiving))} ${unitWord(r.item.unit, 2)}` : ''),
-          hasReceiving(r.item) ? boxCountCell(r.item, r.counted, saveIt) : plainCountCell(r.item, r.counted, saveIt),
-          checking ? [
-            h('td', { class: 'num' + (r.expected < 0 ? ' neg' : '') }, r.expected === null ? '—' : `${qty(r.expected, 1)} ${unitWord(r.item.unit, 2)}`),
-            h('td', { class: 'num' + (r.diff < 0 ? ' neg' : '') }, r.diff === null ? '' : (r.diff > 0 ? '+' : '') + qty(r.diff, 1)),
-            h('td', { class: 'num' + (r.flag ? ' neg strong' : '') }, r.pct === null ? '' : `${r.pct > 0 ? '+' : ''}${qty(r.pct * 100, 0)}%`),
-            r.diff === null ? h('td') : acctCell(r.diff * std, { class: r.diff < 0 ? 'neg' : '' })] : null));
+          h('td', null, countText(r.item, r.counted)),
+          h('td', { class: 'num' + (r.expected < 0 ? ' neg' : '') }, r.expected === null ? '—' : `${qty(r.expected, 1)} ${unitWord(r.item.unit, 2)}`),
+          h('td', { class: 'num' + (r.diff < 0 ? ' neg' : '') }, r.diff === null ? '' : (r.diff > 0 ? '+' : '') + qty(r.diff, 1)),
+          h('td', { class: 'num' + (r.flag ? ' neg strong' : '') }, r.pct === null ? '' : `${r.pct > 0 ? '+' : ''}${qty(r.pct * 100, 0)}%`),
+          r.diff === null ? h('td') : acctCell(r.diff * std, { class: r.diff < 0 ? 'neg' : '' })));
       }
+      const pick = h('select', { 'aria-label': 'Count day', onchange: (e) => { checkDate = e.target.value; rerender(); } },
+        [...countDays].reverse().map((d) => h('option', { value: d, selected: d === checkDate }, longDate(d))));
       return h('div', null,
-        pageHead('Count Sheet', `Count what’s on the shelf and type it in: full boxes, bags or cases, plus anything loose. Counts save as you go. The count sheet doesn’t show what the system expects while you count, so the count isn’t steered by it; afterwards, Check counts shows expected vs. counted and flags differences over ${tolerance} (recount those, or look for a delivery or production that wasn’t entered). A count replaces the running inventory for that item from that day on.`,
-          switcher,
-          h('label', { class: 'field' }, 'Count date', dateInput),
-          chip('Counted', `${done} of ${rows.length}`),
-          h('button', { class: 'btn' + (checking ? ' primary' : ''), 'aria-pressed': String(checking), onclick: () => { checking = !checking; rerender(); } }, checking ? 'Hide expected' : 'Check counts'),
-          checking ? chip(`Off by over ${tolerance}`, flagged) : null),
-        busy ? h('div', { class: 'note warn' }, `There’s production or a delivery entered on ${longDate(sheetDate)}. Counts are taken at the start of the day, so count before anything is made or received, or count on another day.`) : null,
-        h('div', { class: 'tablewrap', 'data-scroll': 'count-sheet' }, h('table', { class: 't count-sheet' },
-          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Comes in'), h('th', null, 'How many are there?'),
-            checking ? [h('th', { class: 'num' }, 'Expected'), h('th', { class: 'num' }, 'Difference'), h('th', { class: 'num' }, '%'), h('th', { class: 'num' }, 'At standard')] : null)),
-          h('tbody', null, body))));
+        pageHead('Check a Count', `What was counted on a day next to what the running inventory expected at the start of that day. Differences over ${tolerance} are flagged: recount those, or look for a delivery or production that wasn’t entered. To change a count, use Month.`,
+          switcher, h('label', { class: 'field' }, 'Count day', pick),
+          chip('Items counted', rows.length), chip(`Off by over ${tolerance}`, flagged)),
+        busyNote(checkDate),
+        rows.length ? h('div', { class: 'tablewrap', 'data-scroll': 'count-check' }, h('table', { class: 't count-sheet count-check' },
+          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Counted'), h('th', { class: 'num' }, 'Expected'), h('th', { class: 'num' }, 'Difference'), h('th', { class: 'num' }, '%'), h('th', { class: 'num' }, 'At standard'))),
+          h('tbody', null, body)))
+          : h('div', { class: 'panel empty' }, 'No counts entered yet. Use New Counts to enter one.'));
     }
 
     const days = monthDays(view.ym);
@@ -88,10 +134,10 @@ export default {
     const off = new Set();
     for (const d of days) for (const r of countSheet(state.data, inv, d, items)) if (r.flag) off.add(`${d}|${r.item.item_no}`);
     return h('div', null,
-      pageHead('Cycle Counts', `What is physically on hand. A count replaces the running inventory for that item from that day on. Finished goods are counted in cases. Count on a day with no production and no deliveries; otherwise that day’s usage and receipts are applied on top of the count. Counts more than ${tolerance} away from the running inventory are outlined in red.`,
+      pageHead('All Counts', `Every count, by day, in each item’s base unit; the line under each name shows what one box, bag or case holds. A count replaces the running inventory for that item from that day on. Finished goods are counted in cases. Counts more than ${tolerance} away from the running inventory are outlined in red; Check a day shows the details. To enter a count, use New Counts.`,
         switcher, monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); })),
       clashes.length ? h('div', { class: 'note bad' }, `Counts this month on a day with production or a delivery (outlined below): ${clashes.map(longDate).join(', ')}.`) : null,
-      off.size ? h('div', { class: 'note warn' }, `${off.size} count${off.size > 1 ? 's' : ''} this month differ from the running inventory by over ${tolerance} (outlined in red). The Count sheet shows the details.`) : null,
+      off.size ? h('div', { class: 'note warn' }, `${off.size} count${off.size > 1 ? 's' : ''} this month differ from the running inventory by over ${tolerance} (outlined in red). Check a day shows the details.`) : null,
       entryGrid({
         table: 'cycle_counts', field: 'qty', items, ym: view.ym, rows: state.data.cycle_counts, footer: false,
         cellClass: (d, it) => [conflict(d, it) ? 'flag' : '', off.has(`${d}|${it.item_no}`) ? 'off' : ''].join(' ').trim() || null,

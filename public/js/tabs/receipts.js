@@ -1,13 +1,14 @@
-// Goods Receipt. "Enter a delivery" is the simple way in: pick the day, type how
-// many boxes / bags / cases of each thing came in, save. The site turns them
-// into each item's base unit (a box of cheese = 30 lb). "Month" is the full
-// grid of what was received each day, in base units, for checking and fixing.
-import { h, pageHead, monthPicker, chip, seg, qty, toast, niceError, todayIso, longDate, DOW } from '../ui.js';
+// Receipts, as two tabs:
+//   New Receipts  the simple way in: pick the day, type how many boxes / bags /
+//                 cases of each thing came in, save. The site turns them into
+//                 each item's base unit (a box of cheese = 30 lb).
+//   All Receipts  the grid of everything received each day, in base units, for
+//                 checking and fixing.
+import { h, pageHead, monthPicker, chip, qty, toast, niceError, todayIso, longDate, DOW } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
 import { hasReceiving, unitWord, holdsLabel, toDate } from '../calc.js';
 
-let mode = 'enter';
 let day = todayIso();
 let typed = {};      // item_no -> text typed but not saved yet (kept across re-renders)
 let lastSaved = null; // { day, lines: [{ item, count, base, before }] } for the confirmation and Undo
@@ -19,7 +20,7 @@ const perEntry = (it) => (hasReceiving(it) ? Number(it.units_per_receiving) : 1)
 const parse = (text) => { const t = String(text ?? '').trim().replace(/,/g, ''); if (!t) return null; return /^\d*\.?\d+$|^\d+\.$/.test(t) ? Number(t) : NaN; };
 const count = (n, u) => `${qty(n, 2)} ${unitWord(u, n)}`;
 
-function enterView(rerender, switcher) {
+function enterView(rerender) {
   const ix = derived.ix();
   const groups = [['Raw materials', ix.byType('Raw Material')], ['Packaging', ix.byType('Component')]];
   const already = new Map(state.data.goods_receipts.filter((r) => r.date === day).map((r) => [r.item_no, Number(r.qty) || 0]));
@@ -88,8 +89,7 @@ function enterView(rerender, switcher) {
     onchange: (e) => { if (e.target.value) { day = e.target.value; lastSaved = null; rerender(); } } });
   refresh();
   return h('div', null,
-    pageHead('Enter a Delivery', 'For whoever unloads the truck: pick the day it came in, type how many boxes, bags or cases of each thing arrived, and press Save delivery. The site works out the pounds, cups or each for you. If something was already entered for that day, this adds to it. Use Month to check or fix past days.',
-      switcher,
+    pageHead('New Receipts', 'For whoever unloads the truck: pick the day it came in, type how many boxes, bags or cases of each thing arrived, and press Save delivery. The site works out the pounds, cups or each for you. If something was already entered for that day, this adds to it. All Receipts shows everything received, to check or fix past days.',
       h('label', { class: 'field' }, 'Delivery date', dateInput),
       h('div', { class: 'dl-day' }, isToday ? 'Today' : DOW[toDate(day).getUTCDay()], ' · ', longDate(day)),
       !isToday ? h('button', { class: 'btn', onclick: () => { day = todayIso(); lastSaved = null; rerender(); } }, 'Back to today') : null),
@@ -104,19 +104,22 @@ function enterView(rerender, switcher) {
       h('div', { class: 'dl-bar' }, summary, saveBtn)));
 }
 
-export default {
+export const newReceipts = {
+  id: 'newreceipts',
+  label: 'New Receipts',
+  render({ rerender }) { return enterView(rerender); },
+};
+
+export const allReceipts = {
   id: 'receipts',
-  label: 'Goods Receipt',
+  label: 'All Receipts',
   render({ rerender }) {
-    const switcher = seg([['enter', 'Enter a delivery'], ['month', 'Month']], mode, (m) => { mode = m; rerender(); });
-    if (mode === 'enter') return enterView(rerender, switcher);
     const ix = derived.ix();
     const items = [...ix.byType('Raw Material'), ...ix.byType('Component')];
     const days = new Set(monthDays(view.ym));
     const month = state.data.goods_receipts.filter((r) => days.has(r.date));
     return h('div', null,
-      pageHead('Goods Receipt', 'Everything received each day, in each item’s base unit (pounds, cups or each); the line under each name shows what one box, bag or case holds. To enter a delivery, use Enter a delivery. Fix a number here by typing over it; typing math like 30*12 works.',
-        switcher,
+      pageHead('All Receipts', 'Everything received each day, in each item’s base unit (pounds, cups or each); the line under each name shows what one box, bag or case holds. To enter a delivery, use New Receipts. Fix a number here by typing over it; typing math like 30*12 works.',
         monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); }),
         chip('Receipts', month.length),
         chip('Delivery days', new Set(month.map((r) => r.date)).size)),

@@ -2,8 +2,8 @@ import { h, toast, niceError } from './ui.js';
 import { sb, configured, state, loadAll, loadProfile, isAdmin, onChange } from './store.js';
 import dashboard from './tabs/dashboard.js';
 import production from './tabs/production.js';
-import receipts from './tabs/receipts.js';
-import counts from './tabs/counts.js';
+import { newReceipts, allReceipts } from './tabs/receipts.js';
+import { newCounts, allCounts } from './tabs/counts.js';
 import inventory from './tabs/inventory.js';
 import consumption from './tabs/consumption.js';
 import { demandPlanTab, purchasePlanTab, purchaseOrdersTab } from './tabs/planning.js';
@@ -24,7 +24,7 @@ const GROUPS = [
   { id: 'overview', label: 'Dashboard', tabs: [dashboard] },
   { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
   { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
-  { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, consumption] },
+  { id: 'inventory', label: 'Inventory', tabs: [production, newReceipts, allReceipts, newCounts, allCounts, inventory, consumption] },
   { id: 'planning', label: 'Planning', tabs: [demandPlanTab, purchasePlanTab, purchaseOrdersTab] },
   { id: 'costing', label: 'Standards', tabs: [costs, bom, labor] },
 ];

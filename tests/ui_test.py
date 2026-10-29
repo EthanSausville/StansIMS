@@ -79,7 +79,7 @@ def shot(page, name):
 
 GROUPS = {
     'Dashboard': ['Dashboard'],
-    'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Consumption'],
+    'Inventory': ['Production', 'New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
     'Planning': ['Demand Plan', 'Purchase Plan', 'Purchase Orders'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor'],
@@ -246,9 +246,9 @@ with sync_playwright() as p:
     # ---- inventory reacts to a delivery ----
     tab(page, 'Daily Inventory')
     before = page.evaluate("1")
-    tab(page, 'Goods Receipt')
-    # ---- Enter a delivery (the simple way) ----
-    check(page.locator('form.delivery').count() == 1, 'Goods Receipt opens on Enter a delivery')
+    tab(page, 'New Receipts')
+    # ---- New Receipts (the simple way) ----
+    check(page.locator('form.delivery').count() == 1 and page.locator('table.t').count() == 0, 'New Receipts is just the delivery form')
     lid_no = next(i['item_no'] for i in inputs['items'] if i['name'] == '7 oz Lid')
     rcpt = lambda no: sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == no and r['date'] == page.evaluate("(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })()"))
     b_cheese, b_lid = rcpt(100001), rcpt(lid_no)
@@ -266,14 +266,14 @@ with sync_playwright() as p:
     shot(page, '59-delivery-saved')
     page.get_by_role('button', name='Undo this delivery').click(); page.wait_for_timeout(400)
     check(rcpt(100001) == b_cheese and rcpt(lid_no) == b_lid, 'Undo takes the delivery back out')
-    page.get_by_role('button', name='Month', exact=True).click(); page.wait_for_timeout(150)
+    tab(page, 'All Receipts')
     c = cell(page, 'goods_receipts|2026-07-20|100001'); c.click(); c.fill('30*100'); c.press('Enter'); page.wait_for_timeout(300)
     stored = page.evaluate("window.__MOCK_DB__.goods_receipts.find(r => r.date==='2026-07-20' && r.item_no===100001)")
     check(stored and stored['qty'] == 3000, 'goods receipt of 30*100 lb cheese saved as 3000')
     tab(page, 'Daily Inventory')
     row = page.locator('tbody tr', has=page.locator('td.sticky-col', has_text='7/20/2026'))
     vals = row.locator('td').all_inner_texts()
-    tab(page, 'Goods Receipt')
+    tab(page, 'All Receipts')
     c = cell(page, 'goods_receipts|2026-07-20|100001'); c.click(); c.fill(''); c.press('Enter'); page.wait_for_timeout(300)
     tab(page, 'Daily Inventory')
     vals2 = page.locator('tbody tr', has=page.locator('td.sticky-col', has_text='7/20/2026')).locator('td').all_inner_texts()
@@ -687,16 +687,15 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Quantity').click(); page.wait_for_timeout(100)
 
     # ---- Count sheet ----
-    tab(page, 'Cycle Counts')
-    check(page.locator('table.count-sheet').count() == 1, 'Cycle Counts opens on the count sheet')
+    tab(page, 'New Counts')
+    check(page.locator('table.count-sheet').count() == 1 and page.get_by_role('button', name='Check counts').count() == 0, 'New Counts is just the count sheet')
     cdate = sorted({c['date'] for c in inputs['cycle_counts']})[-1]
     page.locator('.sidebar input[type=date]').fill(cdate); page.locator('.sidebar input[type=date]').dispatch_event('change'); page.wait_for_timeout(200)
     check(page.locator('table.count-sheet thead', has_text='Expected').count() == 0, 'counting is blind: no expected numbers while counting')
     shot(page, '55a-count-blind')
-    page.get_by_role('button', name='Check counts').click(); page.wait_for_timeout(150)
     crow = page.locator('table.count-sheet tbody tr', has_text='Cheese').first
-    exp = crow.locator('td').nth(3).inner_text(); got = cell(page, f'csf|{cheese_no}').input_value()
-    check(exp not in ('', '—') and got != '', f'count sheet shows expected and counted for {cdate} ({exp}, {got})')
+    got = cell(page, f'csf|{cheese_no}').input_value()
+    check(got != '', f'New Counts shows what was counted on {cdate} ({got} boxes)')
     lj = str(next(i['item_no'] for i in inputs['items'] if i['name'] == 'Lemon Juice'))
     check(crow.locator('.cnt-u').first.inner_text() == 'full boxes' and 'lb loose' in crow.inner_text(), 'cheese is counted in full boxes plus loose lb')
     f_ = cell(page, f'csf|{cheese_no}'); l_ = cell(page, f'csl|{cheese_no}'); keep = (f_.input_value(), l_.input_value())
@@ -704,13 +703,17 @@ with sync_playwright() as p:
     check(page.evaluate(f"window.__MOCK_DB__.cycle_counts.find(c => c.item_no === {cheese_no} && c.date === '{cdate}').qty") == 375, '12 boxes + 15 lb loose is saved as 375 lb')
     f_ = cell(page, f'csf|{cheese_no}'); l_ = cell(page, f'csl|{cheese_no}'); f_.fill(keep[0]); l_.fill(keep[1]); l_.press('Tab'); page.wait_for_timeout(300)
     tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill('1'); tcell.press('Tab'); page.wait_for_timeout(250)
-    check(page.locator('table.count-sheet tbody tr.flagged', has_text='Lemon Juice').count() == 1, 'a count far from expected is flagged')
+    tab(page, 'All Counts')
+    page.get_by_role('button', name='Check a day').click(); page.wait_for_timeout(150)
+    page.locator('.sidebar select').select_option(cdate); page.wait_for_timeout(150)
+    chk = page.locator('table.count-check tbody tr', has_text='Cheese').first
+    check(chk.locator('td').nth(2).inner_text() not in ('', '—') and 'boxes' in chk.locator('td').nth(1).inner_text(), f'Check a day shows counted (in boxes) next to expected ({chk.inner_text()!r})')
+    check(page.locator('table.count-check tbody tr.flagged', has_text='Lemon Juice').count() == 1, 'a count far from expected is flagged')
     shot(page, '55-count-sheet')
-    tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
-    page.get_by_role('button', name='Hide expected').click(); page.wait_for_timeout(100)
     page.get_by_role('button', name='Month', exact=True).click(); page.wait_for_timeout(150)
-    check(page.locator('table.t td.cell input').count() > 0, 'the month grid is still there')
-    page.get_by_role('button', name='Count sheet').click(); page.wait_for_timeout(100)
+    check(page.locator('table.t td.cell input').count() > 0, 'All Counts has the month grid')
+    tab(page, 'New Counts')
+    tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
 
     # ---- Production lots ----
     tab(page, 'Production')
@@ -936,7 +939,7 @@ with sync_playwright() as p:
     check(overflow <= 0, f'no sideways page scroll on a phone (overflow {overflow}px)')
     shot(page, '24-phone-dashboard')
     tab(page, 'Production'); shot(page, '25-phone-production')
-    for i, t in enumerate(['Goods Receipt', 'Cycle Counts', 'Purchase Plan', 'Purchase Orders', 'Sales Detail']):
+    for i, t in enumerate(['New Receipts', 'New Counts', 'Purchase Plan', 'Purchase Orders', 'Sales Detail']):
         tab(page, t); page.wait_for_timeout(150)
         ov = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
         check(ov <= 0, f'{t}: no sideways page scroll on a phone ({ov}px)')

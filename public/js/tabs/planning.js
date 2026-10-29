@@ -275,7 +275,7 @@ function receiveForm(po, done) {
         const base = n * per;
         if (pv !== (po.unit_price ?? null)) await updateRow('purchase_orders', 'id', po.id, { unit_price: pv });
         await receivePO({ ...po, unit_price: pv }, date.value, base);
-        toast(`Received ${qty(n, 2)} ${unitWord(u, n)} of ${it?.name}${per !== 1 ? ` (${qty(base, 2)} ${unitWord(it?.unit, base)})` : ''}. It’s on Goods Receipt for ${longDate(date.value)}.`); done(po.id);
+        toast(`Received ${qty(n, 2)} ${unitWord(u, n)} of ${it?.name}${per !== 1 ? ` (${qty(base, 2)} ${unitWord(it?.unit, base)})` : ''}. It’s on All Receipts for ${longDate(date.value)}.`); done(po.id);
       } catch (err) { toast(niceError(err), 'bad'); }
     } },
     h('strong', { class: 'tb-title' }, `Receive order #${po.id}`),
@@ -283,7 +283,7 @@ function receiveForm(po, done) {
     h('div', { class: 'item-fields' }, h('label', { class: 'field' }, 'Received on', date),
       h('label', { class: 'field' }, `How many ${unitWord(u)}`, q), conv,
       h('label', { class: 'field span2' }, `Price paid per ${unitWord(it?.unit, 1) || 'unit'} ($)`, price)),
-    h('p', { class: 'small muted' }, 'Receiving adds it to Goods Receipt for that day. The price paid against standard cost is the purchase price variance on the Journals tab.'),
+    h('p', { class: 'small muted' }, 'Receiving adds it to All Receipts for that day. The price paid against standard cost is the purchase price variance on the Journals tab.'),
     h('div', { class: 'controls' }, h('button', { type: 'button', class: 'btn', onclick: () => done(po.id) }, 'Cancel'), h('button', { type: 'submit', class: 'btn primary' }, 'Receive')));
 }
 
@@ -324,7 +324,7 @@ export const purchaseOrdersTab = {
     const nFilters = activeFilterCount(tid);
     const late = all.filter((p) => poStatus(p, today) === 'late').length;
     return h('div', null,
-      pageHead('Purchase Orders', 'Orders placed with suppliers. Open orders count as coming in on their due date in the Purchase Plan, so it won’t suggest buying the same thing twice. Receive an order when it arrives: the quantity goes onto Goods Receipt, and the price paid against standard cost is the purchase price variance (PPV) on the Journals tab. Create an order here or from the Purchase Plan.',
+      pageHead('Purchase Orders', 'Orders placed with suppliers. Open orders count as coming in on their due date in the Purchase Plan, so it won’t suggest buying the same thing twice. Receive an order when it arrives: the quantity goes onto All Receipts, and the price paid against standard cost is the purchase price variance (PPV) on the Journals tab. Create an order here or from the Purchase Plan.',
         !poForm ? h('button', { class: 'btn primary', onclick: () => { poForm = 'new'; rerender(); } }, 'New order') : null,
         !poForm && sel && !sel.received && !sel.cancelled ? h('button', { class: 'btn primary', onclick: () => { poForm = 'receive'; rerender(); } }, 'Receive order') : null,
         !poForm && sel && !sel.received ? h('button', { class: 'btn primary', onclick: () => { poForm = 'edit'; rerender(); } }, 'Edit order') : null,

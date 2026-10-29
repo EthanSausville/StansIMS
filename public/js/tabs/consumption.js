@@ -68,7 +68,7 @@ export default {
         rows.length ? h('div', { class: 'tablewrap tall', 'data-scroll': tid },
           xtable({ id: tid, columns, allRows: rows, rows: shown, rerender, defaultSort: { key: 'to', dir: 'desc' }, className: 'natural plain-cells',
             showTotals: prefTotals(tid), onToggleTotals: (on) => { setPrefTotals(tid, on); rerender(); }, totalsLabel: (rs, all) => (rs.length === all.length ? 'Total' : `Total (${rs.length} of ${all.length})`) }))
-          : h('div', { class: 'panel empty' }, 'Count an item twice on Cycle Counts to see its actual usage here.'));
+          : h('div', { class: 'panel empty' }, 'Count an item twice (New Counts) to see its actual usage here.'));
     }
 
     // By month

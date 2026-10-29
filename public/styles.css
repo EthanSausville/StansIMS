@@ -7,6 +7,8 @@
   --faint: #8b99ab;
   --line: #e2e8f1;
   --line-strong: #c9d4e3;
+  --banner: #4a2a14;      /* Stan's brown: the top banner */
+  --banner-2: #6b3f1f;
   --accent: #1f5fd6;
   --accent-dark: #17469f;
   --accent-ink: #ffffff;
@@ -205,7 +207,7 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
 
 /* ---------- blue header band ---------- */
 .topbar { background: var(--panel); box-shadow: 0 1px 0 var(--line); }
-.brandrow { background: linear-gradient(90deg, var(--accent-dark), var(--accent)); color: #fff; padding: 10px 20px; }
+.brandrow { background: linear-gradient(90deg, var(--banner), var(--banner-2)); color: #fff; padding: 10px 20px; }
 .who { color: #dbe6fb; }
 .role { background: rgba(255,255,255,.18); color: #fff; }
 .who .btn { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.35); color: #fff; }
@@ -329,9 +331,9 @@ table.tree-table td.used-in { max-width: 180px; overflow: hidden; text-overflow:
 .who .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
 .who .btn.ghost:hover { color: var(--accent-dark); }
 
-.grouprow { background: linear-gradient(90deg, var(--accent-dark), var(--accent)); padding: 8px 14px 0; }
+.grouprow { background: linear-gradient(90deg, var(--banner), var(--banner-2)); padding: 8px 14px 0; }
 .groups { display: flex; gap: 4px; margin: 0; overflow-x: auto; scrollbar-width: none; align-items: flex-end; }
-.group { position: relative; border-radius: 9px 9px 0 0; padding: 9px 18px 10px; color: #dbe6fb; font-weight: 600; }
+.group { position: relative; border-radius: 9px 9px 0 0; padding: 9px 18px 10px; color: #f3e6d6; font-weight: 600; }
 .group:hover { background: rgba(255,255,255,.12); color: #fff; }
 /* The chosen section is a folder tab that opens into the row below it. */
 .group[aria-current="true"], .group[aria-current="true"]:hover { background: var(--tabrow); color: var(--accent-dark); }

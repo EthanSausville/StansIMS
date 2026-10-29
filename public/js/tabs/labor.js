@@ -193,19 +193,6 @@ export default {
         selYear > years[0] ? h('tr', null, h('td', null, `Inflation adjustment from ${selYear - 1} (%)`, h('div', { class: 'small muted' }, ownRows ? `Not used: ${selYear} has its own people.` : `While ${selYear} is forecast from ${selYear - 1}, everyone’s pay and fixed costs go up by this %.`)),
           setYear('labor_inflation_pct', 'Inflation adjustment %', '0')) : null)));
 
-    const cols = [['#', (r) => qty(r.people, 2)], ['Line hours', (r) => fmt(r.lineHours)], ['Base pay', (r) => dollars(r.base)],
-      ['Payroll tax', (r) => dollars(r.tax)], ['Fringe & fixed', (r) => dollars(r.benefits)], ['Labor cost', (r) => dollars(r.burdened)],
-      ['Minutes on the line', (r) => fmt(r.minutes)], ['Cost per minute', (r) => (r.minutes ? '$' + qty(r.burdened / r.minutes, 4) : '—')]];
-    const tot = { people: L.rows.reduce((t, r) => t + r.people, 0), lineHours: L.lineHours, base: L.base, tax: L.tax, benefits: L.benefits, burdened: L.burdened, minutes: L.minutes };
-    const build = empty ? null : h('section', { class: 'panel' },
-      h('h2', null, `${selYear} cost build-up`),
-      h('div', { class: 'tablewrap flat', 'data-scroll': 'labor-build' }, h('table', { class: 't build' },
-        h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Position'), cols.map(([l]) => h('th', { class: 'num wrap' }, l)))),
-        h('tbody', null, L.rows.map((r) => h('tr', null, h('td', { class: 'sticky-col' }, r.position.name), cols.map(([, f]) => h('td', { class: 'num' }, f(r))))),
-          h('tr', { class: 'total' }, h('td', { class: 'sticky-col' }, 'Total'), cols.map(([, f]) => h('td', { class: 'num' }, f(tot))))))),
-      h('div', { class: 'formula' },
-        h('div', null, 'Labor rate = labor cost ', h('strong', null, dollars(L.burdened)), ' ÷ minutes on the line ', h('strong', null, fmt(L.minutes)), ' = ', h('strong', { class: 'accent' }, perMin(L.rate)), ' per labor minute')));
-
     const cur = L.plant.lineHours;
     const steps = [...new Set([16, 24, 40, 80, 120, cur].filter((x) => x > 0))].sort((a, b) => a - b);
     const what = steps.map((hrs) => ({ hrs, r: laborRate(d, { year: selYear, lineHours: hrs }) }));
@@ -213,16 +200,14 @@ export default {
     const vs = (v, base) => (base ? ratio(v / base) : '');
     const whatPanel = empty || !cur ? null : h('section', { class: 'panel' },
       h('h2', null, 'What if the line runs more hours a week?'),
-      h('p', { class: 'panel-note' }, 'The same people on the line whenever it runs: salaried pay stays the same and hourly people are paid for the extra hours. Running far more hours usually means more people or shifts; add them to the year to see that cost.'),
+      h('p', { class: 'panel-note' }, 'The same people on the line whenever it runs: salaried pay stays the same and hourly people are paid for the extra hours.'),
       h('div', { class: 'tablewrap flat' }, h('table', { class: 't whatif' },
-        h('thead', null, h('tr', null, h('th', null, 'Production hours a week'), h('th', null, 'Labor rate'), h('th', { class: 'num' }, 'vs. now'), h('th', { class: 'num' }, 'Labor cost'),
-          L.recipes.map((rc) => h('th', { class: 'num wrap' }, `Per batch: ${rc.item.name.replace(/^RECIPE:\s*/i, '')}`)))),
+        h('thead', null, h('tr', null, h('th', null, 'Production hours a week'), h('th', null, 'Labor rate'), h('th', { class: 'num' }, 'vs. now'), h('th', { class: 'num' }, 'Labor cost'))),
         h('tbody', null, what.map(({ hrs, r }) => h('tr', { class: hrs === cur ? 'current' : null },
           h('td', null, `${qty(hrs, 2)} hours${hrs === cur ? ' (now)' : ''}`),
           h('td', { class: 'barcell' }, h('span', { class: 'bar', style: { width: `${maxRate ? (r.rate / maxRate) * 100 : 0}%` } }), h('span', { class: 'barval' }, perMin(r.rate))),
           h('td', { class: 'num' + (r.rate > L.rate * 1.0005 ? ' up' : r.rate < L.rate * 0.9995 ? ' down' : '') }, vs(r.rate, L.rate)),
-          h('td', { class: 'num' }, dollars(r.burdened)),
-          L.recipes.map((rc) => h('td', { class: 'num' }, money(r.rate * rc.minutesPer)))))))));
+          h('td', { class: 'num' }, dollars(r.burdened))))))));
 
     // The right side: the selected year, with a header that folds it away.
     const rightFolded = (() => { try { return localStorage.getItem('labor:right-folded') === '1'; } catch { return false; } })();
@@ -245,6 +230,6 @@ export default {
         yearTable,
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Standard Cost uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
       yearHead,
-      rightFolded ? null : [summary, people, peoplePanel, plant, build, whatPanel]);
+      rightFolded ? null : [summary, people, peoplePanel, plant, whatPanel]);
   },
 };

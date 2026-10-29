@@ -712,3 +712,30 @@ table.side-people .pos-pay { display: block; box-sizing: border-box; max-width: 
 .labor > .years-panel table.side-years { font-size: 14px; }
 .labor > .years-panel table.side-years th, .labor > .years-panel table.side-years td { padding: 9px 14px; }
 .labor > .years-panel .tablewrap.flat { border-top: 0; border-radius: var(--radius); }
+
+/* BOM editor in the BOMs side bar */
+.bom-tools { display: flex; flex-direction: column; gap: 8px; }
+.bom-tools > .btn { text-align: left; }
+.bom-editor { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.bom-editor .cb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.bom-editor .cb-part { display: flex; flex-direction: column; gap: 8px; }
+.bom-editor h3 { margin: 0; font-size: 13px; text-transform: none; }
+.bom-editor p { margin: 0; }
+.cb-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.cb-fields .span2 { grid-column: 1 / -1; }
+.cb-fields input, .cb-fields select, .bom-editor #cb-item { background: var(--entry); border-color: #e6d58a; min-width: 0; }
+.bom-editor table.cb-lines { width: 100%; table-layout: fixed; font-size: 12.5px; }
+.bom-editor table.cb-lines th:nth-child(2), .bom-editor table.cb-lines td:nth-child(2) { width: 22%; }
+.bom-editor table.cb-lines th:nth-child(3), .bom-editor table.cb-lines td:nth-child(3) { width: 14%; }
+.bom-editor table.cb-lines th:nth-child(4), .bom-editor table.cb-lines td:nth-child(4) { width: 20%; }
+.bom-editor table.cb-lines th:nth-child(5), .bom-editor table.cb-lines td:nth-child(5) { width: 30px; }
+.bom-editor table.cb-lines td.cb-item-cell select { width: 100%; border: 0; background: transparent; padding: 4px; text-overflow: ellipsis; }
+.bom-editor table.cb-lines td.cell input { width: 100%; }
+.bom-editor table.cb-lines td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bom-editor .cb-unit { margin-left: 3px; color: var(--muted); }
+.bom-editor .cb-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bom-editor .cb-stats .stat { padding: 8px; }
+.bom-editor .cb-stats .value { font-size: 16px; }
+.bom-editor .cb-save { background: var(--accent-soft); border-radius: 8px; padding: 10px; }
+.bom-editor .cb-save .cb-total { font-size: 22px; }
+.bom-editor .cb-save .controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

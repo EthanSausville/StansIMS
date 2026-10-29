@@ -40,7 +40,7 @@ function itemDialog(item) {
     h('div', { class: 'row' }, h('label', { class: 'field' }, 'Item #', f.item_no), h('label', { class: 'field' }, 'Type', f.type)),
     h('label', { class: 'field' }, 'Name', f.name),
     h('div', { class: 'row' }, h('label', { class: 'field' }, 'Unit', f.unit), h('label', { class: 'field' }, 'Pack size note', f.pack_note)),
-    isNew ? h('p', { class: 'small muted', style: { margin: 0 } }, 'New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory. New finished goods appear on Production. Build what any item is made of on the Create BOM tab.') : null,
+    isNew ? h('p', { class: 'small muted', style: { margin: 0 } }, 'New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory. New finished goods appear on Production. Build what any item is made of on the BOMs tab.') : null,
     h('div', { class: 'actions' },
       !isNew ? h('button', { class: 'btn danger', value: 'delete', formnovalidate: true, style: { marginRight: 'auto' } }, 'Delete item') : null,
       h('button', { class: 'btn', value: 'cancel', formnovalidate: true }, 'Cancel'), h('button', { class: 'btn primary', value: 'save' }, isNew ? 'Add' : 'Save'))));

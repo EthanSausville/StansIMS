@@ -68,7 +68,7 @@ GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'Goods Receipt', 'Cycle Counts', 'Daily Inventory', 'Purchase Demand'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
-    'Standards': ['Standard Cost', 'BOMs', 'Create BOM', 'Labor'],
+    'Standards': ['Standard Cost', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
 ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
@@ -131,7 +131,7 @@ with sync_playwright() as p:
         check(bad == 0, f'tab renders: {label}')
         shot(page, f'{i + 1:02d}-{re.sub(r"[^a-z]+", "-", label.lower())}')
     # Scrolling: no area inside the page scrolls up and down on its own.
-    js_vert = """[...document.querySelectorAll('main *')].filter(e => { const s = getComputedStyle(e); return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1; }).length"""
+    js_vert = """[...document.querySelectorAll('main *')].filter(e => { if (e.closest('.side-inner')) return false; const s = getComputedStyle(e); return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1; }).length"""
     for label in ALL_TABS:
         tab(page, label)
         n = page.evaluate(js_vert)
@@ -336,7 +336,7 @@ with sync_playwright() as p:
     c = cell(page, 'ly|2026|labor_line_hours'); c.click(); c.fill('16'); c.press('Tab'); page.wait_for_timeout(250)
     check(page.locator('table.recipes-labor').count() == 0, 'labor per recipe is not on the Labor tab')
     rate26 = rate_now()
-    tab(page, 'Create BOM')
+    tab(page, 'BOMs')
     page.get_by_role('button', name='Start a new BOM').click(); page.wait_for_timeout(60)
     page.get_by_role('button', name='Existing item').click(); page.wait_for_timeout(60)
     page.select_option('#cb-item', label=[o for o in page.locator('#cb-item option').all_inner_texts() if o.startswith('RECIPE: Original')][0]); page.wait_for_timeout(150)
@@ -488,8 +488,22 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Close all').click(); page.wait_for_timeout(80)
     check(rows.count() == 8, 'Close all collapses back to top level')
 
-    # ---- Create BOM: a sub-recipe nested inside a recipe inside a product ----
-    tab(page, 'Create BOM')
+    # ---- BOM editor lives in the BOMs tab's side bar ----
+    tab(page, 'BOMs')
+    check(page.locator('.sidebar .bom-editor').is_visible(), 'BOM editor is in the BOMs side bar')
+    check(page.locator('main .tab-body .bom-editor, main section.panel .bom-editor').count() == 0, 'BOM editor is not in the main area')
+    fit = page.evaluate("""(() => { const s = document.querySelector('.side-inner'); return [...s.querySelectorAll('.bom-editor *')].filter(e => e.offsetParent && e.getBoundingClientRect().right > s.getBoundingClientRect().right + 1).length; })()""")
+    check(fit == 0, f'BOM editor fits the side bar width ({fit} overflowing)')
+    page.locator('.side-fold').click(); page.wait_for_timeout(80)
+    edit = page.locator('main button', has_text='Edit').first
+    if edit.count():
+        edit.click(); page.wait_for_timeout(150)
+        check(page.evaluate("location.hash") == '#bom', 'Edit stays on the BOMs tab')
+        check(not page.locator('.sidebar').get_attribute('class').__contains__('folded'), 'Edit unfolds the side bar')
+        check(page.locator('.bom-editor .tb-title', has_text='Editing').count() == 1, 'Edit loads the BOM into the editor')
+    shot(page, 'bom-editor')
+    page.get_by_role('button', name='Start a new BOM').click(); page.wait_for_timeout(60)
+    # ---- a sub-recipe nested inside a recipe inside a product ----
     cost_before = page.evaluate("1")
     page.fill('#cb-name', 'Spice Mix'); page.locator('#cb-name').press('Tab')
     page.select_option('#cb-type', 'Recipe'); page.wait_for_timeout(80)

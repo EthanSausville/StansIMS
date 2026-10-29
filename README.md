@@ -7,7 +7,7 @@ Tabs are grouped across the top:
 - **Accounting:** Journals, T-Accounts
 - **Sales:** Sales Detail (the workbook's SalesReport; load QuickBooks reports onto it), By Customer, By Product, Standard Price
 - **Inventory:** Production, Goods Receipt, Cycle Counts, Daily Inventory, Purchase Demand
-- **Standards:** Standard Cost, BOMs (every bill of materials as an expandable tree), Create BOM (build or edit a BOM; BOMs can contain other BOMs to any depth), Labor
+- **Standards:** Standard Cost, BOMs (every bill of materials as an expandable tree, with the editor in the left side bar to build or change a BOM; BOMs can contain other BOMs to any depth), Labor
 - **Users** (admins, from the gear menu at the right of the blue bar)
 
 On table tabs, the actions (loading a report, month and year pickers, Add item, Clear filters …) are in a side bar on the left. Drag its edge to resize it, or fold it away with the ‹ button; both are remembered. The (i) at the right of the page tabs explains the page.
@@ -108,7 +108,7 @@ Database rules can be checked on a local Postgres with `tests/supabase_stub.sql`
 - **Labor rate:** shown for every year from 2026 to next year. A year without its own people starts from the year before, with pay and fixed costs raised by that year's inflation adjustment %; it is a forecast until the year begins (and a year that has begun on the forecast is flagged for review). “Give the year its own people” turns the forecast into editable people for the year. Each position (hourly: rate + monthly fringe; salaried: salary + annual fixed cost; plus payroll tax %) has a labor cost for the year. Hourly line workers are paid only for the weeks they work (no paid time off); salaried people are paid all 52 weeks. The line runs the year's production hours a week and everyone who works the line is on it whenever it runs (hourly people are paid for those hours). Labor rate = all labor cost ÷ minutes on the line. A labor minute is one person working one minute. Standard Cost's Direct Labor uses each year's own rate.
 - **BOM storage:** `boms` (what each BOM makes per run) and `bom_lines` (what goes into one run). The older `recipes`, `recipe_lines` and `fg_lines` tables are kept but no longer used; running `schema.sql` copies them into the BOM tables once. A database trigger refuses any line that would put an item inside itself.
 - **Production:** oz = Σ cases × oz per case. Each recipe is batched on its own in its recipe BOM's batch size (what one run makes): batches = recipe oz ÷ batch size, rounded up; estimated loss = leftover oz × that year's average price per oz.
-- **Labor minutes per batch:** set on each recipe BOM (Create BOM, or the Labor tab's recipe table). Direct Labor and Overhead lines marked “Labor minutes” use it.
+- **Labor minutes per batch:** set on each recipe BOM (the BOM editor on the BOMs tab). Direct Labor and Overhead lines marked “Labor minutes” use it.
 - **Usage:** each case uses (recipe qty ÷ batch size × oz per case) of every raw material, plus its packaging.
 - **Daily inventory:** starts at each item's first cycle count. Each day = (that day's count, or yesterday's balance) + receipts − usage. Finished goods add cases produced and subtract cases sold.
 - **Purchase demand:** safety stock = threshold × lead time × planning usage. A standard purchase is suggested on any day when inventory plus all purchases suggested so far is below safety stock.

@@ -10,7 +10,6 @@ import sales from './tabs/sales.js';
 import { byCustomer, byProduct } from './tabs/salessummary.js';
 import costs from './tabs/costs.js';
 import bom from './tabs/bom.js';
-import createbom from './tabs/createbom.js';
 import taccounts from './tabs/taccounts.js';
 import prices from './tabs/prices.js';
 import labor from './tabs/labor.js';
@@ -24,7 +23,7 @@ const GROUPS = [
   { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
   { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
   { id: 'inventory', label: 'Inventory', tabs: [production, receipts, counts, inventory, demand] },
-  { id: 'costing', label: 'Standards', tabs: [costs, bom, createbom, labor] },
+  { id: 'costing', label: 'Standards', tabs: [costs, bom, labor] },
 ];
 const TABS = [...GROUPS.flatMap((g) => g.tabs), users];
 const groupOf = (id) => GROUPS.find((g) => g.tabs.some((t) => t.id === id));
@@ -141,6 +140,7 @@ function sideBar() {
   };
   useTab(null);
   fold.addEventListener('click', () => setFolded(!side.classList.contains('folded')));
+  window.addEventListener('stans:side-open', () => setFolded(false));
   side.addEventListener('click', (e) => { if (side.classList.contains('folded') && e.target === side) setFolded(false); });
   grip.addEventListener('pointerdown', (e) => {
     e.preventDefault(); grip.setPointerCapture(e.pointerId); side.classList.add('resizing');

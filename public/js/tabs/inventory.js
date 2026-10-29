@@ -47,7 +47,7 @@ export default {
 
     // Month-end (the workbook's EndingInventory$ sheet)
     const years = derived.years();
-    if (!years.includes(year)) year = years.at(-1);
+    if (!years.includes(year)) year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
     const rows = C.endingInventory(state.data, inv, year);
     const monthIdx = [...Array(12).keys()];
     const totals = (type) => monthIdx.map((m) => rows.filter((r) => r.item.type === type).reduce((s, r) => s + r.value[m], 0));

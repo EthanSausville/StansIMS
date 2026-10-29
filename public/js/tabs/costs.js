@@ -50,6 +50,8 @@ function itemDialog(item) {
   document.body.append(dlg); dlg.showModal();
 }
 
+let selected = null; // item_no of the selected item
+
 export default {
   id: 'costs',
   label: 'Master List',
@@ -73,13 +75,19 @@ export default {
           : acctCell(cm.cost(it.item_no, y), { class: 'calc', title: isLaborItem(it.item_no) ? 'From the Labor tab' : 'Calculated' })) })),
     ];
     const rows = filteredRows({ id: 'costs', columns, rows: items });
+    const sel = selected ? items.find((it) => it.item_no === selected) : null;
     const nFilters = activeFilterCount('costs');
     return h('div', null,
       pageHead('Master List', 'Every item, with its standard cost for each year. Update on January 1st each year. Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Only admins can change these.'),
         admin ? h('button', { class: 'btn primary', onclick: () => itemDialog(null) }, 'Add item') : null,
+        admin ? (sel
+          ? h('div', { class: 'item-selected' }, h('div', { class: 'small muted' }, 'Selected'), h('strong', null, sel.name), h('div', { class: 'small muted' }, `#${sel.item_no} · ${sel.type}`),
+            h('button', { class: 'btn', onclick: () => itemDialog(sel) }, 'Edit item'))
+          : h('p', { class: 'small muted' }, 'Click an item to select it for editing.')) : null,
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('costs'); rerender(); } }, `Clear filters (${nFilters})`) : null),
       h('div', { class: 'tablewrap tall', 'data-scroll': 'costs' },
-        xtable({ id: 'costs', columns, allRows: items, rows, rerender,
-          extraCells: admin ? (it) => h('td', null, h('button', { class: 'btn ghost', onclick: () => itemDialog(it) }, 'Edit')) : null })));
+        xtable({ id: 'costs', columns, allRows: items, rows, rerender, className: admin ? 'selectable' : '',
+          rowClass: (it) => (it.item_no === selected ? 'selected' : null),
+          onRowClick: admin ? (it) => { selected = it.item_no === selected ? null : it.item_no; rerender(); } : null })));
   },
 };

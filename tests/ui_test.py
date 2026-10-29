@@ -425,6 +425,23 @@ with sync_playwright() as p:
     ls = page.locator('tr', has_text='Sodium Benzoate').locator('td').nth(4).locator('input')
     check(ls.input_value() in ('0.14',), f'entered costs show to the penny ({ls.input_value()})')
     check(page.locator('th', has_text='Latest cost').count() == 0, 'no Latest cost column')
+    want_years = [str(y) for y in range(2026, datetime.date.today().year + 2)]
+    heads = [t.split('\n')[0].strip(' ▾') for t in page.locator('table.xtable thead th').all_inner_texts() if t[:2] == '20']
+    check(heads == want_years, f'Master List shows 2026 through next year ({heads})')
+    check(page.locator('table.xtable tbody tr button', has_text='Edit').count() == 0, 'no Edit buttons on the Master List rows')
+    check(page.get_by_role('button', name='Edit item').count() == 0, 'no Edit item button until an item is selected')
+    page.locator('table.xtable tbody tr', has_text='Pepper').locator('td').first.click(); page.wait_for_timeout(100)
+    check(page.locator('table.xtable tbody tr.selected').count() == 1 and 'Pepper' in page.locator('.item-selected').inner_text(), 'clicking an item selects it')
+    page.get_by_role('button', name='Edit item').click(); page.wait_for_timeout(100)
+    check(page.locator('dialog[open] h3').inner_text() == 'Edit Pepper', 'Edit item opens the selected item')
+    page.locator('dialog[open]').get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100)
+    page.locator('table.xtable tbody tr', has_text='Pepper').locator('td').first.click(); page.wait_for_timeout(100)
+    check(page.get_by_role('button', name='Edit item').count() == 0, 'clicking the selected item again unselects it')
+    for tb, sel in [('BOMs', '.sidebar label.field select'), ('Dashboard', 'label.field select'), ('By Customer', 'label.field select')]:
+        tab(page, tb)
+        opts = page.locator(sel).first.locator('option').all_inner_texts()
+        check(opts == want_years, f'{tb} offers 2026 through next year ({opts})')
+    tab(page, 'Master List')
     check(page.locator('text=Type in the yellow').count() == 0, 'no “Type in the yellow cells” note')
     check(page.locator('.sidebar').evaluate("e => Math.round(e.getBoundingClientRect().width)") == 170, 'the Master List side bar is narrower (170px)')
     nos = page.locator('table.t tbody tr td:nth-child(3)').all_inner_texts()

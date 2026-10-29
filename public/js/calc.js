@@ -156,8 +156,10 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
 // A labor minute is one person working one minute, as BOMs count minutes per batch.
 
 export const LABOR_FIRST_YEAR = 2026;
-// The years shown on the Labor tab: 2026 through next year.
+export const FIRST_YEAR = 2026;
+// The years shown everywhere on the site: 2026 through next year.
 export const laborYears = (now = new Date().getFullYear()) => Array.from({ length: Math.max(1, now + 2 - LABOR_FIRST_YEAR) }, (_, i) => LABOR_FIRST_YEAR + i);
+export const siteYears = laborYears;
 
 const laborPlant = (y = {}) => ({ paidWeeks: 52, prodWeeks: y.labor_prod_weeks ?? 52, lineHours: n(y.labor_line_hours) });
 
@@ -271,10 +273,7 @@ export function costModel(data) {
   const ixFor = indexByYear(data); const ix = ixFor(new Date().getFullYear());
   const entered = new Map(data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, n(c.cost)]));
   const labor = laborModel(data);
-  const yearsSet = new Set([...data.standard_costs.map((c) => c.year), ...data.year_settings.map((y) => y.year),
-    ...data.standard_prices.map((p) => p.year)]);
-  const first = yearsSet.size ? Math.min(...yearsSet) : new Date().getFullYear();
-  const years = Array.from({ length: 10 }, (_, i) => first + i); // the workbook carries ten years
+  const years = siteYears();
   const memo = new Map();
 
   function cost(itemNo, year) {

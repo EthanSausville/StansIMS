@@ -77,11 +77,13 @@ export function todayIso() {
 
 // Prev / month name / next control. value = {year, month(1-12)}.
 export function monthPicker(value, onChange) {
-  const shift = (n) => { let m = value.month + n, y = value.year; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } onChange({ year: y, month: m }); };
+  // Months run from January 2026 through December of next year, like every year list on the site.
+  const first = 2026; const last = new Date().getFullYear() + 1;
+  const shift = (n) => { let m = value.month + n, y = value.year; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } if (y < first || y > last) return; onChange({ year: y, month: m }); };
   return h('div', { class: 'monthpick' },
-    h('button', { class: 'btn icon', title: 'Previous month', 'aria-label': 'Previous month', onclick: () => shift(-1) }, '‹'),
+    h('button', { class: 'btn icon', title: 'Previous month', 'aria-label': 'Previous month', disabled: value.year <= first && value.month === 1, onclick: () => shift(-1) }, '‹'),
     h('span', { class: 'label' }, `${MONTHS[value.month - 1][0]}${MONTHS[value.month - 1].slice(1).toLowerCase()} ${value.year}`),
-    h('button', { class: 'btn icon', title: 'Next month', 'aria-label': 'Next month', onclick: () => shift(1) }, '›'),
+    h('button', { class: 'btn icon', title: 'Next month', 'aria-label': 'Next month', disabled: value.year >= last && value.month === 12, onclick: () => shift(1) }, '›'),
     h('button', { class: 'btn ghost', onclick: () => { const t = todayIso(); onChange({ year: +t.slice(0, 4), month: +t.slice(5, 7) }); } }, 'Today'));
 }
 

@@ -18,8 +18,8 @@ function summaryTab({ id, label, title, keyOf, description, colLabel }) {
     id, label,
     render({ rerender }) {
       const all = derived.sales();
-      const years = [...new Set([...derived.years(), ...all.map((r) => r.year)])].sort((a, b) => a - b);
-      if (!years.includes(year)) year = years.at(-1);
+      const years = derived.years();
+      if (!years.includes(year)) year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
       const [, mLabel, valueOf, show] = MEASURES.find((m) => m[0] === measure);
       const rows = all.filter((r) => r.year === year);
       const table = new Map();

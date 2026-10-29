@@ -13,7 +13,7 @@ export default {
   label: 'Dashboard',
   render({ rerender }) {
     const years = derived.years();
-    if (!years.includes(year)) year = years.at(-1);
+    if (!years.includes(year)) year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
     const d = dashboard(state.data, year, month);
     const ix = derived.ix(); const inv = derived.inventory(); const pd = derived.demand();
     const items = [...ix.byType('Raw Material'), ...ix.byType('Component')];

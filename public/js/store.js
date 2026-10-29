@@ -81,12 +81,8 @@ export const derived = {
   inventory: () => memo('inventory', () => C.dailyInventory(state.data, derived.horizon())),
   demand: () => memo('demand', () => C.purchaseDemand(state.data, derived.inventory())),
   sales: () => memo('sales', () => C.salesRows(state.data)),
-  years: () => memo('years', () => {
-    const d = state.data; const ys = new Set(derived.costs().years);
-    for (const r of [...d.production, ...d.sales]) ys.add(C.yearOf(r.date));
-    ys.add(new Date().getFullYear());
-    return [...ys].sort((a, b) => a - b);
-  }),
+  // 2026 through next year, everywhere on the site.
+  years: () => memo('years', () => C.siteYears()),
 };
 
 // ---------- saving ----------

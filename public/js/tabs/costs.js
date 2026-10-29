@@ -6,48 +6,55 @@ import { xtable, filteredRows, activeFilterCount, clearFilters } from '../xtable
 // Costs typed in: raw materials, packaging, and indirect costs other than direct labor (overhead, marketing, ...).
 const enterable = (it) => it.type === 'Raw Material' || it.type === 'Component' || (it.type === 'Indirect Cost' && !isLaborItem(it.item_no));
 
-function itemDialog(item) {
+// The add / edit item form, shown in the side bar.
+let editing = null; // null, 'new', or the item_no being edited
+
+function itemForm(item, done) {
   const isNew = !item;
   const f = {
-    item_no: h('input', { type: 'number', required: true, value: item?.item_no ?? '', disabled: !isNew, min: 100000, max: 599999 }),
-    name: h('input', { type: 'text', required: true, value: item?.name ?? '' }),
-    type: h('select', { disabled: !isNew }, TYPES.map((t) => h('option', { selected: t === item?.type }, t))),
-    unit: h('input', { type: 'text', value: item?.unit ?? '', placeholder: 'lb, c, ea, min, oz' }),
-    pack_note: h('input', { type: 'text', value: item?.pack_note ?? '', placeholder: 'e.g. 30lbs ea' }),
+    item_no: h('input', { id: 'item-no', type: 'number', required: true, value: item?.item_no ?? '', disabled: !isNew, min: 100000, max: 599999 }),
+    name: h('input', { id: 'item-name', type: 'text', required: true, value: item?.name ?? '' }),
+    type: h('select', { id: 'item-type', disabled: !isNew }, TYPES.map((t) => h('option', { selected: t === item?.type }, t))),
+    unit: h('input', { id: 'item-unit', type: 'text', value: item?.unit ?? '', placeholder: 'lb, c, ea, min, oz' }),
+    pack_note: h('input', { id: 'item-pack', type: 'text', value: item?.pack_note ?? '', placeholder: 'e.g. 30lbs ea' }),
   };
   if (isNew) f.item_no.value = nextItemNo(state.data.items, f.type.value);
   f.type.addEventListener('change', () => { f.item_no.value = nextItemNo(state.data.items, f.type.value); });
-  const dlg = h('dialog', null, h('form', { method: 'dialog', onsubmit: async (e) => {
-      const action = e.submitter?.value; if (action === 'cancel') return;
-      e.preventDefault();
-      try {
-        if (action === 'delete') {
-          if (!(await confirmDialog(`Delete ${item.name}? This only works if nothing uses it yet.`))) return;
-          await deleteRow('items', 'item_no', item.item_no); toast('Item deleted.');
-        } else if (isNew) {
-          const bad = itemNoProblem(f.item_no.value, f.type.value);
-          if (bad) { toast(bad, 'bad'); return; }
-          const sort = Math.max(0, ...state.data.items.map((i) => i.sort)) + 1;
-          const row = { item_no: Number(f.item_no.value), name: f.name.value.trim(), type: f.type.value, unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null, sort };
-          await insertRow('items', row);
-          toast(`${row.name} added.`);
-        } else {
-          await updateRow('items', 'item_no', item.item_no, { name: f.name.value.trim(), unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null });
-          toast('Item saved.');
-        }
-        dlg.close();
-      } catch (err) { toast(niceError(err), 'bad'); }
-    } },
-    h('h3', null, isNew ? 'Add item' : `Edit ${item.name}`),
-    h('div', { class: 'row' }, h('label', { class: 'field' }, 'Item #', f.item_no), h('label', { class: 'field' }, 'Type', f.type)),
-    h('label', { class: 'field' }, 'Name', f.name),
-    h('div', { class: 'row' }, h('label', { class: 'field' }, 'Unit', f.unit), h('label', { class: 'field' }, 'Pack size note', f.pack_note)),
-    isNew ? h('p', { class: 'small muted', style: { margin: 0 } }, 'Item numbers are 6 digits and start with the type: 1 raw material, 2 packaging, 3 indirect (labor, overhead, marketing), 4 recipe, 5 finished good. New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory. New finished goods appear on Production. Build what any item is made of on the BOMs tab.') : null,
-    h('div', { class: 'actions' },
-      !isNew ? h('button', { class: 'btn danger', value: 'delete', formnovalidate: true, style: { marginRight: 'auto' } }, 'Delete item') : null,
-      h('button', { class: 'btn', value: 'cancel', formnovalidate: true }, 'Cancel'), h('button', { class: 'btn primary', value: 'save' }, isNew ? 'Add' : 'Save'))));
-  dlg.addEventListener('close', () => dlg.remove());
-  document.body.append(dlg); dlg.showModal();
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      if (isNew) {
+        const bad = itemNoProblem(f.item_no.value, f.type.value);
+        if (bad) { toast(bad, 'bad'); return; }
+        const sort = Math.max(0, ...state.data.items.map((i) => i.sort)) + 1;
+        const row = { item_no: Number(f.item_no.value), name: f.name.value.trim(), type: f.type.value, unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null, sort };
+        await insertRow('items', row);
+        toast(`${row.name} added.`);
+        done(row.item_no);
+      } else {
+        await updateRow('items', 'item_no', item.item_no, { name: f.name.value.trim(), unit: f.unit.value.trim() || null, pack_note: f.pack_note.value.trim() || null });
+        toast('Item saved.');
+        done(item.item_no);
+      }
+    } catch (err) { toast(niceError(err), 'bad'); }
+  };
+  const remove = async () => {
+    if (!(await confirmDialog(`Delete ${item.name}? This only works if nothing uses it yet.`))) return;
+    try { await deleteRow('items', 'item_no', item.item_no); toast('Item deleted.'); done(null); } catch (err) { toast(niceError(err), 'bad'); }
+  };
+  return h('form', { class: 'item-form', onsubmit: save },
+    h('strong', { class: 'tb-title' }, isNew ? 'Add item' : `Edit ${item.name}`),
+    h('div', { class: 'item-fields' },
+      h('label', { class: 'field' }, 'Type', f.type),
+      h('label', { class: 'field' }, 'Item #', f.item_no),
+      h('label', { class: 'field span2' }, 'Name', f.name),
+      h('label', { class: 'field' }, 'Unit', f.unit),
+      h('label', { class: 'field' }, 'Pack size note', f.pack_note)),
+    isNew ? h('p', { class: 'small muted' }, 'Item numbers are 6 digits and start with the type: 1 raw material, 2 packaging, 3 indirect (labor, overhead, marketing), 4 recipe, 5 finished good. New raw materials and packaging appear on Goods Receipt, Cycle Counts and Daily Inventory; new finished goods appear on Production. Build what an item is made of on the BOMs tab.') : null,
+    h('div', { class: 'controls' },
+      !isNew ? h('button', { type: 'button', class: 'btn danger', onclick: remove }, 'Delete item') : null,
+      h('button', { type: 'button', class: 'btn', onclick: () => done(item?.item_no ?? null) }, 'Cancel'),
+      h('button', { type: 'submit', class: 'btn primary' }, isNew ? 'Add' : 'Save')));
 }
 
 let selected = null; // item_no of the selected item
@@ -55,7 +62,9 @@ let selected = null; // item_no of the selected item
 export default {
   id: 'costs',
   label: 'Master List',
-  sideWidth: 170,
+  // Narrow while browsing; wider while the add / edit form is open.
+  get sideWidth() { return editing ? 300 : 170; },
+  get sideKey() { return editing ? 'costs-form' : 'costs'; },
   render({ rerender }) {
     const cm = derived.costs(); const admin = isAdmin();
     const entered = new Map(state.data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, c.cost]));
@@ -79,15 +88,16 @@ export default {
     const nFilters = activeFilterCount('costs');
     return h('div', null,
       pageHead('Master List', 'Every item, with its standard cost for each year. Update on January 1st each year. Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Only admins can change these.'),
-        admin ? h('button', { class: 'btn primary', onclick: () => itemDialog(null) }, 'Add item') : null,
-        admin ? (sel
+        admin && !editing ? h('button', { class: 'btn primary', onclick: () => { editing = 'new'; rerender(); } }, 'Add item') : null,
+        admin && editing ? itemForm(editing === 'new' ? null : items.find((it) => it.item_no === editing), (no) => { editing = null; selected = no; rerender(); }) : null,
+        admin && !editing ? (sel
           ? h('div', { class: 'item-selected' }, h('div', { class: 'small muted' }, 'Selected'), h('strong', null, sel.name), h('div', { class: 'small muted' }, `#${sel.item_no} · ${sel.type}`),
-            h('button', { class: 'btn', onclick: () => itemDialog(sel) }, 'Edit item'))
+            h('button', { class: 'btn', onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item'))
           : h('p', { class: 'small muted' }, 'Click an item to select it for editing.')) : null,
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('costs'); rerender(); } }, `Clear filters (${nFilters})`) : null),
       h('div', { class: 'tablewrap tall', 'data-scroll': 'costs' },
-        xtable({ id: 'costs', columns, allRows: items, rows, rerender, className: admin ? 'selectable' : '',
+        xtable({ id: 'costs', columns, allRows: items, rows, rerender, className: 'natural' + (admin ? ' selectable' : ''),
           rowClass: (it) => (it.item_no === selected ? 'selected' : null),
-          onRowClick: admin ? (it) => { selected = it.item_no === selected ? null : it.item_no; rerender(); } : null })));
+          onRowClick: admin ? (it) => { if (editing) return; selected = it.item_no === selected ? null : it.item_no; rerender(); } : null })));
   },
 };

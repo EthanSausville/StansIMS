@@ -766,3 +766,17 @@ table.xtable tbody tr.selected > td { background: #fff4c2 !important; }
 table.xtable tbody tr.selected > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .item-selected { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow-wrap: anywhere; }
 .item-selected .btn { margin-top: 4px; }
+
+/* Tables that keep their natural column widths (year columns don't stretch
+   to fill the screen); the space to the right stays empty. */
+table.t.natural { min-width: 0; }
+.tablewrap:has(> table.t.natural) { width: fit-content; max-width: 100%; }
+
+/* Add / edit item form in the Master List side bar */
+.item-form { display: flex; flex-direction: column; gap: 10px; }
+.item-form p { margin: 0; }
+.item-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.item-fields .span2 { grid-column: 1 / -1; }
+.item-fields input, .item-fields select { min-width: 0; width: 100%; }
+.item-form .controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.item-form .controls .danger { margin-right: auto; }

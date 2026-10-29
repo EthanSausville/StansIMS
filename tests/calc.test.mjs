@@ -295,3 +295,20 @@ test('journal entries balance and tie to the data', () => {
   let dr = 0, cr = 0; for (const a of L.values()) { dr += a.drTotal; cr += a.crTotal; }
   close(dr, cr, 'ledger debits = credits');
 });
+
+test('plan batches and count sheet', () => {
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, demand_forecast: [] };
+  const today = '2026-10-28'; const inv = C.dailyInventory(d, '2026-12-31');
+  const p = C.demandPlan(d, { today, inv });
+  assert.ok(p.batches.length >= 1);
+  for (const b of p.batches) for (const w of b.weeks) {
+    assert.ok(w.batches * b.size >= w.oz - 1e-6 && (w.batches - 1) * b.size < w.oz + 1e-6, 'whole batches cover the oz needed');
+  }
+  // count sheet: expected is the running inventory at the end of the day before
+  const c = d.cycle_counts.find((x) => x.date > '2026-02-01');
+  const it = d.items.find((i) => i.item_no === c.item_no);
+  const row = C.countSheet(d, inv, c.date, [it])[0];
+  close(row.expected, inv.byItem.get(c.item_no).get(C.addDays(c.date, -1)), 'expected');
+  close(row.diff, row.counted - row.expected, 'difference');
+  assert.equal(row.flag, Math.abs(row.pct) > 0.1);
+});

@@ -647,6 +647,40 @@ with sync_playwright() as p:
     page.get_by_role('button', name='By month').click(); page.wait_for_timeout(100)
     page.get_by_role('button', name='Quantity').click(); page.wait_for_timeout(100)
 
+    # ---- Count sheet ----
+    tab(page, 'Cycle Counts')
+    check(page.locator('table.count-sheet').count() == 1, 'Cycle Counts opens on the count sheet')
+    cdate = sorted({c['date'] for c in inputs['cycle_counts']})[-1]
+    page.locator('.sidebar input[type=date]').fill(cdate); page.locator('.sidebar input[type=date]').dispatch_event('change'); page.wait_for_timeout(200)
+    crow = page.locator('table.count-sheet tbody tr', has_text='Cheese').first
+    exp = crow.locator('td').nth(2).inner_text(); got = cell(page, f'cs|{cheese_no}').input_value()
+    check(exp not in ('', '—') and got != '', f'count sheet shows expected and counted for {cdate} ({exp}, {got})')
+    lj = str(next(i['item_no'] for i in inputs['items'] if i['name'] == 'Lemon Juice'))
+    tcell = cell(page, 'cs|' + lj); tcell.click(); tcell.fill('1'); tcell.press('Tab'); page.wait_for_timeout(250)
+    check(page.locator('table.count-sheet tbody tr.flagged', has_text='Lemon Juice').count() == 1, 'a count far from expected is flagged')
+    shot(page, '55-count-sheet')
+    tcell = cell(page, 'cs|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
+    page.get_by_role('button', name='Month', exact=True).click(); page.wait_for_timeout(150)
+    check(page.locator('table.t td.cell input').count() > 0, 'the month grid is still there')
+    page.get_by_role('button', name='Count sheet').click(); page.wait_for_timeout(100)
+
+    # ---- Demand Plan: adjust a product, batches ----
+    tab(page, 'Demand Plan')
+    page.get_by_role('button', name='Forecast', exact=True).click(); page.wait_for_timeout(100)
+    prow = page.locator('table.plan-table tbody tr').first
+    pname = prow.locator('td').first.inner_text(); pno = int(prow.locator('td.cell input').first.get_attribute('data-k').split('|')[1])
+    prow.locator('td').first.click(); page.wait_for_timeout(120)
+    page.fill('#adj-pct', '150'); page.locator('.adjust-form').get_by_role('button', name='Apply').click(); page.wait_for_timeout(500)
+    typed = page.evaluate(f"window.__MOCK_DB__.demand_forecast.filter(f => f.item_no === {pno})")
+    check(len(typed) == 4, f'adjusting {pname} to 150% types in 4 weeks ({len(typed)})')
+    page.locator('.adjust-form').get_by_role('button', name='Back to average').click(); page.wait_for_timeout(500)
+    check(page.evaluate(f"window.__MOCK_DB__.demand_forecast.filter(f => f.item_no === {pno}).length") == 0, 'Back to average clears them')
+    page.get_by_role('button', name='Production', exact=True).click(); page.wait_for_timeout(150)
+    check(page.locator('table.batch-table tbody tr').count() >= 1, 'planned production shows the recipe batches needed each week')
+    shot(page, '56-plan-batches')
+    page.get_by_role('button', name='Forecast', exact=True).click(); page.wait_for_timeout(100)
+
+    # ---- BOMs tree ----
     tab(page, 'BOMs')
     while page.locator('table.tree-table button.twisty[aria-expanded=true]').count():
         page.locator('table.tree-table button.twisty[aria-expanded=true]').first.click(); page.wait_for_timeout(60)

@@ -550,7 +550,14 @@ export function demandPlan(data, { today, inv, weeks = PLAN_WEEKS }) {
     }
     return { item, history, avg, onHand, safety, weeks: cells };
   });
-  return { weeks: weekList, history: { from: histStart, to: histEnd }, rows };
+  // Recipe batches the planned production needs each week (each recipe in its own batch size).
+  const batches = ix.byType('Recipe').filter((r) => ix.bom.has(r.item_no)).map((recipe) => {
+    const size = ix.yieldOf(recipe.item_no);
+    const perCase = new Map(fgs.map((fg) => [fg.item_no, ix.children(fg.item_no).filter((l) => l.item_no === recipe.item_no).reduce((t, l) => t + n(l.qty), 0) / ix.yieldOf(fg.item_no)]));
+    const weeks = weekList.map((w, i) => { const oz = rows.reduce((t, r) => t + r.weeks[i].production * (perCase.get(r.item.item_no) || 0), 0); return { week: w, oz, batches: size ? Math.ceil(oz / size - 1e-9) : 0 }; });
+    return { recipe, size, unit: ix.bom.get(recipe.item_no)?.yield_unit || recipe.unit || '', weeks };
+  }).filter((b) => b.weeks.some((w) => w.oz));
+  return { weeks: weekList, history: { from: histStart, to: histEnd }, rows, batches };
 }
 
 // Material requirements: what the planned production uses up each week (from
@@ -808,4 +815,20 @@ export function ledger(entriesList) {
   }
   for (const a of acc.values()) { a.drTotal = a.dr.reduce((s, x) => s + x.amount, 0); a.crTotal = a.cr.reduce((s, x) => s + x.amount, 0); a.balance = a.drTotal - a.crTotal; }
   return acc;
+}
+
+// ---------- Cycle count sheet ----------
+// For a count date: what the running inventory expects at the start of the day
+// (the end of the day before), next to what was counted.
+export const COUNT_TOLERANCE = 0.1; // differences over 10% are flagged
+export function countSheet(data, inv, date, items) {
+  const counts = new Map();
+  for (const c of data.cycle_counts) if (c.date === date) counts.set(c.item_no, (counts.get(c.item_no) || 0) + n(c.qty));
+  return items.map((item) => {
+    const expected = inv?.byItem.get(item.item_no)?.get(addDays(date, -1));
+    const counted = counts.has(item.item_no) ? counts.get(item.item_no) : null;
+    const diff = counted === null || expected === undefined ? null : counted - expected;
+    const pct = diff === null ? null : expected ? diff / Math.abs(expected) : (diff ? 1 : 0);
+    return { item, expected: expected ?? null, counted, diff, pct, flag: pct !== null && Math.abs(pct) > COUNT_TOLERANCE };
+  });
 }

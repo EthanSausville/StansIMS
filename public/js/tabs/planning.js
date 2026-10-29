@@ -17,6 +17,34 @@ const noData = () => (state.data.missingTables?.has('demand_forecast')
 
 // ---------- Demand Plan ----------
 let dpView = 'forecast';
+let dpSelected = null; // item_no of the product selected for adjusting
+
+// Sets a product's forecast to a % of its average for a range of weeks
+// (typed-in values), or clears typed-in weeks back to the average.
+function adjustForm(r, plan, rerender) {
+  const pct = h('input', { id: 'adj-pct', type: 'text', inputmode: 'decimal', value: '120' });
+  const from = h('select', { id: 'adj-from' }, plan.weeks.map((w, i) => h('option', { value: w, selected: i === 0 }, `Week of ${shortDate(w)}`)));
+  const to = h('select', { id: 'adj-to' }, plan.weeks.map((w, i) => h('option', { value: w, selected: i === 3 }, `Week of ${shortDate(w)}`)));
+  const weeksIn = () => plan.weeks.filter((w) => w >= from.value && w <= to.value);
+  const apply = async (e) => {
+    e.preventDefault();
+    try {
+      const p = evalEntry(pct.value); if (p === null || p < 0) throw new Error('Enter a percent, like 120.');
+      for (const w of weeksIn()) await saveCell('demand_forecast', { item_no: r.item.item_no, week: w }, 'cases', Math.round((r.avg * p) / 100));
+      toast(`${r.item.name}: ${weeksIn().length} weeks set to ${p}% of average.`); rerender();
+    } catch (err) { toast(niceError(err), 'bad'); }
+  };
+  const clear = async () => {
+    try { for (const c of r.weeks) if (c.typed) await saveCell('demand_forecast', { item_no: r.item.item_no, week: c.week }, 'cases', null); toast(`${r.item.name} is back to the average.`); rerender(); }
+    catch (err) { toast(niceError(err), 'bad'); }
+  };
+  return h('form', { class: 'item-form adjust-form', onsubmit: apply },
+    h('strong', { class: 'tb-title' }, r.item.name),
+    h('div', { class: 'small muted' }, `Average ${qty(r.avg, 1)} cases a week`),
+    h('div', { class: 'item-fields' }, h('label', { class: 'field span2' }, '% of average', pct), h('label', { class: 'field' }, 'From', from), h('label', { class: 'field' }, 'Through', to)),
+    h('p', { class: 'small muted' }, 'For a promotion, a new account or a slow season: 150 = half again as much, 80 = a fifth less.'),
+    h('div', { class: 'controls' }, r.weeks.some((c) => c.typed) ? h('button', { type: 'button', class: 'btn', onclick: clear }, 'Back to average') : null, h('button', { type: 'submit', class: 'btn primary' }, 'Apply')));
+}
 
 export const demandPlanTab = {
   id: 'demandplan',
@@ -40,8 +68,9 @@ export const demandPlanTab = {
       h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Product'), h('th', { class: 'num', title: `Average weekly cases sold, ${longDate(plan.history.from)} – ${longDate(plan.history.to)}` }, 'Avg / wk'),
         h('th', { class: 'num' }, 'On hand'), h('th', { class: 'num', title: `${FG_SAFETY_WEEKS} week of forecast sales` }, 'Safety'),
         plan.weeks.map(weekHead), dpView !== 'onhand' ? h('th', { class: 'num' }, 'Total') : null)),
-      h('tbody', null, plan.rows.map((r) => h('tr', null,
-        h('td', { class: 'sticky-col' }, r.item.name),
+      h('tbody', null, plan.rows.map((r) => h('tr', { class: r.item.item_no === dpSelected && dpView === 'forecast' ? 'selected' : null },
+        h('td', { class: 'sticky-col' + (dpView === 'forecast' && admin ? ' pick' : ''), title: dpView === 'forecast' && admin ? 'Select to adjust this product’s forecast' : null,
+          onclick: dpView === 'forecast' && admin ? () => { dpSelected = r.item.item_no === dpSelected ? null : r.item.item_no; rerender(); } : null }, r.item.name),
         h('td', { class: 'num' }, qty(r.avg, 1)), h('td', { class: 'num' + (r.onHand < 0 ? ' neg' : '') }, qty(r.onHand, 0)), h('td', { class: 'num' }, qty(r.safety, 0)),
         cellsFor(r), dpView !== 'onhand' ? h('td', { class: 'num strong' }, qty(total(r), 0)) : null))),
       h('tfoot', null, h('tr', { class: 'xt-totals' }, h('td', { class: 'sticky-col' }, 'Total cases'), h('td', { class: 'num' }, qty(plan.rows.reduce((s, r) => s + r.avg, 0), 1)),
@@ -52,9 +81,15 @@ export const demandPlanTab = {
         seg(views, dpView, (v) => { dpView = v; rerender(); }),
         chip('Production, next 4 wks', `${qty(next4, 0)} cases`),
         chip('Forecast basis', `${shortDate(plan.history.from)}–${shortDate(plan.history.to)}`),
-        dpView === 'forecast' ? h('p', { class: 'small muted' }, 'Grey numbers are the average; type over them to plan a promotion, a new account or a slow week.') : null),
+        dpView === 'forecast' && admin && dpSelected && plan.rows.find((r) => r.item.item_no === dpSelected) ? adjustForm(plan.rows.find((r) => r.item.item_no === dpSelected), plan, rerender) : null,
+        dpView === 'forecast' ? h('p', { class: 'small muted' }, 'Grey numbers are the average; type over them to plan a promotion, a new account or a slow week, or click a product to adjust several weeks at once.') : null),
       noData(),
-      h('div', { class: 'tablewrap', 'data-scroll': 'demandplan' }, table));
+      h('div', { class: 'tablewrap', 'data-scroll': 'demandplan' }, table),
+      dpView === 'production' && plan.batches.length ? [h('h2', { class: 'section-title' }, 'Recipe batches for planned production'),
+        h('div', { class: 'tablewrap' }, h('table', { class: 't natural plain-cells plan-table batch-table' },
+          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Recipe'), h('th', { class: 'num' }, 'Batch size'), plan.weeks.map(weekHead), h('th', { class: 'num' }, 'Total'))),
+          h('tbody', null, plan.batches.map((b) => h('tr', null, h('td', { class: 'sticky-col' }, b.recipe.name), h('td', { class: 'num' }, `${qty(b.size, 0)} ${b.unit}`),
+            b.weeks.map((w) => h('td', { class: 'num', title: `${qty(w.oz, 0)} ${b.unit} needed` }, w.batches || '')), h('td', { class: 'num strong' }, b.weeks.reduce((t, w) => t + w.batches, 0)))))))] : null);
   },
 };
 

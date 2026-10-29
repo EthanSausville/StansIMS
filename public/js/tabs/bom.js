@@ -4,7 +4,7 @@
 // Quantities and line costs are for one run of the BOM directly above.
 import { h, pageHead, qty, money, fmt, yearSelect, typePill } from '../ui.js';
 import { state, derived, isAdmin } from '../store.js';
-import { openInEditor, bomEditor } from './createbom.js';
+import { openInEditor, bomEditor, editorOpen } from './createbom.js';
 
 let year = new Date().getFullYear();
 const open = new Set(); // open rows, by path of item numbers ("20001>10021")
@@ -19,7 +19,9 @@ const makes = (b, it, ix) => {
 export default {
   id: 'bom',
   label: 'BOMs',
-  sideWidth: 0.4,
+  // 250px like other tabs; wider while a BOM is open in the editor.
+  get sideWidth() { return editorOpen() ? 0.4 : null; },
+  sideKey: 'bom-edit',
   render({ rerender }) {
     const ix = derived.ix(); const cm = derived.costs(); const admin = isAdmin();
     if (!cm.years.includes(year)) year = cm.years[0];
@@ -69,25 +71,16 @@ export default {
     };
     tops.forEach((t, i) => walk(t.item_no, [t.item_no], 0, [], i === tops.length - 1, null));
 
-    const allKeys = () => {
-      const keys = [];
-      const go = (itemNo, path) => { if (!ix.bom.has(itemNo)) return; keys.push(path.join('>')); for (const l of ix.children(itemNo)) if (!path.includes(l.item_no)) go(l.item_no, [...path, l.item_no]); };
-      tops.forEach((t) => go(t.item_no, [t.item_no]));
-      return keys;
-    };
-
     return h('div', null,
-      pageHead('BOMs', 'Every bill of materials, including recipes used inside products. Click one to open the next level. Quantities and line costs are for one run of the BOM directly above (one case, one batch). Build a new BOM or change one (Edit) on the left: a line can be another item with its own BOM, such as a recipe inside a product. Nothing is saved until you click Save.',
-        h('div', { class: 'bom-tools' },
-          h('button', { class: 'btn', onclick: () => { allKeys().forEach((k) => open.add(k)); rerender(); } }, 'Open all'),
-          h('button', { class: 'btn', onclick: () => { open.clear(); rerender(); } }, 'Close all'),
-          yearSelect(cm.years, year, (y) => { year = y; rerender(); }, 'Cost year')),
+      pageHead('BOMs', 'Every bill of materials, including recipes used inside products. Click one to open the next level. Quantities and line costs are for one run of the BOM directly above (one case, one batch). Build a new BOM (New BOM) or change one (Edit) on the left: a line can be another item with its own BOM, such as a recipe inside a product. Nothing is saved until you click Save.',
+        yearSelect(cm.years, year, (y) => { year = y; rerender(); }, 'Cost year'),
+        admin && !editorOpen() ? h('button', { class: 'btn primary', onclick: () => openInEditor(null) }, 'New BOM') : null,
         admin ? bomEditor({ rerender, year }) : h('p', { class: 'small muted' }, 'Only admins can create or change BOMs.')),
       tops.length ? h('div', { class: 'tablewrap', 'data-scroll': 'bomtree' }, h('table', { class: 't tree-table' },
         h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Item #'), h('th', null, 'Type'), h('th', null, 'Used in'),
           h('th', { class: 'num' }, 'Qty'), h('th', null, 'Unit'), h('th', null, 'One run makes'),
           h('th', { class: 'num' }, `Unit cost (${year})`), h('th', { class: 'num' }, 'Line cost'), admin ? h('th') : null)),
         h('tbody', null, rows)))
-        : h('div', { class: 'panel empty' }, 'No BOMs yet.', admin ? h('div', null, h('button', { class: 'btn primary', style: { marginTop: '10px' }, onclick: () => openInEditor(null) }, 'Create the first BOM')) : null));
+        : h('div', { class: 'panel empty' }, 'No BOMs yet.', admin ? h('div', null, h('button', { class: 'btn primary', style: { marginTop: '10px' }, onclick: () => openInEditor(null) }, 'New BOM')) : null));
   },
 };

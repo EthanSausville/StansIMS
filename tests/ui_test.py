@@ -73,6 +73,11 @@ GROUPS = {
 }
 ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users']
 
+def edit_bom(page, name):
+    row = page.locator('table.tree-table tr.d0', has=page.locator('.tree-name', has_text=name)).first
+    row.get_by_role('button', name='Edit').click(); page.wait_for_timeout(150)
+
+
 def tab(page, label):
     if label == 'Users':
         page.locator('.gear').click(); page.locator('.gear-menu a', has_text='Users').click()
@@ -139,7 +144,7 @@ with sync_playwright() as p:
     check(True, 'only the page scrolls up and down, on every tab')
     tab(page, 'Sales Detail')
     side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
-    check(abs(side_w - 288) <= 2, f'the side bar starts at about 20% of the width ({side_w}px)')
+    check(side_w == 250, f'the side bar starts 250px wide ({side_w}px)')
     page.locator('.side-fold').click(); page.wait_for_timeout(200)
     side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
     check(side_w == 10, f'the side bar folds to a 10px strip ({side_w}px)')
@@ -155,10 +160,10 @@ with sync_playwright() as p:
     g = page.locator('.side-grip').bounding_box()
     page.mouse.move(g['x'] + 4, g['y'] + 200); page.mouse.down(); page.mouse.move(g['x'] + 104, g['y'] + 200, steps=4); page.mouse.up(); page.wait_for_timeout(150)
     side_w = page.evaluate("Math.round(document.querySelector('.sidebar').getBoundingClientRect().width)")
-    check(abs(side_w - 388) <= 3, f'dragging the edge resizes the side bar ({side_w}px)')
+    check(abs(side_w - 350) <= 3, f'dragging the edge resizes the side bar ({side_w}px)')
     edge = page.evaluate("[Math.round(document.querySelector('.sidebar').getBoundingClientRect().right), Math.round(document.querySelector('main .tablewrap').getBoundingClientRect().left)]")
     check(edge[1] >= edge[0], f'the table and its scrolling sit to the right of the side bar ({edge})')
-    page.evaluate("localStorage.removeItem('side:w')")
+    page.evaluate("localStorage.removeItem('side:w250')")
     tab(page, 'Production')
     side = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.scrollWidth > w.clientWidth)")
     tab(page, 'Daily Inventory')
@@ -337,9 +342,7 @@ with sync_playwright() as p:
     check(page.locator('table.recipes-labor').count() == 0, 'labor per recipe is not on the Labor tab')
     rate26 = rate_now()
     tab(page, 'BOMs')
-    page.get_by_role('button', name='Start a new BOM').click(); page.wait_for_timeout(60)
-    page.get_by_role('button', name='Existing item').click(); page.wait_for_timeout(60)
-    page.select_option('#cb-item', label=[o for o in page.locator('#cb-item option').all_inner_texts() if o.startswith('RECIPE: Original')][0]); page.wait_for_timeout(150)
+    edit_bom(page, 'RECIPE: Original')
     lab = page.locator('.cb-labor')
     lpr = lab.locator('.stat', has_text='Labor per run').locator('.value').inner_text()
     check(abs(float(lpr.replace('$', '').replace(',', '')) - rate26 * st['minutes_per_batch']) < 0.01, f'the recipe BOM shows its labor: rate x its labor minutes ({lpr})')
@@ -347,8 +350,11 @@ with sync_playwright() as p:
     page.fill('#cb-minutes', '60'); page.locator('#cb-minutes').press('Tab'); page.wait_for_timeout(150)
     lpr = lab.locator('.stat', has_text='Labor per run').locator('.value').inner_text()
     check(abs(float(lpr.replace('$', '').replace(',', '')) - rate26 * 60) < 0.01, f'changing the BOM’s labor minutes updates its labor ({lpr})')
-    page.get_by_role('button', name='Undo changes').click(); page.wait_for_timeout(100)
-    page.get_by_role('button', name='Start a new BOM').click(); page.wait_for_timeout(100)
+    page.locator('.bom-editor').get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100)
+    check(page.locator('dialog[open]', has_text='Close without saving').count() == 1, 'Cancel with changes asks first')
+    page.locator('dialog[open]').get_by_role('button', name='Discard changes').click(); page.wait_for_timeout(150)
+    check(page.locator('.bom-editor').count() == 0, 'Cancel closes the editor')
+    check(page.evaluate("window.__MOCK_DB__.boms.find(b => b.item_no === 10021).labor_minutes") != 60, 'Cancel does not save')
     tab(page, 'Labor')
     hrs = page.locator('table.whatif tbody tr td:first-child').all_inner_texts()
     check(hrs[0].startswith('16') and hrs[-1].startswith('120') and page.locator('table.whatif tr.current').count() == 1, f'what-if runs up to 120 production hours a week ({hrs})')
@@ -485,24 +491,29 @@ with sync_playwright() as p:
     check(page.locator('tr.d2').count() == 10, f'opening the recipe shows its 10 ingredients at level 2 ({page.locator("tr.d2").count()})')
     check(page.locator('tr.d2 .guide.tee').count() == 9 and page.locator('tr.d2 .guide.elbow').count() == 1, 'tree lines: 9 branches and one last-elbow at level 2')
     shot(page, '26-boms-tree')
-    page.get_by_role('button', name='Close all').click(); page.wait_for_timeout(80)
-    check(rows.count() == 8, 'Close all collapses back to top level')
+    check(page.get_by_role('button', name='Open all').count() == 0 and page.get_by_role('button', name='Close all').count() == 0, 'no Open all / Close all buttons')
+    page.locator('tr', has=page.locator('.tree-name', has_text='Original 7 oz.')).first.click(); page.wait_for_timeout(120)
+    check(rows.count() == 8, 'clicking an open product closes it again')
 
     # ---- BOM editor lives in the BOMs tab's side bar ----
     tab(page, 'BOMs')
-    check(page.locator('.sidebar .bom-editor').is_visible(), 'BOM editor is in the BOMs side bar')
-    check(page.locator('main .tab-body .bom-editor, main section.panel .bom-editor').count() == 0, 'BOM editor is not in the main area')
+    check(page.locator('.bom-editor').count() == 0, 'the BOM editor is hidden until New BOM or Edit is clicked')
+    check(page.locator('.sidebar').evaluate("e => Math.round(e.getBoundingClientRect().width)") == 250, 'the side bar starts 250px wide')
+    page.get_by_role('button', name='New BOM').click(); page.wait_for_timeout(100)
+    check(page.locator('.sidebar .bom-editor').is_visible() and page.locator('.cb-warning').count() == 0, 'New BOM opens the editor in the side bar (no edit warning)')
+    check(page.get_by_role('button', name='New BOM').count() == 0, 'the New BOM button hides while the editor is open')
     fit = page.evaluate("""(() => { const s = document.querySelector('.side-inner'); return [...s.querySelectorAll('.bom-editor *')].filter(e => e.offsetParent && e.getBoundingClientRect().right > s.getBoundingClientRect().right + 1).length; })()""")
     check(fit == 0, f'BOM editor fits the side bar width ({fit} overflowing)')
+    page.get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100)
+    check(page.locator('.bom-editor').count() == 0, 'Cancel on an untouched new BOM closes it')
     page.locator('.side-fold').click(); page.wait_for_timeout(80)
-    edit = page.locator('main button', has_text='Edit').first
-    if edit.count():
-        edit.click(); page.wait_for_timeout(150)
-        check(page.evaluate("location.hash") == '#bom', 'Edit stays on the BOMs tab')
-        check(not page.locator('.sidebar').get_attribute('class').__contains__('folded'), 'Edit unfolds the side bar')
-        check(page.locator('.bom-editor .tb-title', has_text='Editing').count() == 1, 'Edit loads the BOM into the editor')
+    edit_bom(page, 'Original 7 oz.')
+    check(page.evaluate("location.hash") == '#bom', 'Edit stays on the BOMs tab')
+    check('folded' not in page.locator('.sidebar').get_attribute('class'), 'Edit unfolds the side bar')
+    check(page.locator('.bom-editor .tb-title', has_text='Editing').count() == 1, 'Edit loads the BOM into the editor')
     shot(page, 'bom-editor')
-    page.get_by_role('button', name='Start a new BOM').click(); page.wait_for_timeout(60)
+    page.get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100)
+    page.get_by_role('button', name='New BOM').click(); page.wait_for_timeout(60)
     # ---- a sub-recipe nested inside a recipe inside a product ----
     cost_before = page.evaluate("1")
     page.fill('#cb-name', 'Spice Mix'); page.locator('#cb-name').press('Tab')
@@ -519,12 +530,13 @@ with sync_playwright() as p:
     check(abs(float(total.split()[0].replace('$', '')) - want_mix) < 0.0001, f'live cost per cup of Spice Mix ({total})')
     shot(page, '27-create-bom')
     page.get_by_role('button', name='Save BOM').click(); page.wait_for_timeout(300)
+    check(page.locator('.bom-editor').count() == 0, 'saving a new BOM closes the editor')
     mix = page.evaluate("window.__MOCK_DB__.items.find(i => i.name === 'Spice Mix')")
     check(mix is not None and page.evaluate(f"window.__MOCK_DB__.bom_lines.filter(l => l.parent_item_no === {mix['item_no']}).length") == 2, 'saving creates the item, its BOM and 2 lines')
     # Put 2 c. of Spice Mix into the Original recipe.
-    page.get_by_role('button', name='Start a new BOM').click(); page.wait_for_timeout(60)
-    page.get_by_role('button', name='Existing item').click(); page.wait_for_timeout(60)
-    page.select_option('#cb-item', label=[o for o in page.locator('#cb-item option').all_inner_texts() if o.startswith('RECIPE: Original')][0]); page.wait_for_timeout(100)
+    edit_bom(page, 'RECIPE: Original')
+    check(page.locator('.cb-warning', has_text='only when setting up a new year or a new BOM').is_visible(), 'editing a BOM shows the history warning')
+    check(page.locator('#cb-item').count() == 0, 'editing does not offer to switch items')
     n_lines = page.locator('table.cb-lines tbody tr').count()
     check(n_lines == 10, f'editing an existing BOM loads its lines ({n_lines})')
     page.get_by_role('button', name='+ Add line').click(); page.wait_for_timeout(60)
@@ -533,13 +545,15 @@ with sync_playwright() as p:
     last = page.locator('table.cb-lines tbody tr').nth(10); q = last.locator('input[type=text]'); q.fill('2'); q.press('Tab'); page.wait_for_timeout(80)
     page.get_by_role('button', name='Save changes').click(); page.wait_for_timeout(300)
     # Loop protection: Spice Mix can no longer contain Original or any product.
-    page.get_by_role('button', name='Start a new BOM').click(); page.get_by_role('button', name='Existing item').click(); page.wait_for_timeout(60)
-    page.select_option('#cb-item', label=[o for o in page.locator('#cb-item option').all_inner_texts() if o.startswith('Spice Mix')][0]); page.wait_for_timeout(100)
+    edit_bom(page, 'Spice Mix')
     opt = page.locator('table.cb-lines tbody tr').last.locator('option', has_text='RECIPE: Original')
     check(opt.is_disabled() and 'contains this item' in opt.inner_text(), 'items that contain this BOM are blocked (no loops)')
     # The tree now goes three levels deep under a product.
     tab(page, 'BOMs')
-    page.get_by_role('button', name='Open all').click(); page.wait_for_timeout(150)
+    for _ in range(12):  # open the Original products, then the recipe and Spice Mix inside each
+        closed = page.locator('table.tree-table tr', has=page.locator('.tree-name', has_text=re.compile(r'^(Original|RECIPE: Original|Spice Mix)'))).locator('button.twisty[aria-expanded=false]')
+        if not closed.count(): break
+        closed.first.click(); page.wait_for_timeout(60)
     check(page.locator('tr.d3', has=page.locator('.tree-name', has_text='Pepper')).count() >= 3, 'Spice Mix ingredients show at level 3 under each Original product')
     top_names = page.locator('table.tree-table tr.d0 .tree-name').all_inner_texts()
     check('Spice Mix' in top_names, 'Spice Mix also has its own top-level row')

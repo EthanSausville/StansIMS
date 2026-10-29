@@ -119,14 +119,15 @@ function sideBar() {
   const side = h('aside', { class: 'sidebar', 'aria-label': 'Actions' });
   const fold = h('button', { class: 'side-fold', type: 'button' });
   const grip = h('div', { class: 'side-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the side bar', tabindex: 0 });
-  // Each tab can ask for its own starting width (a share of the window);
-  // a width you drag to is remembered for that tab.
-  let key = 'side:w'; let frac = 0.2;
+  // The side bar starts 250px wide. A tab can ask for its own starting width
+  // (px, or a share of the window); a width you drag to is remembered.
+  let key = 'side:w250';
   const setWidth = (px) => { const w = Math.round(Math.max(170, Math.min(px, window.innerWidth * 0.6))); side.style.setProperty('--side-w', `${w}px`); return w; };
   const useTab = (tab) => {
-    frac = tab?.sideWidth || 0.2; key = tab?.sideWidth ? `side:w:${tab.id}` : 'side:w';
+    const want = tab?.sideWidth;
+    key = want ? `side:w:${tab.sideKey || tab.id}` : 'side:w250';
     const saved = Number(pref.get(key, 0));
-    if (saved) setWidth(saved); else side.style.setProperty('--side-w', `${Math.round(frac * 100)}vw`);
+    if (saved) setWidth(saved); else side.style.setProperty('--side-w', !want ? '250px' : want > 1 ? `${want}px` : `${Math.round(want * 100)}vw`);
     // A tab whose right side folds instead (sideFold: false) keeps the side bar open.
     side.classList.toggle('no-fold', tab?.sideFold === false);
     side.classList.toggle('folded', tab?.sideFold !== false && pref.get('side:folded', '0') === '1');

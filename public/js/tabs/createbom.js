@@ -6,6 +6,8 @@ import { h, pageHead, qty, money, fmt, toast, niceError, confirmDialog, typePill
 import { state, derived, isAdmin, saveBom, deleteBom } from '../store.js';
 import { costModel, wouldLoop, index, evalEntry, TYPES } from '../calc.js';
 
+const stat = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'small muted' }, sub) : null);
+
 let draft = null;
 let year = new Date().getFullYear();
 let rerenderRef = () => {};
@@ -187,6 +189,20 @@ export default {
         rerender();
       } catch (err) { toast(niceError(err), 'bad'); }
     };
+    // ---------- labor for this BOM (recipes: labor minutes per batch) ----------
+    const usesMinutes = draft.lines.some((l) => l.item_no && l.uses_batch_minutes);
+    const laborRate = cmNow.labor.rateFor(year);
+    const minutesPer = Number(draft.laborMinutes) || 0; const runSize = Number(draft.yieldQty) || 0;
+    const yearLabor = cmNow.labor.hasPositions ? cmNow.labor.forYear(year) : null;
+    const laborPanel = usesMinutes ? h('section', { class: 'panel section cb-labor' },
+      h('h2', null, h('span', { class: 'grow' }, `Labor (${year} rate)`), h('span', { class: 'small muted' }, 'Rates come from the Labor tab')),
+      h('div', { class: 'cards' },
+        stat('Labor minutes per run', minutesPer ? qty(minutesPer, 2) : '—', 'Everyone’s minutes added up (3 people × 40 min = 120)'),
+        stat('Labor rate', laborRate ? '$' + qty(laborRate, 4) + ' / min' : '—', yearLabor?.setup?.forecast ? `${year} forecast` : laborRate ? `${year} standard` : `No labor rate set for ${year}`),
+        stat('Labor per run', laborRate && minutesPer ? money(laborRate * minutesPer, 2) : '—', runSize ? `One run makes ${qty(runSize, 2)} ${draft.yieldUnit}` : ''),
+        stat(`Labor per ${draft.yieldUnit || 'unit'}`, laborRate && minutesPer && runSize ? '$' + qty((laborRate * minutesPer) / runSize, 5) : '—',
+          yearLabor && minutesPer ? `Line capacity: ${fmt(yearLabor.minutes / minutesPer)} runs a year` : ''))) : null;
+
     const savePanel = h('section', { class: 'panel section cb-save' },
       h('div', { class: 'body cb-summary' },
         h('div', null, h('div', { class: 'small muted' }, `${name} · standard cost (${year})`),
@@ -207,6 +223,6 @@ export default {
         h('strong', { class: 'tb-title' }, draft.mode === 'edit' ? `Editing: ${name}` : 'New BOM'),
         h('button', { class: 'btn', onclick: () => { draft = freshDraft(); rerender(); } }, 'Start a new BOM'),
         yearSelect(cmNow.years, year, (y) => { year = y; rerender(); }, 'Cost year')),
-      whatPanel, linesPanel, savePanel);
+      whatPanel, linesPanel, laborPanel, savePanel);
   },
 };

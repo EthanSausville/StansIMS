@@ -193,19 +193,6 @@ export default {
         selYear > years[0] ? h('tr', null, h('td', null, `Inflation adjustment from ${selYear - 1} (%)`, h('div', { class: 'small muted' }, ownRows ? `Not used: ${selYear} has its own people.` : `While ${selYear} is forecast from ${selYear - 1}, everyone’s pay and fixed costs go up by this %.`)),
           setYear('labor_inflation_pct', 'Inflation adjustment %', '0')) : null)));
 
-    const saveBomField = (r, k) => (v) => saveRow('boms', { item_no: r.item.item_no }, { [k]: v });
-    const recipes = L.recipes.length ? h('section', { class: 'panel' },
-      h('h2', null, `Labor in each recipe (${selYear} rate)`),
-      h('p', { class: 'panel-note' }, 'Batch size and labor minutes per batch belong to each recipe BOM (change them here or on Create BOM).'),
-      h('div', { class: 'tablewrap flat' }, h('table', { class: 't recipes-labor' },
-        h('thead', null, h('tr', null, h('th', null, 'Recipe'), h('th', { class: 'num' }, 'Batch size (oz)'), h('th', { class: 'num' }, 'Labor minutes per batch'),
-          h('th', { class: 'num' }, 'Labor per batch'), h('th', { class: 'num' }, 'Labor per oz'), h('th', { class: 'num' }, 'Batches a year (this recipe only)'))),
-        h('tbody', null, L.recipes.map((r) => h('tr', null, h('td', null, r.item.name),
-          numberCell(r.batchOz, saveBomField(r, 'yield_qty'), { disabled: !admin, digits: 2, key: `bom|${r.item.item_no}|yield`, title: `${r.item.name}: batch size (oz)` }),
-          numberCell(r.minutesPer, saveBomField(r, 'labor_minutes'), { disabled: !admin, digits: 2, key: `bom|${r.item.item_no}|minutes`, title: `${r.item.name}: labor minutes per batch` }),
-          h('td', { class: 'num calc' }, empty ? '—' : money(r.perBatch)), h('td', { class: 'num calc' }, r.perOz ? '$' + qty(r.perOz, 5) : '—'),
-          h('td', { class: 'num calc' }, empty ? '—' : fmt(r.batchesPerYear)))))))) : null;
-
     const cols = [['#', (r) => qty(r.people, 2)], ['Line hours', (r) => fmt(r.lineHours)], ['Base pay', (r) => dollars(r.base)],
       ['Payroll tax', (r) => dollars(r.tax)], ['Fringe & fixed', (r) => dollars(r.benefits)], ['Labor cost', (r) => dollars(r.burdened)],
       ['Minutes on the line', (r) => fmt(r.minutes)], ['Cost per minute', (r) => (r.minutes ? '$' + qty(r.burdened / r.minutes, 4) : '—')]];
@@ -258,6 +245,6 @@ export default {
         yearTable,
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Standard Cost uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
       yearHead,
-      rightFolded ? null : [summary, people, h('div', { class: 'labor-pair' }, peoplePanel, plant), recipes, build, whatPanel]);
+      rightFolded ? null : [summary, people, peoplePanel, plant, build, whatPanel]);
   },
 };

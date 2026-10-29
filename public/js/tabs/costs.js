@@ -90,13 +90,10 @@ export default {
       pageHead('Master List', 'Every item, with its standard cost for each year. Update on January 1st each year. Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Only admins can change these.'),
         admin && !editing ? h('button', { class: 'btn primary', onclick: () => { editing = 'new'; rerender(); } }, 'Add item') : null,
         admin && editing ? itemForm(editing === 'new' ? null : items.find((it) => it.item_no === editing), (no) => { editing = null; selected = no; rerender(); }) : null,
-        admin && !editing ? (sel
-          ? h('div', { class: 'item-selected' }, h('div', { class: 'small muted' }, 'Selected'), h('strong', null, sel.name), h('div', { class: 'small muted' }, `#${sel.item_no} · ${sel.type}`),
-            h('button', { class: 'btn', onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item'))
-          : h('p', { class: 'small muted' }, 'Click an item to select it for editing.')) : null,
+        admin && !editing && sel ? h('button', { class: 'btn primary', onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item') : null,
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('costs'); rerender(); } }, `Clear filters (${nFilters})`) : null),
       h('div', { class: 'tablewrap tall', 'data-scroll': 'costs' },
-        xtable({ id: 'costs', columns, allRows: items, rows, rerender, className: 'natural' + (admin ? ' selectable' : ''),
+        xtable({ id: 'costs', columns, allRows: items, rows, rerender, className: 'natural plain-cells' + (admin ? ' selectable' : ''),
           rowClass: (it) => (it.item_no === selected ? 'selected' : null),
           onRowClick: admin ? (it) => { if (editing) return; selected = it.item_no === selected ? null : it.item_no; rerender(); } : null })));
   },

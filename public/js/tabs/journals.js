@@ -1,29 +1,34 @@
-import { h, pageHead } from '../ui.js';
+// Journal entries A-H with amounts for a month, built from production, sales,
+// deliveries, purchase orders and cycle counts (calc.js journalEntries).
+import { h, pageHead, monthPicker, acctParts, chip, todayIso } from '../ui.js';
+import { state, derived } from '../store.js';
+import { journalEntries, MONTHS } from '../calc.js';
 
-// The standard-cost journal entries laid out in the workbook's Journals and
-// Accounting sheets. The workbook has no amounts in them yet, so this tab is
-// the reference layout.
-const ENTRIES = [
-  ['(A) Purchase of Raw Materials', [['Debit', 'Inventory: Raw Materials', 'Standard $'], ['Debit', 'PPV - Raw Materials (unfavorable variance)', 'Actual − Standard $'], ['Credit', 'PPV - Raw Materials (favorable variance)', 'Standard − Actual $'], ['Credit', 'Cash', 'Actual $']]],
-  ['(B) Purchase of Components', [['Debit', 'Inventory: Components', 'Standard $'], ['Debit', 'PPV - Components (unfavorable variance)', 'Actual − Standard $'], ['Credit', 'PPV - Components (favorable variance)', 'Standard − Actual $'], ['Credit', 'Cash', 'Actual $']]],
-  ['(C) Paying Payroll', [['Debit', 'MFG Variance - Labor', 'Actual payroll $'], ['Credit', 'Cash', 'Actual payroll $']]],
-  ['(D) Paying Overhead', [['Debit', 'MFG Variance - Overhead', 'Actual overhead $'], ['Credit', 'Cash', 'Actual overhead $']]],
-  ['(E) Production of Goods', [['Debit', 'Inventory: Finished Goods', 'Standard $'], ['Credit', 'Inventory: Raw Materials', 'Standard $'], ['Credit', 'Inventory: Components', 'Standard $'], ['Credit', 'MFG Variance - Labor', 'Standard $'], ['Credit', 'MFG Variance - Overhead', 'Standard $']]],
-  ['(F) Cycle Counts (assuming shrinkage)', [['Debit', 'Inventory Adjustments', 'Count variance $'], ['Credit', 'Inventory: Raw Materials', 'Count variance $'], ['Credit', 'Inventory: Components', 'Count variance $'], ['Credit', 'Inventory: Finished Goods', 'Count variance $']]],
-  ['(G) Sale of Goods', [['Debit', 'Cash', 'Actual $'], ['Credit', 'Sales Revenue', 'Actual $'], ['Debit', 'COGS', 'Standard $'], ['Credit', 'Inventory: Finished Goods', 'Standard $']]],
-  ['(H) Updating Standards at Year Beginning', [['Debit', 'Inventory Adjustments', 'Old standard $'], ['Credit', 'Inventory: Raw Materials', 'Old standard $'], ['Credit', 'Inventory: Components', 'Old standard $'], ['Credit', 'Inventory: Finished Goods', 'Old standard $'], ['Debit', 'Inventory: Raw Materials', 'New standard $'], ['Debit', 'Inventory: Components', 'New standard $'], ['Debit', 'Inventory: Finished Goods', 'New standard $'], ['Credit', 'Inventory Adjustments', 'New standard $']]],
-];
+const t = todayIso();
+export const period = { ym: { year: Number(t.slice(0, 4)), month: Number(t.slice(5, 7)) } };
+export const monthLabel = ({ year, month }) => `${MONTHS[month - 1][0]}${MONTHS[month - 1].slice(1).toLowerCase()} ${year}`;
+export const entriesFor = (ym) => journalEntries(state.data, ym.year, ym.month, derived.inventory());
+const amt = (v) => h('td', { class: 'num acct' }, v ? acctParts(v) : '');
 
 export default {
   id: 'journals',
   label: 'Journals',
-  render() {
+  render({ rerender }) {
+    const entries = entriesFor(period.ym);
+    const dr = entries.reduce((s, e) => s + e.dr, 0); const cr = entries.reduce((s, e) => s + e.cr, 0);
+    const posted = entries.filter((e) => e.lines.length).length;
     return h('div', null,
-      pageHead('Journal Entries', 'The standard-cost entries from the workbook’s Journals and Accounting sheets. The workbook doesn’t have amounts in them yet, so these are the layout to post from.'),
+      pageHead('Journal Entries', 'The standard-cost entries from the workbook’s Journals sheet, with this month’s amounts. (A, B) deliveries at standard cost, plus the price variance on received purchase orders; (E) production at standard cost, split into the materials, packaging, labor and overhead it absorbed; (F) cycle counts against the running inventory; (G) sales at invoice amount and cost of goods sold at standard; (H) in January, inventory revalued to the new year’s standards. Payroll (C) and overhead (D) paid come from the books, so they aren’t posted here.',
+        monthPicker(period.ym, (ym) => { period.ym = ym; rerender(); }),
+        chip('Entries with amounts', posted),
+        chip('Debits', '$' + Math.round(dr).toLocaleString()), chip('Credits', '$' + Math.round(cr).toLocaleString())),
+      h('h2', { class: 'bom-year-head' }, `${monthLabel(period.ym)} journal entries`),
       h('div', { class: 'tablewrap' }, h('table', { class: 't journal' },
-        h('thead', null, h('tr', null, h('th', null, 'Entry'), h('th', null, 'Dr / Cr'), h('th', null, 'Account'), h('th', null, 'Amount basis'))),
-        h('tbody', null, ENTRIES.map(([name, lines]) => lines.map(([side, account, basis], i) => h('tr', { class: i === 0 ? 'entry' : null },
-          h('td', null, i === 0 ? h('strong', null, name) : ''), h('td', null, side),
-          h('td', { class: side === 'Credit' ? 'cr' : null }, side === 'Debit' ? `Dr. ${account}` : `Cr. ${account}`), h('td', { class: 'muted' }, basis))))))));
+        h('thead', null, h('tr', null, h('th', null, 'Entry'), h('th', null, 'Account'), h('th', { class: 'num' }, 'Debit'), h('th', { class: 'num' }, 'Credit'), h('th', null, 'Basis'))),
+        h('tbody', null, entries.map((e) => [
+          h('tr', { class: 'entry' }, h('td', null, h('strong', null, `(${e.code}) ${e.title}`)), h('td', { class: 'muted' }, e.lines.length ? '' : (e.note || 'Nothing to post this month.')), h('td'), h('td'), h('td')),
+          ...e.lines.map((l) => h('tr', null, h('td'), h('td', { class: l.cr ? 'cr' : null }, l.cr ? `Cr. ${l.account}` : `Dr. ${l.account}`), amt(l.dr), amt(l.cr), h('td', { class: 'muted' }, l.basis))),
+          e.lines.length ? h('tr', { class: 'entry-total' }, h('td'), h('td', { class: 'muted' }, Math.abs(e.dr - e.cr) < 0.01 ? 'Balanced' : 'Out of balance'), amt(e.dr), amt(e.cr), h('td')) : null,
+        ])))));
   },
 };

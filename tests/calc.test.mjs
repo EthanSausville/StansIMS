@@ -276,3 +276,22 @@ test('purchase orders: open orders count in the plan; price variance', () => {
   assert.equal(C.poVariance(po, cm), null);
   assert.equal(C.poStatus(po, '2099-01-01'), 'late'); assert.equal(C.poStatus({ ...po, received: '2026-10-20' }, today), 'received');
 });
+
+test('journal entries balance and tie to the data', () => {
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines, purchase_orders: [] };
+  const inv = C.dailyInventory(d, '2026-12-31');
+  for (let m = 1; m <= 12; m++) {
+    for (const e of C.journalEntries(d, 2026, m, inv)) close(e.dr, e.cr, `2026-${m} entry ${e.code} balances`);
+  }
+  const jul = C.journalEntries(d, 2026, 7, inv);
+  const g = jul.find((e) => e.code === 'G');
+  const julSales = d.sales.filter((s) => s.date.startsWith('2026-07')).reduce((s, r) => s + (r.amount || 0), 0);
+  close(g.lines.find((l) => l.key === 'revenue').cr, julSales, 'July revenue');
+  // production at standard = cases x standard cost
+  const cm = C.costModel(d);
+  const julFg = d.production.filter((p) => p.date.startsWith('2026-07')).reduce((s, p) => s + p.cases * cm.cost(p.item_no, 2026), 0);
+  close(jul.find((e) => e.code === 'E').dr, julFg, 'July production at standard');
+  const L = C.ledger([{ label: 'Jul', entries: jul }]);
+  let dr = 0, cr = 0; for (const a of L.values()) { dr += a.drTotal; cr += a.crTotal; }
+  close(dr, cr, 'ledger debits = credits');
+});

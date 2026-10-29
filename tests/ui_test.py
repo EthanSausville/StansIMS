@@ -775,9 +775,28 @@ with sync_playwright() as p:
     check(abs(got - want) < 0.006, f'Original 7 oz case cost includes the Spice Mix ({got:.4f} vs {want:.4f})')
     shot(page, '28-boms-three-levels')
 
+    # ---- Accounting with amounts ----
+    tab(page, 'Journals')
+    back = (datetime.date.today().year - 2026) * 12 + datetime.date.today().month - 7
+    for _ in range(back): page.get_by_role('button', name='Previous month').click(); page.wait_for_timeout(60)
+    page.wait_for_timeout(150)
+    check('Jul 2026' in page.locator('.bom-year-head').inner_text(), 'Journals go back to July 2026')
+    jul_sales = round(sum(s['amount'] or 0 for s in inputs['sales'] if s['date'].startswith('2026-07')), 2)
+    rev = page.locator('table.journal tr', has_text='Cr. Sales Revenue').locator('td').nth(3).inner_text()
+    check(acct(rev) == jul_sales, f'July revenue posts from Sales Detail ({rev} vs {jul_sales})')
+    bal = page.locator('table.journal tr.entry-total').all_inner_texts()
+    check(bal and all('Balanced' in b for b in bal), f'every entry balances ({len(bal)} entries)')
+    check(page.locator('table.journal tr', has_text='Dr. Inventory: Finished Goods').count() >= 1, 'production posts to finished goods inventory')
+    shot(page, '27-journals')
     tab(page, 'T-Accounts')
     check(page.locator('.tacct').count() == 11, f'T-Accounts shows 11 accounts ({page.locator(".tacct").count()})')
+    revcard = page.locator('.tacct', has_text='Sales Revenue')
+    check(acct(revcard.locator('.tfoot span').last.inner_text()) == jul_sales, 'T-account totals follow the journal (July revenue)')
+    page.get_by_role('button', name='Year to date').click(); page.wait_for_timeout(200)
+    ytd = round(sum(s['amount'] or 0 for s in inputs['sales'] if '2026-01' <= s['date'][:7] <= '2026-07'), 2)
+    check(acct(revcard.locator('.tfoot span').last.inner_text()) == ytd, f'year to date adds up the months ({ytd})')
     shot(page, '27-taccounts')
+    page.get_by_role('button', name='Month', exact=True).click()
 
     # ---- sign out ----
     page.locator('.gear').click(); page.get_by_role('menuitem', name='Sign out').click(); page.wait_for_selector('form input[type=email]')

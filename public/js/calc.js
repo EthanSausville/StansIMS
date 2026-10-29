@@ -688,3 +688,124 @@ export function poVariance(po, cm) {
   const std = cm.cost(po.item_no, yearOf(po.received)) || cm.latest(po.item_no);
   return (n(po.unit_price) - std) * n(po.received_qty ?? po.qty);
 }
+
+// ---------- Journal entries ----------
+// The workbook's standard-cost entries (A-H) with amounts for a month, built
+// from the day-to-day data. Lines are { account, dr, cr, basis }; each entry's
+// debits equal its credits.
+//   A/B purchases: deliveries at standard cost; received purchase orders add the
+//       price variance (PPV); deliveries without an order are taken at standard.
+//   C/D payroll and overhead paid: actual amounts come from the books, so they
+//       aren't posted here (the variance accounts show only what production absorbed).
+//   E production: finished goods at standard cost, built up from the BOMs into
+//       raw materials, components, labor and overhead absorbed.
+//   F cycle counts: count minus the running inventory just before it, at standard.
+//   G sales: revenue at actual, cost of goods sold at standard.
+//   H recosting (January only): inventory at Dec 31 revalued from last year's to
+//       this year's standard costs.
+export const ACCOUNTS = {
+  cash: 'Cash', rm: 'Inventory: Raw Materials', cp: 'Inventory: Components', fg: 'Inventory: Finished Goods',
+  revenue: 'Sales Revenue', cogs: 'COGS', ppvRm: 'PPV - Raw Materials', ppvCp: 'PPV - Components',
+  labor: 'MFG Variance - Labor', overhead: 'MFG Variance - Overhead', adj: 'Inventory Adjustments',
+};
+const invAccount = (type) => (type === 'Raw Material' ? 'rm' : type === 'Component' ? 'cp' : 'fg');
+
+// What one unit of an item costs, split by where the cost comes from.
+function costParts(cm, ix, itemNo, year, seen = new Set()) {
+  const out = { rm: 0, cp: 0, labor: 0, overhead: 0 };
+  if (seen.has(itemNo)) return out; seen.add(itemNo);
+  for (const l of ix.children(itemNo)) {
+    const per = ix.lineQty(l) / ix.yieldOf(itemNo);
+    const child = ix.items.get(l.item_no);
+    if (ix.bom.has(l.item_no)) { const p = costParts(cm, ix, l.item_no, year, seen); for (const k in out) out[k] += p[k] * per; continue; }
+    const v = cm.cost(l.item_no, year) * per;
+    if (child?.type === 'Raw Material') out.rm += v;
+    else if (child?.type === 'Component') out.cp += v;
+    else if (child?.type === 'Indirect Cost') out[isLaborItem(l.item_no) ? 'labor' : 'overhead'] += v;
+  }
+  seen.delete(itemNo);
+  return out;
+}
+
+export function journalEntries(data, year, month, inv) {
+  const cm = costModel(data); const ix = cm.ixFor(year);
+  const inMonth = (d) => d && yearOf(d) === year && monthOf(d) === month;
+  const std = (itemNo) => cm.cost(itemNo, year) || cm.latest(itemNo);
+  const L = (account, dr, cr, basis) => ({ account: ACCOUNTS[account], key: account, dr: dr || 0, cr: cr || 0, basis });
+  const signed = (account, v, basis) => (v >= 0 ? L(account, v, 0, basis) : L(account, 0, -v, basis));
+  const entries = [];
+
+  // A / B purchases
+  for (const [code, type, inv_, ppv, title] of [['A', 'Raw Material', 'rm', 'ppvRm', 'Purchase of Raw Materials'], ['B', 'Component', 'cp', 'ppvCp', 'Purchase of Components']]) {
+    let stdTotal = 0; let unfav = 0; let fav = 0;
+    for (const r of data.goods_receipts) if (inMonth(r.date) && ix.items.get(r.item_no)?.type === type) stdTotal += n(r.qty) * std(r.item_no);
+    for (const po of data.purchase_orders || []) {
+      if (!inMonth(po.received) || ix.items.get(po.item_no)?.type !== type) continue;
+      const v = poVariance(po, cm); if (v > 0) unfav += v; else if (v < 0) fav -= v;
+    }
+    entries.push({ code, title, lines: [L(inv_, stdTotal, 0, 'Deliveries at standard cost'), L(ppv, unfav, 0, 'Paid more than standard'), L(ppv, 0, fav, 'Paid less than standard'),
+      L('cash', 0, stdTotal + unfav - fav, 'Actual cost (standard + price variance)')] });
+  }
+  entries.push({ code: 'C', title: 'Paying Payroll', note: 'Actual payroll comes from the books, so it isn’t posted here.', lines: [] });
+  entries.push({ code: 'D', title: 'Paying Overhead', note: 'Actual overhead comes from the books, so it isn’t posted here.', lines: [] });
+
+  // E production
+  const prod = { fg: 0, rm: 0, cp: 0, labor: 0, overhead: 0 };
+  for (const p of data.production) {
+    if (!inMonth(p.date)) continue;
+    const parts = costParts(cm, ix, p.item_no, year); const c = n(p.cases);
+    for (const k of ['rm', 'cp', 'labor', 'overhead']) prod[k] += parts[k] * c;
+  }
+  prod.fg = prod.rm + prod.cp + prod.labor + prod.overhead;
+  entries.push({ code: 'E', title: 'Production of Goods', lines: [L('fg', prod.fg, 0, 'Cases produced at standard cost'), L('rm', 0, prod.rm, 'Standard usage'), L('cp', 0, prod.cp, 'Standard usage'),
+    L('labor', 0, prod.labor, 'Labor absorbed at standard'), L('overhead', 0, prod.overhead, 'Overhead absorbed at standard')] });
+
+  // F cycle counts
+  const adjBy = { rm: 0, cp: 0, fg: 0 };
+  const counted = new Map();
+  for (const c of data.cycle_counts) { if (!inMonth(c.date)) continue; const k = `${c.item_no}|${c.date}`; counted.set(k, (counted.get(k) || 0) + n(c.qty)); }
+  for (const [k, q] of counted) {
+    const [itemNo, date] = k.split('|'); const it = ix.items.get(+itemNo); if (!it) continue;
+    const before = inv?.byItem.get(+itemNo)?.get(addDays(date, -1));
+    if (before === undefined) continue; // the first count of an item starts its inventory
+    adjBy[invAccount(it.type)] += (q - before) * std(+itemNo);
+  }
+  const adjTotal = adjBy.rm + adjBy.cp + adjBy.fg;
+  entries.push({ code: 'F', title: 'Cycle Counts', lines: [signed('adj', -adjTotal, adjTotal <= 0 ? 'Counted less than expected (shrinkage)' : 'Counted more than expected'),
+    ...['rm', 'cp', 'fg'].map((a) => signed(a, adjBy[a], 'Count − running inventory, at standard'))] });
+
+  // G sales
+  let revenue = 0; let cogs = 0;
+  for (const r of salesRows(data)) { if (!inMonth(r.date)) continue; revenue += n(r.amount); cogs += r.stdCost; }
+  entries.push({ code: 'G', title: 'Sale of Goods', lines: [L('cash', revenue, 0, 'Invoiced amounts'), L('revenue', 0, revenue, 'Invoiced amounts'), L('cogs', cogs, 0, 'Cases sold at standard cost'), L('fg', 0, cogs, 'Cases sold at standard cost')] });
+
+  // H recosting (January)
+  if (month === 1 && inv) {
+    const old = { rm: 0, cp: 0, fg: 0 }; const neu = { rm: 0, cp: 0, fg: 0 };
+    const dec31 = `${year - 1}-12-31`;
+    for (const it of inv.items) {
+      const q = inv.byItem.get(it.item_no)?.get(dec31); if (!q) continue;
+      const a = invAccount(it.type); old[a] += q * (cm.cost(it.item_no, year - 1) || 0); neu[a] += q * (cm.cost(it.item_no, year) || 0);
+    }
+    const lines = [];
+    for (const a of ['rm', 'cp', 'fg']) { if (old[a] || neu[a]) lines.push(signed(a, neu[a] - old[a], `Dec 31 inventory: ${year} standard − ${year - 1} standard`)); }
+    const net = ['rm', 'cp', 'fg'].reduce((s, a) => s + neu[a] - old[a], 0);
+    lines.push(signed('adj', -net, 'Revaluation'));
+    entries.push({ code: 'H', title: 'Updating Standards at Year Beginning', lines });
+  } else entries.push({ code: 'H', title: 'Updating Standards at Year Beginning', note: 'Posted in January only.', lines: [] });
+
+  for (const e of entries) { e.lines = e.lines.filter((l) => Math.abs(l.dr) > 0.004 || Math.abs(l.cr) > 0.004); e.dr = e.lines.reduce((s, l) => s + l.dr, 0); e.cr = e.lines.reduce((s, l) => s + l.cr, 0); }
+  return entries;
+}
+
+// Debits and credits by account for a set of months' entries.
+export function ledger(entriesList) {
+  const acc = new Map(Object.values(ACCOUNTS).map((a) => [a, { account: a, dr: [], cr: [] }]));
+  for (const { label, entries } of entriesList) for (const e of entries) for (const l of e.lines) {
+    const a = acc.get(l.account);
+    if (l.dr) a.dr.push({ code: e.code, title: e.title, label, amount: l.dr });
+    if (l.cr) a.cr.push({ code: e.code, title: e.title, label, amount: l.cr });
+  }
+  for (const a of acc.values()) { a.drTotal = a.dr.reduce((s, x) => s + x.amount, 0); a.crTotal = a.cr.reduce((s, x) => s + x.amount, 0); a.balance = a.drTotal - a.crTotal; }
+  return acc;
+}

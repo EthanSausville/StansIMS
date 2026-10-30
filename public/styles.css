@@ -932,3 +932,4 @@ table.t.pd-prod tfoot tr.pd-batches td { position: static; background: transpare
 .pd-legend { margin-bottom: 12px; }
 .pd-half > .body > p { margin: 0 0 10px; }
 .pd-stack { display: flex; flex-direction: column; gap: 16px; } .pd-stack > .panel { margin: 0; }
+table.t.pd-status tbody tr { cursor: pointer; } table.t.pd-status tbody tr.picked td { box-shadow: inset 0 2px 0 var(--accent-dark), inset 0 -2px 0 var(--accent-dark); } table.t.pd-status tbody tr.picked td:first-child { box-shadow: inset 2px 2px 0 var(--accent-dark), inset 0 -2px 0 var(--accent-dark); }

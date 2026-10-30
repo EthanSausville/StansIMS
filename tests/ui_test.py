@@ -80,7 +80,7 @@ def shot(page, name):
 GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
-    'Planning': ['Planning Dashboard', 'Purchase Plan', 'Safety Stocks'],
+    'Planning': ['Production', 'Purchasing', 'Set Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
@@ -97,7 +97,7 @@ def tab(page, label):
     if label in ('Users', 'Change history'):
         page.locator('.gear').click(); page.locator('.gear-menu a', has_text=label).click()
     else:
-        group = next(g for g, ts in GROUPS.items() if label in ts)
+        group, label = label.split('/') if '/' in label else (next(g for g, ts in GROUPS.items() if label in ts), label)
         page.locator('.groups .group', has_text=group).first.click(); page.wait_for_timeout(80)
         if label != 'Dashboard':
             page.get_by_role('tab', name=label, exact=True).click()
@@ -589,66 +589,53 @@ with sync_playwright() as p:
         bad.unlink()
 
     # ---- Planning ----
-    tab(page, 'Planning Dashboard')
-    check(page.get_by_role('tab', name='Demand Plan').count() == 0, 'there is no Demand Plan tab')
-    mats_n = len([i for i in inputs['items'] if i['type'] in ('Raw Material', 'Component')])
-    st_rows = page.locator('table.pd-status tbody tr')
-    classes = [c.split()[0] for c in st_rows.evaluate_all("rs => rs.map(r => r.className)")]
-    order = ['st-red', 'st-orange', 'st-yellow', 'st-green']
-    check(st_rows.count() == mats_n and all(c in order for c in classes) and classes == sorted(classes, key=order.index), f'every material and packaging item is a colored row, worst first ({st_rows.count()}: {sorted(set(classes))})')
-    red_bg = page.locator('table.pd-status tbody tr.st-red td').first.evaluate("e => [getComputedStyle(e).backgroundColor, getComputedStyle(e).fontWeight]")
-    check(red_bg[0] == 'rgb(251, 213, 210)' and int(red_bg[1]) >= 700, f'rows are pastel with bold text ({red_bg})')
+    tab(page, 'Planning/Production')
+    check(page.get_by_role('tab', name='Demand Plan').count() == 0 and page.get_by_role('tab', name='Purchase Plan').count() == 0 and page.get_by_role('tab', name='Planning Dashboard').count() == 0, 'old planning tabs are gone')
+    check(page.locator('.pd-half h2').count() == 0 and page.locator('table.pd-status').count() == 0, 'Production shows only the production grid, no card heading')
     prow = page.locator('table.pd-prod tbody tr').first
     check(prow.locator('td.cell input').count() == 4, 'production is typed in for the next 4 weeks')
     ph = prow.locator('td.cell input').first.get_attribute('placeholder')
     check(ph not in (None, '', '0') and prow.locator('td.cell.suggested').count() == 4, f'blank weeks show the average demand, lighter ({ph})')
     key = prow.locator('td.cell input').nth(1).get_attribute('data-k'); _, item_no, week = key.split('|')
-    tab(page, 'Purchase Plan'); page.get_by_role('button', name='Weekly', exact=True).click(); page.wait_for_timeout(150)
-    before_wk = page.locator('table.plan-table tbody tr', has_text='7 oz Container').locator('td').nth(5).get_attribute('title')
-    tab(page, 'Planning Dashboard')
+    shot(page, '50-production')
+    tab(page, 'Purchasing')
+    mats_n = len([i for i in inputs['items'] if i['type'] in ('Raw Material', 'Component')])
+    st_rows = page.locator('table.pd-status tbody tr')
+    classes = [c.split()[0] for c in st_rows.evaluate_all("rs => rs.map(r => r.className)")]
+    order = ['st-red', 'st-orange', 'st-yellow', 'st-green']
+    check(st_rows.count() == mats_n and all(c in order for c in classes) and classes == sorted(classes, key=order.index), f'every material and packaging item is a colored row, worst first ({st_rows.count()}: {sorted(set(classes))})')
+    check(page.locator('.pd-half h2').count() == 0, 'no Purchase Planning card heading')
+    red_bg = page.locator('table.pd-status tbody tr.st-red td').first.evaluate("e => [getComputedStyle(e).backgroundColor, getComputedStyle(e).fontWeight]")
+    check(red_bg[0] == 'rgb(251, 213, 210)' and int(red_bg[1]) >= 700, f'rows are pastel with bold text ({red_bg})')
+    how = page.locator('table.pd-status tbody tr', has_text='Cheese').first.locator('td').nth(4).inner_text()
+    import re as _re
+    check(how == '' or _re.fullmatch(r'[\d,]+ box(es)?', how) is not None, f'cheese is ordered in whole 30 lb boxes ({how})')
+    page.locator('table.pd-status tbody tr', has_text='7 oz Container').first.click(); page.wait_for_timeout(150)
+    before_side = page.locator('.side-detail').inner_text()
+    check('7 oz Container' in before_side and 'Safety stock' in before_side, 'clicking an item shows its orders in the side bar')
+    tab(page, 'Planning/Production')
     c = cell(page, key); c.click(); c.fill('2000'); c.press('Tab'); page.wait_for_timeout(300)
     check(page.evaluate(f"window.__MOCK_DB__.production_plan.find(f => f.item_no === {item_no} && f.week === '{week}').cases") == 2000, 'typed production is saved for that week')
-    tab(page, 'Purchase Plan'); page.get_by_role('button', name='Weekly', exact=True).click(); page.wait_for_timeout(150)
-    after_wk = page.locator('table.plan-table tbody tr', has_text='7 oz Container').locator('td').nth(5).get_attribute('title')
-    check(before_wk != after_wk, f'typed production changes the purchase plan ({before_wk} -> {after_wk})')
-    page.get_by_role('button', name='To order', exact=True).click(); page.wait_for_timeout(100)
-    tab(page, 'Planning Dashboard')
-    shot(page, '50-planning-dashboard')
+    tab(page, 'Purchasing')
+    after_side = page.locator('.side-detail').inner_text()
+    check(before_side != after_side, 'typed production changes what to buy')
+    shot(page, '51-purchasing')
+    tab(page, 'Planning/Production')
     c = cell(page, key); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(300)
     check(page.evaluate(f"window.__MOCK_DB__.production_plan.filter(f => f.item_no === {item_no}).length") == 0, 'clearing it goes back to the average')
-    tab(page, 'Purchase Plan')
-    rows_pp = page.locator('table.xtable tbody tr').count()
-    mats = len([i for i in inputs['items'] if i['type'] in ('Raw Material', 'Component')])
-    check(rows_pp == mats, f'purchase plan lists every raw material and packaging item ({rows_pp})')
-    st_first = page.locator('table.xtable tbody tr').first.locator('.status').first.inner_text()
-    check(st_first in ('Below safety stock', 'Order this week'), f'most urgent purchases first ({st_first})')
-    cq = float(page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(5).inner_text().split()[0].replace(',', ''))
-    asr = page.locator('table.xtable tbody tr', has_text='Cheese').first.locator('td').nth(4).inner_text()
-    check(cq % 30 == 0 and asr == f'{int(cq / 30):,} boxes', f'cheese is ordered in whole 30 lb boxes ({cq} lb = {asr})')
-    leads = set(page.locator('table.xtable tbody tr td:last-child').all_inner_texts())
-    check(leads == {'14'}, f'every material has a two-week lead time ({leads})')
-    page.locator('table.xtable tbody tr', has_text='Cheese').locator('td').first.click(); page.wait_for_timeout(150)
-    check('Cheese' in page.locator('.side-detail').inner_text() and page.locator('.side-detail', has_text='Safety stock').count() == 1, 'selecting a material shows its orders in the side bar')
-    shot(page, '51-purchase-plan')
-    page.get_by_role('button', name='Weekly', exact=True).click(); page.wait_for_timeout(150)
-    check(page.locator('table.plan-table td.wk .rcpt').count() > 0, 'week by week shows planned deliveries')
-    shot(page, '52-purchase-weekly')
-    page.get_by_role('button', name='Look ahead').click(); page.wait_for_timeout(150)
-    check(page.locator('.sched-week').count() >= 2 and page.locator('.sched-week table tbody tr').count() >= 3, f'Look ahead lists the orders coming up, week by week ({page.locator(".sched-week").count()} weeks)')
-    shot(page, '61-look-ahead')
-    tab(page, 'Safety Stocks')
+    tab(page, 'Purchasing')
+    page.locator('table.pd-status tbody tr', has_text='Cheese').first.click(); page.wait_for_timeout(150)
+    check('14 days' in page.locator('.side-detail').inner_text(), 'every material has a two-week lead time')
+    tab(page, 'Set Safety Stocks')
     check(page.locator('table.xtable thead', has_text='Calculated safety stock').count() == 1, 'lead times and safety stocks are on their own tab')
     shot(page, '62-safety-stocks')
     cheese_no = next(i['item_no'] for i in inputs['items'] if i['name'] == 'Cheese')
     c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill('21'); c.press('Tab'); page.wait_for_timeout(250)
     check(page.evaluate(f"window.__MOCK_DB__.purchase_settings.find(s => s.item_no === {cheese_no}).lead_days") == 21, 'lead time can be changed per material')
-    tab(page, 'Purchase Plan')
-    page.get_by_role('button', name='To order', exact=True).click(); page.wait_for_timeout(150)
-    lt = page.locator('table.xtable tbody tr', has_text='Cheese').locator('td').last.inner_text()
-    check(lt == '21', f'the plan uses the new lead time ({lt})')
-    tab(page, 'Safety Stocks')
+    tab(page, 'Purchasing')
+    check('21 days' in page.locator('.side-detail').inner_text(), 'the plan uses the new lead time')
+    tab(page, 'Set Safety Stocks')
     c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(250)
-    tab(page, 'Purchase Plan')
     tab(page, 'Dashboard')
     check(page.locator('.note.warn', has_text='Below safety stock or to order this week').count() == 1, 'the dashboard lists what to order now')
 
@@ -905,7 +892,7 @@ with sync_playwright() as p:
     check(overflow <= 0, f'no sideways page scroll on a phone (overflow {overflow}px)')
     shot(page, '24-phone-dashboard')
     tab(page, 'Production'); shot(page, '25-phone-production')
-    for i, t in enumerate(['New Receipts', 'New Counts', 'Purchase Plan', 'Planning Dashboard', 'Sales Detail']):
+    for i, t in enumerate(['New Receipts', 'New Counts', 'Purchasing', 'Planning/Production', 'Sales Detail']):
         tab(page, t); page.wait_for_timeout(150)
         ov = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
         check(ov <= 0, f'{t}: no sideways page scroll on a phone ({ov}px)')

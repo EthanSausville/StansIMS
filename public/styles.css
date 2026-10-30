@@ -931,3 +931,4 @@ table.t.pd-prod tfoot tr.xt-totals td { position: static; background: transparen
 table.t.pd-prod tfoot tr.pd-batches td { position: static; background: transparent; border-top: 0; color: var(--muted); font-weight: 400; font-size: 12px; padding-top: 2px; padding-bottom: 2px; }
 .pd-legend { margin-bottom: 12px; }
 .pd-half > .body > p { margin: 0 0 10px; }
+.pd-stack { display: flex; flex-direction: column; gap: 16px; } .pd-stack > .panel { margin: 0; }

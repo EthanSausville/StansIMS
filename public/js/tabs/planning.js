@@ -161,12 +161,10 @@ export const planningDashboardTab = {
   render({ rerender }) {
     const plan = derived.plan(); const mp = derived.materials(); const today = todayIso(); const admin = isAdmin();
     const rows = [...mp.rows].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || (a.next?.orderBy || '9').localeCompare(b.next?.orderBy || '9') || a.item.sort - b.item.sort);
-    const counts = Object.fromEntries(ORDER.map((k) => [k, rows.filter((r) => r.status === k).length]));
     const stock = (r) => (hasReceiving(r.item) ? asReceived(r.item, r.onHand) : `${qty(r.onHand, 0)} ${unitWord(r.item.unit, r.onHand)}`);
     const materials = h('section', { class: 'panel pd-half' },
-      h('h2', null, 'Materials and packaging'),
+      h('h2', null, 'Purchase Planning'),
       h('div', { class: 'body' },
-      h('div', { class: 'pd-legend' }, ORDER.map((k) => h('span', { class: `pd-key ${k}` }, `${STATUS[k][0]} · ${counts[k]}`))),
       h('div', { class: 'scroll-x' }, h('table', { class: 't natural pd-status' },
         h('thead', null, h('tr', null, h('th', null, 'Item'), h('th', null, 'Status'), h('th', { class: 'num' }, 'On hand'), h('th', null, 'Order by'), h('th', null, 'How much'))),
         h('tbody', null, rows.map((r) => h('tr', { class: `st-${r.status}`, title: `${r.item.name}: ${qty(r.onHand, 1)} on hand, safety stock ${qty(r.safety, 1)} ${unitWord(r.item.unit, 2)}` },
@@ -176,9 +174,8 @@ export const planningDashboardTab = {
     const weeks = plan.weeks.slice(0, ENTRY_WEEKS);
     const totals = weeks.map((_, i) => plan.rows.reduce((t, r) => t + r.weeks[i].production, 0));
     const production = h('section', { class: 'panel pd-half' },
-      h('h2', null, `What we’ll make, next ${ENTRY_WEEKS} weeks (cases)`),
+      h('h2', null, 'Production Planning'),
       h('div', { class: 'body' },
-      h('p', { class: 'small muted' }, `Type the cases you plan to make each week. A grey number is the average weekly sales (last ${HISTORY_WEEKS} weeks with sales) and is used until you type over it. The Purchase Plan orders materials for this production.`),
       h('div', { class: 'scroll-x' }, h('table', { class: 't natural plain-cells pd-prod' },
         h('thead', null, h('tr', null, h('th', null, 'Product'), weeks.map(weekHead))),
         h('tbody', null, plan.rows.map((r) => h('tr', null, h('td', null, r.item.name),
@@ -188,9 +185,9 @@ export const planningDashboardTab = {
         h('tfoot', null, h('tr', { class: 'xt-totals' }, h('td', null, 'Total cases'), totals.map((v) => h('td', { class: 'num' }, qty(v, 0)))),
           plan.batches.map((b) => h('tr', { class: 'pd-batches' }, h('td', null, `${b.recipe.name.replace(/^RECIPE:\s*/, '')} batches`), b.weeks.slice(0, ENTRY_WEEKS).map((w) => h('td', { class: 'num', title: `${qty(w.oz, 0)} ${b.unit} needed; batch = ${qty(b.size, 0)} ${b.unit}` }, w.batches || '')))))))));
     return h('div', null,
-      pageHead('Planning Dashboard', `Left: every raw material and packaging item. Red is below safety stock now; orange needs ordering by the end of this week; yellow by the end of next week; green doesn’t need ordering for at least a week after that. Order in QuickBooks. Right: the cases to make each week, which drive the Purchase Plan. Safety stock is enough for ${SAFETY_LEAD_MULTIPLE}× each item’s lead time (Safety Stocks tab).`,
+      pageHead('Planning Dashboard', `Production Planning: the cases to make each week for the next ${ENTRY_WEEKS} weeks. Type over a grey number (the average weekly sales over the last ${HISTORY_WEEKS} weeks with sales) to plan something different; the grey number is used until you do. This drives the Purchase Plan. Purchase Planning: every raw material and packaging item. Red is below safety stock now; orange needs ordering by the end of this week; yellow by the end of next week; green doesn’t need ordering for at least a week after that. Order in QuickBooks. Safety stock is enough for ${SAFETY_LEAD_MULTIPLE}× each item’s lead time (Safety Stocks tab).`,
         ),
       noData(),
-      h('div', { class: 'pd-grid' }, materials, production));
+      h('div', { class: 'pd-stack' }, production, materials));
   },
 };

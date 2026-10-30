@@ -504,7 +504,8 @@ export const PLAN_WEEKS = 12;        // weeks planned ahead
 export const HISTORY_WEEKS = 13;     // a quarter of history behind each average
 export const DEFAULT_LEAD_DAYS = 14; // every material: two weeks from order to delivery
 export const SAFETY_LEAD_MULTIPLE = 2; // materials: safety stock = use over twice the lead time
-export const ENTRY_WEEKS = 4;          // production is typed in for the next 4 weeks
+export const ENTRY_WEEKS = 6;          // production is typed in for the next 6 weeks
+export const ACTUAL_WEEKS = 6;         // ...next to the actual production of the 6 weeks before
 
 // The 13 weeks of history an average is taken over: ending at the last week
 // with activity on or before today (so a gap in entered data doesn't zero the
@@ -518,27 +519,31 @@ const mean = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0);
 
 // Production plan for finished goods: cases to make each week.
 //   A number typed in for a product and week (production_plan) is used as is;
-//   otherwise the product's average weekly sales over the history weeks
-//   (rounded to whole cases).
+//   otherwise the product's average weekly actual production over the last
+//   ACTUAL_WEEKS weeks (rounded to whole cases). Those weeks end with the week
+//   before this one, or with the last week production was entered if that's
+//   earlier (so a gap in entered data doesn't zero the plan).
 export function demandPlan(data, { today, inv, weeks = PLAN_WEEKS }) {
   const ix = index(data, yearOf(today));
   const fgs = ix.byType('Finished Good');
-  const hist = historyWeeks(data.sales.filter((s) => s.item_no).map((s) => s.date), today);
-  const histStart = hist[0]; const histEnd = addDays(hist.at(-1), 6);
-  const sold = new Map();
-  for (const s of data.sales) {
-    if (!s.item_no || s.date < histStart || s.date > histEnd) continue;
-    const k = `${s.item_no}|${mondayOf(s.date)}`; sold.set(k, (sold.get(k) || 0) + n(s.quantity));
+  const start = mondayOf(today);
+  const lastProd = data.production.filter((p) => p.date < start && n(p.cases)).reduce((a, p) => (p.date > a ? p.date : a), '');
+  const end = lastProd ? mondayOf(lastProd) : addDays(start, -7);
+  const actualWeeks = Array.from({ length: ACTUAL_WEEKS }, (_, i) => addDays(end, -7 * (ACTUAL_WEEKS - 1 - i)));
+  const histStart = actualWeeks[0]; const histEnd = addDays(actualWeeks.at(-1), 6);
+  const made = new Map();
+  for (const p of data.production) {
+    if (p.date < histStart || p.date > histEnd) continue;
+    const k = `${p.item_no}|${mondayOf(p.date)}`; made.set(k, (made.get(k) || 0) + n(p.cases));
   }
   const entered = new Map((data.production_plan || []).map((f) => [`${f.item_no}|${f.week}`, f.cases]));
-  const start = mondayOf(today);
   const weekList = Array.from({ length: weeks }, (_, i) => addDays(start, 7 * i));
   const rows = fgs.map((item) => {
-    const history = hist.map((w) => sold.get(`${item.item_no}|${w}`) || 0);
-    const avg = mean(history);
+    const actuals = actualWeeks.map((w) => made.get(`${item.item_no}|${w}`) || 0);
+    const avg = mean(actuals);
     const onHand = inv?.byItem.get(item.item_no)?.get(today) ?? 0;
     const cells = weekList.map((w) => { const e = entered.get(`${item.item_no}|${w}`); const typed = e !== undefined && e !== null; return { week: w, production: typed ? n(e) : Math.round(avg), typed, demand: avg }; });
-    return { item, history, avg, onHand, weeks: cells };
+    return { item, actuals, history: actuals, avg, onHand, weeks: cells };
   });
   // Recipe batches the planned production needs each week (each recipe in its own batch size).
   const batches = ix.byType('Recipe').filter((r) => ix.bom.has(r.item_no)).map((recipe) => {
@@ -547,17 +552,22 @@ export function demandPlan(data, { today, inv, weeks = PLAN_WEEKS }) {
     const weeks = weekList.map((w, i) => { const oz = rows.reduce((t, r) => t + r.weeks[i].production * (perCase.get(r.item.item_no) || 0), 0); return { week: w, oz, batches: size ? Math.ceil(oz / size - 1e-9) : 0 }; });
     return { recipe, size, unit: ix.bom.get(recipe.item_no)?.yield_unit || recipe.unit || '', weeks };
   }).filter((b) => b.weeks.some((w) => w.oz));
-  return { weeks: weekList, history: { from: histStart, to: histEnd }, rows, batches };
+  return { weeks: weekList, actualWeeks, history: { from: histStart, to: histEnd }, rows, batches };
 }
 
 // Material requirements: what the planned production uses up each week (from
-// that year's BOMs), and the purchases needed to stay above safety stock.
+// that year's BOMs), and when to order so stock never drops below safety stock.
 //   lead time: purchase_settings.lead_days, else DEFAULT_LEAD_DAYS.
 //   safety stock: purchase_settings.safety_stock, else enough for twice the
 //     lead time (SAFETY_LEAD_MULTIPLE) at the average weekly use (planned use,
 //     or past use if that's higher).
-//   order size: enough to get back to safety stock plus two weeks of planned
-//     usage, rounded up to the standard purchase (case / pallet) when one is set.
+//   when: stock is projected day by day (a week's use spread over its 7 days).
+//     The day it would drop below safety stock is when an order must arrive,
+//     so it's ordered one lead time before. If that's already too late, it's
+//     ordered now and arrives one lead time from today (short until then).
+//   how much: back up to safety stock plus one lead time of use, rounded up to
+//     whole boxes / bags / cases, and at least the minimum order
+//     (purchase_settings.standard_purchase) when one is set.
 export function materialPlan(data, plan, { today, inv }) {
   const ix = index(data, yearOf(today));
   const mats = [...ix.byType('Raw Material'), ...ix.byType('Component')];
@@ -581,6 +591,8 @@ export function materialPlan(data, plan, { today, inv }) {
     const w = mondayOf(d);
     for (const [it, q] of m) { const k = `${it}|${w}`; used.set(k, (used.get(k) || 0) + q); }
   }
+  const planEnd = addDays(plan.weeks.at(-1), 6);
+  const days = []; for (let d = today; d <= planEnd; d = addDays(d, 1)) days.push(d);
   const rows = mats.map((item) => {
     const s = settings.get(item.item_no) || {};
     const leadDays = s.lead_days === null || s.lead_days === undefined || s.lead_days === '' ? DEFAULT_LEAD_DAYS : n(s.lead_days);
@@ -588,36 +600,45 @@ export function materialPlan(data, plan, { today, inv }) {
     const weeks = plan.weeks.map((w) => ({ week: w, need: need.get(`${item.item_no}|${w}`) || 0 }));
     const avgPlanned = mean(weeks.map((c) => c.need));
     const avgPast = mean(past);
+    const demand = weeks.slice(0, ENTRY_WEEKS).reduce((t, c) => t + c.need, 0);
     const autoSafety = Math.max(avgPlanned, avgPast) * SAFETY_LEAD_MULTIPLE * (leadDays / 7);
     const typedSafety = s.safety_stock !== null && s.safety_stock !== undefined && s.safety_stock !== '';
     const safety = typedSafety ? n(s.safety_stock) : autoSafety;
-    // order in whole receiving units (boxes, cases...) unless a standard purchase is set
-    const multiple = n(s.standard_purchase) || (hasReceiving(item) ? n(item.units_per_receiving) : 0);
+    const unitSize = hasReceiving(item) ? n(item.units_per_receiving) : 0;
+    const minOrder = n(s.standard_purchase) || 0;
+    const multiple = unitSize || minOrder; // what an order is rounded to (kept for older callers)
     const onHand = inv?.byItem.get(item.item_no)?.get(today) ?? 0;
+    const weekNeed = new Map(weeks.map((c) => [c.week, c.need]));
+    const useOn = (d) => (weekNeed.get(mondayOf(d)) || 0) / 7;
+    const useBetween = (from, to) => { let t = 0; for (let d = from; d <= to; d = addDays(d, 1)) t += useOn(d); return t; }; // from..to inclusive
+    const earliest = addDays(today, leadDays); // the soonest an order placed today arrives
     const orders = [];
-    let proj = onHand;
-    // A new order can't arrive before one lead time from today; a week before
-    // then that ends below safety stock is a shortage (expedite, or adjust).
-    const earliest = mondayOf(addDays(today, leadDays));
-    for (const c of weeks) {
-      proj -= c.need; c.receipt = 0;
-      c.short = c.week < earliest && proj < safety;
-      if (proj < safety && c.week >= earliest) {
-        let qty = safety - proj + 2 * avgPlanned;
-        qty = multiple ? Math.ceil(qty / multiple - 1e-9) * multiple : Math.ceil(qty - 1e-9);
-        const orderBy = addDays(c.week, -leadDays);
-        orders.push({ week: c.week, qty, orderBy, late: orderBy < today });
-        c.receipt = qty; proj += qty;
+    const pending = new Map();
+    let proj = onHand; let lastArrival = '';
+    const projected = [];
+    for (const d of days) {
+      if (pending.has(d)) proj += pending.get(d);
+      proj -= useOn(d);
+      if (proj < safety - 1e-9 && lastArrival < d) {
+        const arrives = d < earliest ? earliest : d;
+        const atArrival = arrives === d ? proj : proj - useBetween(addDays(d, 1), arrives);
+        let qty = Math.max(safety - atArrival, 0) + useBetween(addDays(arrives, 1), addDays(arrives, leadDays));
+        qty = Math.max(qty, minOrder);
+        qty = unitSize ? Math.ceil(qty / unitSize - 1e-9) * unitSize : Math.ceil(qty - 1e-9);
+        const orderBy = addDays(arrives, -leadDays);
+        orders.push({ arrives, week: mondayOf(arrives), qty, orderBy, late: orderBy < today, short: d < earliest, below: d });
+        lastArrival = arrives;
+        if (arrives === d) proj += qty; else pending.set(arrives, qty);
       }
-      c.endOnHand = proj;
+      projected.push([d, proj]);
     }
     const next = orders[0] || null;
     // red: below safety stock now; orange: order by the end of this week (or
     // overdue); yellow: order by the end of next week; green: nothing to order before then.
     const endThisWeek = addDays(mondayOf(today), 6); const endNextWeek = addDays(endThisWeek, 7);
     const status = onHand < safety ? 'red' : next && next.orderBy <= endThisWeek ? 'orange' : next && next.orderBy <= endNextWeek ? 'yellow' : 'green';
-    return { item, leadDays, earliest, short: weeks.some((c) => c.short), safety, typedSafety, autoSafety, multiple, avgPlanned, avgPast, onHand,
-      reorderPoint: avgPlanned * (leadDays / 7) + safety, weeks, orders, next, status };
+    return { item, leadDays, earliest, short: orders.some((o) => o.short), safety, typedSafety, autoSafety, minOrder, unitSize, multiple, avgPlanned, avgPast, demand, onHand,
+      weeks, projected, orders, next, status };
   });
   return { weeks: plan.weeks, history: { from: histStart, to: histEnd }, rows };
 }

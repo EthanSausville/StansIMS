@@ -209,15 +209,18 @@ test('planning: demand plan, material plan', () => {
   const inv = C.dailyInventory(d, '2026-12-31');
   const p = C.demandPlan(d, { today, inv });
   assert.equal(p.weeks.length, 12); assert.equal(p.weeks[0], '2026-10-26');
-  const fg = p.rows[0];
-  // average of the 13 history weeks, each week's cases sold
-  const hist = d.sales.filter((s) => s.item_no === fg.item.item_no && s.date >= p.history.from && s.date <= p.history.to).reduce((s, r) => s + r.quantity, 0);
-  close(fg.avg, hist / 13, 'average weekly sales');
-  // production defaults to the average weekly sales, in whole cases
+  const fg = p.rows.find((r) => r.avg > 0) || p.rows[0];
+  // average of the 6 weeks of actual production before
+  assert.equal(p.actualWeeks.length, 6); assert.ok(p.actualWeeks.at(-1) < p.weeks[0]);
+  const hist = d.production.filter((x) => x.item_no === fg.item.item_no && x.date >= p.history.from && x.date <= p.history.to).reduce((s, r) => s + r.cases, 0);
+  close(fg.avg, hist / 6, 'average weekly actual production');
+  assert.ok(p.rows.some((r) => r.avg > 0), 'some product has recent production');
+  // production defaults to the average, in whole cases
   for (const r of p.rows) for (const c of r.weeks) { assert.equal(c.production, Math.round(r.avg)); assert.equal(c.typed, false); }
   // a typed-in production replaces the average for that week, and the materials follow
   const typed = C.demandPlan({ ...d, production_plan: [{ item_no: fg.item.item_no, week: p.weeks[2], cases: 500 }] }, { today, inv });
-  assert.equal(typed.rows[0].weeks[2].production, 500); assert.equal(typed.rows[0].weeks[2].typed, true);
+  const tr = typed.rows.find((r) => r.item.item_no === fg.item.item_no);
+  assert.equal(tr.weeks[2].production, 500); assert.equal(tr.weeks[2].typed, true);
   const box = C.perCaseUsage(d, 2026).get(fg.item.item_no);
   const [mat, per] = [...box][0];
   const needOf = (plan) => C.materialPlan(d, plan, { today, inv }).rows.find((r) => r.item.item_no === mat).weeks[2].need;
@@ -232,17 +235,19 @@ test('planning: demand plan, material plan', () => {
     else if (r.next && r.next.orderBy <= '2026-11-01') assert.equal(r.status, 'orange');
     else if (r.next && r.next.orderBy <= '2026-11-08') assert.equal(r.status, 'yellow');
     else assert.equal(r.status, 'green');
-    for (const c of r.weeks) if (c.week >= r.earliest) assert.ok(c.endOnHand >= r.safety - 1e-6, `${r.item.name} ${c.week} stays above safety once an order can arrive`);
-    assert.equal(r.earliest, C.mondayOf(C.addDays(today, r.leadDays)));
-    for (const o of r.orders) assert.ok(o.week >= r.earliest, 'no order planned to arrive sooner than the lead time allows');
-    for (const o of r.orders) assert.equal(o.orderBy, C.addDays(o.week, -14));
+    for (const [day, q] of r.projected) if (day >= r.earliest) assert.ok(q >= r.safety - 1e-6, `${r.item.name} ${day} stays above safety once an order can arrive`);
+    assert.equal(r.earliest, C.addDays(today, r.leadDays));
+    for (const o of r.orders) assert.ok(o.arrives >= r.earliest, 'no order planned to arrive sooner than the lead time allows');
+    for (const o of r.orders) { assert.equal(o.orderBy, C.addDays(o.arrives, -14)); if (!o.short) assert.equal(o.arrives, o.below, 'an order arrives the day stock would drop below safety'); }
+    close(r.demand, r.weeks.slice(0, 6).reduce((t, c) => t + c.need, 0), 'demand = next 6 weeks of planned use');
   }
-  // a typed-in lead time and safety stock win; order sizes round up to the standard purchase
+  // a typed-in lead time and safety stock win; orders are whole boxes and at least the minimum order
   const cheese = m.rows.find((r) => r.item.name === 'Cheese').item.item_no;
   const m2 = C.materialPlan({ ...d, purchase_settings: [{ item_no: cheese, lead_days: 21, safety_stock: 100, standard_purchase: 1000 }] }, p, { today, inv });
   const r2 = m2.rows.find((r) => r.item.item_no === cheese);
   assert.equal(r2.leadDays, 21); assert.equal(r2.safety, 100);
-  for (const o of r2.orders) { assert.equal(o.qty % 1000, 0); assert.equal(o.orderBy, C.addDays(o.week, -21)); }
+  assert.ok(r2.orders.length > 0);
+  for (const o of r2.orders) { assert.equal(o.qty % (r2.unitSize || 1), 0); assert.ok(o.qty >= 1000); assert.equal(o.orderBy, C.addDays(o.arrives, -21)); }
 });
 
 test('consumption: count to count', () => {

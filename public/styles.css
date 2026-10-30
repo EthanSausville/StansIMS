@@ -1033,3 +1033,24 @@ table.t.pd-status thead th:last-child, table.t.pd-prod thead th:last-child { bor
 .tabs .tab { border-bottom: 3px solid transparent; }
 .content h1, .dl-title { color: var(--stans-orange); }
 .dl-group h3, table.count-sheet tr.grp td { background: var(--stans-cream); color: var(--stans-brown); }
+
+/* Scrollbars: a soft warm brown, darker on hover. */
+:root { --scroll-thumb: #cdb9ac; --scroll-thumb-hover: #8c6b5a; }
+
+/* Purchases: a header a little bigger than the rows, rows less tall. */
+table.t.pd-status > thead > tr > th { font-size: 14px; font-weight: 700; padding: 9px 10px; }
+table.pd-status { border-spacing: 0 3px; }
+table.pd-status > tbody > tr > td { font-size: 13.5px; padding: 5px 10px; }
+
+/* Production: actual weeks, average, plan weeks. */
+table.t.pd-prod th:first-child, table.t.pd-prod td:first-child { width: auto; }
+table.t.pd-prod tr.pd-bands th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: center; padding: 6px 8px 4px; }
+table.t.pd-prod tr.pd-bands th.band-actual { background: #6b4232; }
+table.t.pd-prod tr.pd-bands th.band-plan { background: var(--stans-orange); }
+table.t.pd-prod td.pd-actual { color: var(--muted); background: var(--weekend); }
+table.t.pd-prod td.pd-avg { font-weight: 700; background: var(--stans-cream); color: var(--stans-brown); }
+table.t.pd-prod td.pd-avg, table.t.pd-prod th.pd-avg { border-left: 2px solid var(--stans-yellow); border-right: 2px solid var(--stans-yellow); }
+table.t.pd-prod thead th.pd-avg { color: var(--stans-yellow); }
+table.t.full, .tablewrap.full, .tablewrap.full:has(> table.t) { width: 100% !important; max-width: 100%; }
+table.t.pd-status .pd-detail-body table.side-orders thead th { background: transparent; color: var(--stans-brown); font-size: 12px; padding: 3px 8px; border-radius: 0; border-bottom: 2px solid var(--stans-yellow); }
+table.t.pd-status .pd-detail-body table.side-orders td { font-weight: 600; padding: 3px 8px; }

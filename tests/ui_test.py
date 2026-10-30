@@ -80,7 +80,7 @@ def shot(page, name):
 GROUPS = {
     'Dashboard': ['Dashboard'],
     'Inventory': ['Production', 'New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
-    'Planning': ['Production', 'Purchasing', 'Set Safety Stocks'],
+    'Planning': ['Production', 'Purchases', 'Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
@@ -593,12 +593,12 @@ with sync_playwright() as p:
     check(page.get_by_role('tab', name='Demand Plan').count() == 0 and page.get_by_role('tab', name='Purchase Plan').count() == 0 and page.get_by_role('tab', name='Planning Dashboard').count() == 0, 'old planning tabs are gone')
     check(page.locator('.pd-half h2').count() == 0 and page.locator('table.pd-status').count() == 0 and page.locator('table.pd-prod', has_text='Total').count() == 0, 'Production shows only the production grid, no heading or totals')
     prow = page.locator('table.pd-prod tbody tr').first
-    check(prow.locator('td.cell input').count() == 4, 'production is typed in for the next 4 weeks')
+    check(prow.locator('td.cell input').count() == 6 and prow.locator('td.pd-actual').count() == 6 and prow.locator('td.pd-avg').count() == 1, 'production: 6 actual weeks, the average, 6 weeks typed in')
     ph = prow.locator('td.cell input').first.get_attribute('placeholder')
-    check(ph not in (None, '', '0') and prow.locator('td.cell.suggested').count() == 4, f'blank weeks show the average demand, lighter ({ph})')
+    check(ph not in (None, '', '0') and prow.locator('td.cell.suggested').count() == 6, f'blank weeks show the average demand, lighter ({ph})')
     key = prow.locator('td.cell input').nth(1).get_attribute('data-k'); _, item_no, week = key.split('|')
     shot(page, '50-production')
-    tab(page, 'Purchasing')
+    tab(page, 'Purchases')
     mats_n = len([i for i in inputs['items'] if i['type'] in ('Raw Material', 'Component')])
     st_rows = page.locator('table.pd-status tbody tr')
     classes = [c.split()[0] for c in st_rows.evaluate_all("rs => rs.map(r => r.className)")]
@@ -617,25 +617,25 @@ with sync_playwright() as p:
     tab(page, 'Planning/Production')
     c = cell(page, key); c.click(); c.fill('2000'); c.press('Tab'); page.wait_for_timeout(300)
     check(page.evaluate(f"window.__MOCK_DB__.production_plan.find(f => f.item_no === {item_no} && f.week === '{week}').cases") == 2000, 'typed production is saved for that week')
-    tab(page, 'Purchasing')
+    tab(page, 'Purchases')
     after_side = page.locator('tr.pd-detail').inner_text()
     check(before_side != after_side, 'typed production changes what to buy')
     shot(page, '51-purchasing')
     tab(page, 'Planning/Production')
     c = cell(page, key); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(300)
     check(page.evaluate(f"window.__MOCK_DB__.production_plan.filter(f => f.item_no === {item_no}).length") == 0, 'clearing it goes back to the average')
-    tab(page, 'Purchasing')
+    tab(page, 'Purchases')
     page.locator('table.pd-status tbody tr', has_text='Cheese').first.click(); page.wait_for_timeout(150)
     check('14 days' in page.locator('tr.pd-detail').inner_text(), 'every material has a two-week lead time')
-    tab(page, 'Set Safety Stocks')
+    tab(page, 'Safety Stocks')
     check(page.locator('table.xtable thead', has_text='Safety stock').count() == 1 and page.locator('.sidebar').is_hidden() and page.locator('.table-actions', has_text='Download for Excel').count() == 1, 'safety stocks on their own tab, no left bar, download above the table')
     shot(page, '62-safety-stocks')
     cheese_no = next(i['item_no'] for i in inputs['items'] if i['name'] == 'Cheese')
     c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill('21'); c.press('Tab'); page.wait_for_timeout(250)
     check(page.evaluate(f"window.__MOCK_DB__.purchase_settings.find(s => s.item_no === {cheese_no}).lead_days") == 21, 'lead time can be changed per material')
-    tab(page, 'Purchasing')
+    tab(page, 'Purchases')
     check('21 days' in page.locator('tr.pd-detail').inner_text(), 'the plan uses the new lead time')
-    tab(page, 'Set Safety Stocks')
+    tab(page, 'Safety Stocks')
     c = cell(page, f'ps|{cheese_no}|lead_days'); c.click(); c.fill(''); c.press('Tab'); page.wait_for_timeout(250)
     tab(page, 'Dashboard')
     check(page.locator('.note.warn', has_text='Below safety stock or to order this week').count() == 1, 'the dashboard lists what to order now')
@@ -893,7 +893,7 @@ with sync_playwright() as p:
     check(overflow <= 0, f'no sideways page scroll on a phone (overflow {overflow}px)')
     shot(page, '24-phone-dashboard')
     tab(page, 'Production'); shot(page, '25-phone-production')
-    for i, t in enumerate(['New Receipts', 'New Counts', 'Purchasing', 'Planning/Production', 'Sales Detail']):
+    for i, t in enumerate(['New Receipts', 'New Counts', 'Purchases', 'Planning/Production', 'Sales Detail']):
         tab(page, t); page.wait_for_timeout(150)
         ov = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
         check(ov <= 0, f'{t}: no sideways page scroll on a phone ({ov}px)')

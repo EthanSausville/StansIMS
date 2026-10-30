@@ -3,14 +3,14 @@
 // A line can be any item, including something that has its own BOM, so BOMs
 // nest to any depth. Lines that would put an item inside itself are refused.
 // Nothing is saved until Save.
-import { h, qty, money, fmt, toast, niceError, confirmDialog } from '../ui.js';
+import { h, qty, money, fmt, toast, niceError, confirmDialog, thisYear } from '../ui.js';
 import { state, derived, isAdmin, saveBom, deleteBom } from '../store.js';
 import { costModel, wouldLoop, index, evalEntry, TYPES, nextItemNo as nextNo, itemNoProblem } from '../calc.js';
 
 const stat = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'small muted' }, sub) : null);
 
 let draft = null;
-const THIS_YEAR = new Date().getFullYear();
+const THIS_YEAR = thisYear();
 let rerenderRef = () => {};
 
 const blankLine = () => ({ key: Math.random().toString(36).slice(2), id: null, item_no: null, qty: null, uses_batch_minutes: false });

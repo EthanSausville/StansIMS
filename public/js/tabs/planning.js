@@ -130,18 +130,19 @@ export const productionPlanTab = {
   render() {
     const plan = derived.plan(); const admin = isAdmin();
     const weeks = plan.weeks.slice(0, ENTRY_WEEKS);
+    const head = (w, i, kind) => h('th', { class: `num wk ${kind}${i === 0 ? ' first' : ''}`, title: `Week of ${longDate(w)}` },
+      h('span', { class: 'wk-label' }, kind === 'plan' && i === 0 ? 'This week' : 'Week of'), h('span', { class: 'wk-date' }, shortDate(w)));
     return h('div', null,
-      pageHead('Production', `The cases made each of the last ${ACTUAL_WEEKS} weeks (from Production entries), the average of those weeks, and the cases to make each of the next ${ENTRY_WEEKS} weeks. A grey number is that average, and is used until you type over it. This is what Purchases orders materials for.`),
+      pageHead('Production', `The cases made each of the last ${ACTUAL_WEEKS} weeks (from Production entries), and the cases to make each of the next ${ENTRY_WEEKS} weeks. A grey number is the average of the last ${ACTUAL_WEEKS} weeks, and is used until you type over it. This is what Purchases orders materials for.`),
       noData(),
-      h('div', { class: 'scroll-x' }, h('table', { class: 't plain-cells pd-prod full' },
+      h('div', { class: 'scroll-x pd-prod-wrap' }, h('table', { class: 't plain-cells pd-prod full' },
         h('thead', null,
-          h('tr', { class: 'pd-bands' }, h('th', null, ''), h('th', { colspan: ACTUAL_WEEKS, class: 'band-actual' }, `Actual, last ${ACTUAL_WEEKS} weeks`), h('th', { class: 'band-avg' }, ''), h('th', { colspan: ENTRY_WEEKS, class: 'band-plan' }, `Plan, next ${ENTRY_WEEKS} weeks`)),
-          h('tr', null, h('th', null, 'Product'), plan.actualWeeks.map((w) => weekHead(w)), h('th', { class: 'num pd-avg' }, 'Average'), weeks.map(weekHead))),
-        h('tbody', null, plan.rows.map((r) => h('tr', null, h('td', null, r.item.name),
-          r.actuals.map((v, i) => h('td', { class: 'num pd-actual', title: `${r.item.name}: made the week of ${longDate(plan.actualWeeks[i])}` }, qty(v, 0))),
-          h('td', { class: 'num pd-avg' }, qty(r.avg, 0)),
-          r.weeks.slice(0, ENTRY_WEEKS).map((c) => numberCell(c.typed ? c.production : null, (v) => saveCell('production_plan', { item_no: r.item.item_no, week: c.week }, 'cases', v),
-            { disabled: !admin, digits: 0, key: `pp|${r.item.item_no}|${c.week}`, placeholder: qty(Math.round(c.demand), 0), cls: c.typed ? 'typed' : 'suggested',
+          h('tr', { class: 'pd-bands' }, h('th', { class: 'sticky-col' }, ''), h('th', { colspan: ACTUAL_WEEKS, class: 'band-actual' }, `Made · last ${ACTUAL_WEEKS} weeks`), h('th', { colspan: ENTRY_WEEKS, class: 'band-plan' }, `Plan · next ${ENTRY_WEEKS} weeks`)),
+          h('tr', null, h('th', { class: 'sticky-col' }, 'Product'), plan.actualWeeks.map((w, i) => head(w, i, 'actual')), weeks.map((w, i) => head(w, i, 'plan')))),
+        h('tbody', null, plan.rows.map((r) => h('tr', null, h('td', { class: 'sticky-col pd-name' }, r.item.name),
+          r.actuals.map((v, i) => h('td', { class: 'num pd-actual' + (i === 0 ? ' first' : ''), title: `${r.item.name}: made the week of ${longDate(plan.actualWeeks[i])}` }, v ? qty(v, 0) : '–')),
+          r.weeks.slice(0, ENTRY_WEEKS).map((c, i) => numberCell(c.typed ? c.production : null, (v) => saveCell('production_plan', { item_no: r.item.item_no, week: c.week }, 'cases', v),
+            { disabled: !admin, digits: 0, key: `pp|${r.item.item_no}|${c.week}`, placeholder: qty(Math.round(c.demand), 0), cls: (c.typed ? 'typed' : 'suggested') + ' pd-plan' + (i === 0 ? ' first' : ''),
               title: `${r.item.name}, week of ${longDate(c.week)} (average ${qty(c.demand, 1)} a week; clear to use it)` }))))))));
   },
 };

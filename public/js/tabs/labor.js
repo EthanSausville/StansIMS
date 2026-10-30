@@ -4,7 +4,7 @@
 //   the line) and indirect labor (paid time off the line, e.g. a salaried
 //   person paid for 5 days who is on the line 2) -> direct labor cost divided
 //   by productive line minutes.
-import { h, pageHead, numberCell, money, qty, fmt, pct, toast, niceError, confirmDialog } from '../ui.js';
+import { h, pageHead, numberCell, money, qty, fmt, pct, toast, niceError, confirmDialog, thisYear } from '../ui.js';
 import { state, isAdmin, saveRow, insertRow, updateRow, deleteRow } from '../store.js';
 import { laborRate, laborPosition, laborYears, evalEntry } from '../calc.js';
 
@@ -80,7 +80,7 @@ function positionPanel(p, can, done) {
   return form;
 }
 
-let selYear = new Date().getFullYear();
+let selYear = thisYear();
 
 export default {
   id: 'labor',
@@ -91,7 +91,7 @@ export default {
     const live = !d.missingTables?.has('labor_positions'); // false until the database has the labor table
     const can = admin && live;
     const years = laborYears();
-    if (!years.includes(selYear)) selYear = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
+    if (!years.includes(selYear)) selYear = years.includes(thisYear()) ? thisYear() : years.at(-1);
     const byYear = new Map(years.map((y) => [y, laborRate(d, { year: y })]));
     const L = byYear.get(selYear);
     const ys = d.year_settings.find((y) => y.year === selYear) || {};
@@ -168,14 +168,14 @@ export default {
               if (await confirmDialog(`Remove ${p.name} from ${selYear}?`, 'Remove')) deleteRow('labor_positions', 'id', p.id).catch((err) => toast(niceError(err), 'bad'));
             } }, '×') : null));
       })));
-    const thisYear = new Date().getFullYear();
+    const curYear = thisYear();
     const forecastNote = !ownRows && F.fromYear && !empty ? h('section', { class: 'panel forecast-note' + (F.needsReview ? ' review' : '') },
       h('div', { class: 'empty-year' },
         h('p', null, h('strong', null, F.needsReview ? `${selYear} has begun and still uses the forecast.` : `${selYear} is a forecast.`), ' ',
           `It starts from ${F.fromYear}’s people with pay and fixed costs raised ${qty(F.inflation, 2)}% (set the inflation adjustment under ${selYear} line assumptions). `,
           F.needsReview ? `Review it and confirm ${selYear}’s people.` : `It stays a forecast until ${selYear} begins. To change anything besides inflation, give ${selYear} its own people.`),
         can ? h('div', { class: 'controls' }, h('button', { class: F.needsReview ? 'btn primary' : 'btn', onclick: confirmForecast }, F.needsReview ? `Confirm ${selYear}’s people` : `Give ${selYear} its own people`)) : null))
-      : ownRows && selYear > thisYear ? h('section', { class: 'panel forecast-note' }, h('div', { class: 'empty-year' },
+      : ownRows && selYear > curYear ? h('section', { class: 'panel forecast-note' }, h('div', { class: 'empty-year' },
         h('p', null, h('strong', null, `${selYear} is a forecast`), ` until ${selYear} begins. It has its own people, so ${selYear - 1}’s changes and the inflation adjustment no longer carry into it.`))) : null;
     const people = empty ? h('section', { class: 'panel' },
       h('h2', null, `${selYear} isn’t set up yet`),

@@ -317,3 +317,25 @@ test('production lots: FIFO trace to customers', () => {
   close(matched + unmatched.reduce((s, u) => s + u.cases, 0), sold, 'all cases sold accounted for');
   assert.equal(C.lotCode('2026-07-14', 500001), '260714-500001');
 });
+
+test('a cost with no standard for a year carries forward from the year before', () => {
+  const d = { ...data, boms: C.bomData(data).boms, bom_lines: C.bomData(data).lines };
+  const cheese = d.items.find((i) => i.name === 'Cheese').item_no;
+  const costs = d.standard_costs.filter((c) => !(c.item_no === cheese && c.year === 2027));
+  const cm = C.costModel({ ...d, standard_costs: costs });
+  close(cm.cost(cheese, 2027), cm.cost(cheese, 2026), 'carried from 2026');
+  assert.equal(cm.carriedFrom(cheese, 2027), 2026);
+  const cm2 = C.costModel({ ...d, standard_costs: [...costs, { item_no: cheese, year: 2027, cost: 3 }] });
+  assert.equal(cm2.cost(cheese, 2027), 3); assert.equal(cm2.carriedFrom(cheese, 2027), null);
+});
+
+test('Receipt: typed like "30 lb box"', () => {
+  for (const t of ['30 lb box', '30lbs box', '30 LB Boxes', 'box of 30 lb', '30 box', 'box of 30']) assert.deepEqual(C.parseReceipt(t, 'lb'), { receiving_unit: 'box', units_per_receiving: 30 }, t);
+  assert.deepEqual(C.parseReceipt('1,000 ea cases', 'ea'), { receiving_unit: 'case', units_per_receiving: 1000 });
+  assert.deepEqual(C.parseReceipt('175 cups bag', 'c'), { receiving_unit: 'bag', units_per_receiving: 175 });
+  assert.deepEqual(C.parseReceipt('', 'lb'), { receiving_unit: null, units_per_receiving: null });
+  assert.throws(() => C.parseReceipt('30 oz box', 'lb'), /counted in lb/);
+  assert.throws(() => C.parseReceipt('box', 'lb'));
+  assert.equal(C.receiptText({ unit: 'lb', receiving_unit: 'box', units_per_receiving: 30 }), '30 lb box');
+  assert.equal(C.receiptText({ unit: 'ea', receiving_unit: 'case', units_per_receiving: 1000 }), '1,000 ea case');
+});

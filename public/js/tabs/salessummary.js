@@ -1,6 +1,6 @@
 // Sales summaries: one row per customer (or product), one column per month,
 // for the chosen year and measure. Built from the same lines as Invoices.
-import { h, pageHead, money, qty, pct, seg, yearSelect, acctParts } from '../ui.js';
+import { h, pageHead, money, qty, pct, seg, yearSelect, acctParts, thisYear } from '../ui.js';
 import { derived } from '../store.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 import { MONTHS } from '../calc.js';
@@ -12,14 +12,14 @@ const MEASURES = [
 ];
 
 function summaryTab({ id, label, title, keyOf, description, colLabel }) {
-  let year = new Date().getFullYear();
+  let year = thisYear();
   let measure = 'amount';
   return {
     id, label,
     render({ rerender }) {
       const all = derived.sales();
       const years = derived.years();
-      if (!years.includes(year)) year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
+      if (!years.includes(year)) year = years.includes(thisYear()) ? thisYear() : years.at(-1);
       const [, mLabel, valueOf, show] = MEASURES.find((m) => m[0] === measure);
       const rows = all.filter((r) => r.year === year);
       const table = new Map();

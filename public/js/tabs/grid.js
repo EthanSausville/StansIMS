@@ -66,5 +66,4 @@ export function viewGrid({ id, items, ym, value, cellClass, before, beforeLabels
 }
 
 // The month shown on the daily tabs, shared so switching tabs keeps your place.
-const now = new Date();
-export const view = { ym: { year: now.getFullYear(), month: now.getMonth() + 1 } };
+export const view = { ym: { year: Number(todayIso().slice(0, 4)), month: Number(todayIso().slice(5, 7)) } };

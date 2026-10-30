@@ -100,7 +100,7 @@ export const bomYears = (data, itemNo) => [...new Set((data.boms || []).filter((
 
 // ---------- lookups ----------
 // `year` picks which year's BOMs to use (this year when not given).
-export function index(data, year = new Date().getFullYear()) {
+export function index(data, year = currentYear()) {
   const items = new Map(data.items.map((i) => [i.item_no, i]));
   const byType = (t) => data.items.filter((i) => i.type === t).sort((a, b) => a.sort - b.sort);
   const { boms, lines, versionYear } = bomData(data, year);
@@ -155,10 +155,15 @@ export function wouldLoop(data, parent, child, ix = index(data)) {
 //      person's whole salary is spread over the minutes they're on the line.
 // A labor minute is one person working one minute, as BOMs count minutes per batch.
 
+// The current year, as the site sees it (ui.js sets this from its "today").
+let currentYearValue = null;
+export const setCurrentYear = (y) => { currentYearValue = y; };
+export const currentYear = () => currentYearValue ?? new Date().getFullYear();
+
 export const LABOR_FIRST_YEAR = 2026;
 export const FIRST_YEAR = 2026;
 // The years shown everywhere on the site: 2026 through next year.
-export const laborYears = (now = new Date().getFullYear()) => Array.from({ length: Math.max(1, now + 2 - LABOR_FIRST_YEAR) }, (_, i) => LABOR_FIRST_YEAR + i);
+export const laborYears = (now = currentYear()) => Array.from({ length: Math.max(1, now + 2 - LABOR_FIRST_YEAR) }, (_, i) => LABOR_FIRST_YEAR + i);
 export const siteYears = laborYears;
 
 const laborPlant = (y = {}) => ({ paidWeeks: 52, prodWeeks: y.labor_prod_weeks ?? 52, lineHours: n(y.labor_line_hours) });
@@ -186,7 +191,7 @@ export function laborPosition(p, plant, lineHours) {
 // costs raised by the year's inflation adjustment %. Line hours and weeks
 // carry over unless the year sets its own.
 export const PAY_FIELDS = ['hourly_rate', 'monthly_fringe', 'annual_salary', 'annual_fixed'];
-export function laborSetup(data, year, now = new Date().getFullYear()) {
+export function laborSetup(data, year, now = currentYear()) {
   const ys = (data.year_settings || []).find((y) => y.year === year) || {};
   const own = (data.labor_positions || []).filter((p) => p.year === year);
   let out;
@@ -270,11 +275,17 @@ function indexByYear(data) {
 }
 
 export function costModel(data) {
-  const ixFor = indexByYear(data); const ix = ixFor(new Date().getFullYear());
-  const entered = new Map(data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, n(c.cost)]));
+  const ixFor = indexByYear(data); const ix = ixFor(currentYear());
+  const entered = new Map(data.standard_costs.filter((c) => c.cost !== null && c.cost !== undefined && c.cost !== '').map((c) => [`${c.item_no}|${c.year}`, n(c.cost)]));
   const labor = laborModel(data);
   const years = siteYears();
   const memo = new Map();
+  // A typed-in cost with no standard for a year uses the latest earlier year's standard.
+  const enteredYears = new Map();
+  for (const c of data.standard_costs) { if (c.cost === null || c.cost === undefined || c.cost === '') continue; if (!enteredYears.has(c.item_no)) enteredYears.set(c.item_no, []); enteredYears.get(c.item_no).push(c.year); }
+  const carried = (itemNo, year) => { const ys = (enteredYears.get(itemNo) || []).filter((y) => y < year); return ys.length ? entered.get(`${itemNo}|${Math.max(...ys)}`) : 0; };
+  // The standard cost for an item and year that was carried forward, if it was.
+  const carriedFrom = (itemNo, year) => { if (entered.has(`${itemNo}|${year}`)) return null; const ys = (enteredYears.get(itemNo) || []).filter((y) => y < year); return ys.length ? Math.max(...ys) : null; };
 
   function cost(itemNo, year) {
     const key = `${itemNo}|${year}`;
@@ -289,7 +300,7 @@ export function costModel(data) {
       v = yx.children(itemNo).reduce((s, l) => s + cost(l.item_no, year) * yx.lineQty(l), 0) / yx.yieldOf(itemNo);
     } else if (isLaborItem(itemNo)) {
       v = labor.rateFor(year);
-    } else v = entered.get(key) ?? 0;
+    } else v = entered.get(key) ?? carried(itemNo, year);
     memo.set(key, v);
     return v;
   }
@@ -301,7 +312,7 @@ export function costModel(data) {
     const ys = years.filter((y) => cost(itemNo, y)).sort((a, b) => Math.abs(a - year) - Math.abs(b - year) || a - b);
     return ys.length ? cost(itemNo, ys[0]) : 0;
   };
-  return { years, cost, latest, nearest, labor, ix, ixFor };
+  return { years, cost, latest, nearest, carried, carriedFrom, labor, ix, ixFor };
 }
 
 // Price per case, with the same nearest-year fallback.
@@ -880,6 +891,25 @@ export function unitWord(unit, count = 2) {
 }
 // "box of 30 lb"
 export const receivingLabel = (it) => (hasReceiving(it) ? `${it.receiving_unit} of ${Number(it.units_per_receiving).toLocaleString()} ${unitWord(it.unit, n(it.units_per_receiving))}`.trim() : '');
+// The Master List's Receipt: how one delivery unit is written, "30 lb box",
+// "420 lb drum", "1,000 ea case".
+export const receiptText = (it) => (hasReceiving(it) ? `${Number(it.units_per_receiving).toLocaleString()} ${it.unit || ''} ${it.receiving_unit}`.replace(/\s+/g, ' ') : '');
+const UNIT_ALIASES = { lb: ['lb', 'lbs', 'pound', 'pounds', '#'], c: ['c', 'cup', 'cups'], ea: ['ea', 'each', 'pc', 'pcs', 'piece', 'pieces', 'ct', 'count'], oz: ['oz', 'ounce', 'ounces'], gal: ['gal', 'gals', 'gallon', 'gallons'], min: ['min', 'mins', 'minute', 'minutes'] };
+const unitKey = (u) => { const t = String(u || '').trim().toLowerCase().replace(/\.$/, ''); for (const [k, list] of Object.entries(UNIT_ALIASES)) if (list.includes(t)) return k; return t; };
+const singular = (w) => (/xes$|ches$|shes$/.test(w) ? w.slice(0, -2) : /[^s]s$/.test(w) ? w.slice(0, -1) : w);
+// Reads a Receipt typed in: "30 lb box", "30lbs box", "box of 30 lb", "1000 case",
+// blank for none. The unit, if given, has to be the item's base unit.
+export function parseReceipt(text, baseUnit) {
+  const t = String(text ?? '').trim().toLowerCase().replace(/,/g, '').replace(/\s+/g, ' ');
+  if (!t) return { receiving_unit: null, units_per_receiving: null };
+  let m = t.match(/^(\d*\.?\d+)\s*([a-z#.]+)?\s+([a-z]+)$/); let qty, unit, word;
+  if (m) [, qty, unit, word] = m;
+  else if ((m = t.match(/^([a-z]+) of (\d*\.?\d+)\s*([a-z#.]*)$/))) [, word, qty, unit] = m;
+  else throw new Error(`Type it like “30 ${baseUnit || 'lb'} box”: how much is in one, then what it comes in.`);
+  if (unit && baseUnit && unitKey(unit) !== unitKey(baseUnit)) throw new Error(`This item is counted in ${baseUnit}, so type it like “${qty} ${baseUnit} ${singular(word)}”.`);
+  if (!(Number(qty) > 0)) throw new Error('The amount in one has to be more than 0.');
+  return { receiving_unit: singular(word), units_per_receiving: Number(qty) };
+}
 // What one receiving unit holds: "30 lb", "1,000 each"
 export const holdsLabel = (it) => (hasReceiving(it) ? `${Number(it.units_per_receiving).toLocaleString()} ${unitWord(it.unit, n(it.units_per_receiving))}` : '');
 // How many receiving units a base-unit quantity is.

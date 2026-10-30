@@ -1042,15 +1042,33 @@ table.t.pd-status > thead > tr > th { font-size: 14px; font-weight: 700; padding
 table.pd-status { border-spacing: 0 3px; }
 table.pd-status > tbody > tr > td { font-size: 13.5px; padding: 5px 10px; }
 
-/* Production: actual weeks, average, plan weeks. */
+/* Production: the weeks made (grey) and the weeks planned (white boxes to type in). */
+.pd-prod-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table.t.pd-prod { border-collapse: separate; border-spacing: 0; }
 table.t.pd-prod th:first-child, table.t.pd-prod td:first-child { width: auto; }
-table.t.pd-prod tr.pd-bands th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: center; padding: 6px 8px 4px; }
-table.t.pd-prod tr.pd-bands th.band-actual { background: #6b4232; }
-table.t.pd-prod tr.pd-bands th.band-plan { background: var(--stans-orange); }
-table.t.pd-prod td.pd-actual { color: var(--muted); background: var(--weekend); }
-table.t.pd-prod td.pd-avg { font-weight: 700; background: var(--stans-cream); color: var(--stans-brown); }
-table.t.pd-prod td.pd-avg, table.t.pd-prod th.pd-avg { border-left: 2px solid var(--stans-yellow); border-right: 2px solid var(--stans-yellow); }
-table.t.pd-prod thead th.pd-avg { color: var(--stans-yellow); }
+table.t.pd-prod .sticky-col { position: sticky; left: 0; z-index: 2; min-width: 220px; box-shadow: 1px 0 0 var(--line-strong); }
+table.t.pd-prod thead .sticky-col { z-index: 3; }
+table.t.pd-prod tbody td.sticky-col { background: #fff; font-weight: 600; color: var(--stans-brown); }
+table.t.pd-prod thead th { border-radius: 0 !important; }
+table.t.pd-prod tr.pd-bands th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; text-align: center; padding: 7px 8px 5px; font-weight: 700; }
+table.t.pd-prod tr.pd-bands th.band-actual { background: #6b4232; color: var(--stans-cream); }
+table.t.pd-prod tr.pd-bands th.band-plan { background: var(--stans-orange); color: #fff; }
+table.t.pd-prod th.wk { min-width: 84px; text-align: center; padding: 6px 6px 7px; vertical-align: bottom; }
+table.t.pd-prod th.wk .wk-label { display: block; font-size: 10.5px; font-weight: 500; color: var(--stans-cream); opacity: .8; }
+table.t.pd-prod th.wk .wk-date { display: block; font-size: 14px; font-weight: 700; }
+table.t.pd-prod th.wk.plan.first .wk-label { color: var(--stans-yellow); opacity: 1; font-weight: 700; }
+table.t.pd-prod th.plan.first, table.t.pd-prod td.pd-plan.first { border-left: 3px solid var(--stans-yellow); }
+table.t.pd-prod tbody td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.t.pd-prod tbody tr:last-child td { border-bottom: 0; }
+table.t.pd-prod td.pd-actual { text-align: center; color: var(--muted); background: var(--weekend); font-size: 14px; }
+table.t.pd-prod td.pd-plan { text-align: center; background: #fff; }
+table.t.pd-prod td.pd-plan input { width: 64px; text-align: center; font-size: 15px; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; }
+table.t.pd-prod td.pd-plan input:hover { border-color: var(--stans-orange); }
+table.t.pd-prod td.pd-plan input:focus { border-color: var(--stans-orange); outline: 2px solid color-mix(in srgb, var(--stans-orange) 30%, transparent); background: var(--entry-focus); }
+table.t.pd-prod td.pd-plan.typed input { font-weight: 700; color: var(--stans-brown); background: var(--stans-cream); border-color: var(--stans-yellow); }
+table.t.pd-prod td.pd-plan.suggested input::placeholder { color: var(--faint); opacity: 1; }
+table.t.pd-prod tbody tr:hover td { background: var(--accent-soft); }
+table.t.pd-prod tbody tr:hover td.sticky-col { background: var(--accent-soft); }
 table.t.full, .tablewrap.full, .tablewrap.full:has(> table.t) { width: 100% !important; max-width: 100%; }
 table.t.pd-status .pd-detail-body table.side-orders thead th { background: transparent; color: var(--stans-brown); font-size: 12px; padding: 3px 8px; border-radius: 0; border-bottom: 2px solid var(--stans-yellow); }
 table.t.pd-status .pd-detail-body table.side-orders td { font-weight: 600; padding: 3px 8px; }
@@ -1076,3 +1094,10 @@ table.t.pd-status .pd-detail-body table.side-orders td { font-weight: 600; paddi
 .np-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .np-foot .btn.primary { padding: 4px 12px; }
 table.ss-table td.cell input { width: 130px; min-width: 130px; }
+
+/* Master List: Receipt typed in the table ("30 lb box"); a cost carried from the year before shows in grey. */
+table.t td.receipt-cell input { width: 130px; text-align: left; }
+table.t td.receipt-cell input::placeholder { color: var(--faint); }
+table.t td.cell.carried input::placeholder { color: var(--faint); opacity: 1; }
+/* Side bar buttons never spill past the bar. */
+.side-inner > .btn { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }

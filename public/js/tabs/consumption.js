@@ -3,14 +3,14 @@
 //   Count to count  actual usage between two cycle counts vs. standard usage.
 //   Daily      standard usage by day (the workbook's hidden Consumption sheet),
 //              and what one case of each product uses.
-import { h, pageHead, monthPicker, seg, yearSelect, qty, typePill, longDate, acctText, acctCell, chip } from '../ui.js';
+import { h, pageHead, monthPicker, seg, yearSelect, qty, typePill, longDate, acctText, acctCell, chip, thisYear } from '../ui.js';
 import { state, derived } from '../store.js';
 import { viewGrid, view } from './grid.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 import * as C from '../calc.js';
 
 let mode = 'month';
-let year = new Date().getFullYear();
+let year = thisYear();
 let show = 'qty';
 
 const money = (v) => (v ? '$' + acctText(v) : '');
@@ -73,7 +73,7 @@ export default {
 
     // By month
     const years = derived.years();
-    if (!years.includes(year)) year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
+    if (!years.includes(year)) year = years.includes(thisYear()) ? thisYear() : years.at(-1);
     const byMonth = C.usageByMonth(state.data, year);
     const rows = mats.map((item) => { const q = byMonth.get(item.item_no) || Array(12).fill(0); const c = cm.cost(item.item_no, year) || cm.latest(item.item_no); return { item, q, d: q.map((v) => v * c), cost: c }; });
     const val = (r, m) => (show === 'qty' ? r.q[m] : r.d[m]);

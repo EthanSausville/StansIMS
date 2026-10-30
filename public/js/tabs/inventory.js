@@ -1,11 +1,11 @@
-import { h, pageHead, monthPicker, seg, yearSelect, qty, money, typePill, todayIso, longDate, acctParts } from '../ui.js';
+import { h, pageHead, monthPicker, seg, yearSelect, qty, money, typePill, todayIso, longDate, acctParts, thisYear } from '../ui.js';
 import { state, derived } from '../store.js';
 import { viewGrid, view } from './grid.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 import * as C from '../calc.js';
 
 let mode = 'daily'; // 'daily' or 'monthend' (usage moved to the Consumption tab)
-let year = new Date().getFullYear();
+let year = thisYear();
 let show = 'qty';
 
 export default {
@@ -32,7 +32,7 @@ export default {
 
     // Month-end (the workbook's EndingInventory$ sheet)
     const years = derived.years();
-    if (!years.includes(year)) year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
+    if (!years.includes(year)) year = years.includes(thisYear()) ? thisYear() : years.at(-1);
     const rows = C.endingInventory(state.data, inv, year);
     const monthIdx = [...Array(12).keys()];
     const totals = (type) => monthIdx.map((m) => rows.filter((r) => r.item.type === type).reduce((s, r) => s + r.value[m], 0));

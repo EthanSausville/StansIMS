@@ -5,7 +5,7 @@ Serves ./public locally, swaps the Supabase library for tests/mock-supabase.js,
 loads the workbook data from tests/fixtures/workbook.json, then signs in and
 exercises every tab.
 """
-import json, sys, threading, functools, http.server, socketserver, pathlib, re
+import json, sys, threading, functools, http.server, socketserver, pathlib, re, datetime
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -57,6 +57,8 @@ port = server.server_address[1]
 threading.Thread(target=server.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 
+# The site pretends today is 7/13/2026 (ui.js PRETEND_TODAY) while the data runs through early July.
+TODAY = datetime.date(2026, 7, 13)
 failures = []
 def check(cond, label):
     print(('PASS ' if cond else 'FAIL ') + label)
@@ -224,7 +226,7 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Today').click(); page.wait_for_timeout(100)
     today_label = page.locator('.monthpick .label').inner_text()
     import datetime
-    back = (datetime.date.today().year - 2026) * 12 + datetime.date.today().month - 7
+    back = (TODAY.year - 2026) * 12 + TODAY.month - 7
     for _ in range(back): page.get_by_role('button', name='Previous month').click(); page.wait_for_timeout(60)
     page.wait_for_timeout(150)
     check(page.locator('.monthpick .label').inner_text() == 'Jul 2026', 'month picker goes back to July 2026')
@@ -250,7 +252,7 @@ with sync_playwright() as p:
     # ---- New Receipts (the simple way) ----
     check(page.locator('form.delivery').count() == 1 and page.locator('table.t').count() == 0, 'New Receipts is just the delivery form')
     lid_no = next(i['item_no'] for i in inputs['items'] if i['name'] == '7 oz Lid')
-    rcpt = lambda no: sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == no and r['date'] == page.evaluate("(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })()"))
+    rcpt = lambda no: sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == no and r['date'] == TODAY.isoformat())
     b_cheese, b_lid = rcpt(100001), rcpt(lid_no)
     check(page.locator('.dl-row', has_text='Cheese').locator('.dl-unit').inner_text() == 'boxes', 'cheese is entered in boxes')
     page.locator('input[data-k="dl|100001"]').fill('12'); page.wait_for_timeout(50)
@@ -381,7 +383,7 @@ with sync_playwright() as p:
     check(page.locator('table.side-people input[data-k$="paid_hours_week"]').count() == 0, 'no hours-per-week column')
     yrs = [t[:4] for t in page.locator('table.side-years tbody tr td:first-child').all_inner_texts()]
     import datetime
-    check(yrs == [str(y) for y in range(2026, datetime.date.today().year + 2)], f'years run from 2026 to next year ({yrs})')
+    check(yrs == [str(y) for y in range(2026, TODAY.year + 2)], f'years run from 2026 to next year ({yrs})')
     shot(page, '37-labor')
     check(abs(rate_now() - want()) < 1e-4, f'all paid time is in the labor rate: the 2-day rate matches the workbook ({rate_now()} vs {want():.4f})')
     check(page.get_by_label('Paid time off the line goes to').count() == 0, 'there is no option to leave paid time out')
@@ -422,7 +424,7 @@ with sync_playwright() as p:
     dlg.get_by_role('button', name='Save').click(); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.labor_positions.find(p => p.id === 2).notes") == 'Line crew' and page.locator('.sidebar form.group-panel').count() == 0, 'details save notes and close')
     # next year: a forecast from this year + inflation until it has its own people
-    nxt = datetime.date.today().year + 1
+    nxt = TODAY.year + 1
     this_rate = rate_now()
     check('forecast' in page.locator('table.side-years tbody tr').last.inner_text(), f'{nxt} is marked as a forecast')
     page.get_by_role('button', name=f'Show {nxt}').click(); page.wait_for_timeout(200)
@@ -437,7 +439,7 @@ with sync_playwright() as p:
     check(page.locator('table.side-people.is-forecast').count() == 1 and page.locator('table.side-people input[data-k*="headcount"]').first.is_disabled(), 'forecast people are shown read-only')
     shot(page, '39-labor-forecast')
     tab(page, 'Master List')
-    col = 6 + (nxt - 2026)
+    col = 5 + (nxt - 2026)
     lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).get_attribute('data-v'))
     check(abs(lab_next - this_rate * 1.03) < 1e-4, f'Standard Cost uses the {nxt} forecast rate ({lab_next})')
     tab(page, 'Labor')
@@ -456,7 +458,7 @@ with sync_playwright() as p:
     check(pb['name'] == 'Line lead' and pb['pay_type'] == 'salaried', f'a position can be renamed and switched to salaried in place ({pb["name"]}, {pb["pay_type"]})')
     page.get_by_label('How Line lead is paid').select_option('hourly'); page.wait_for_timeout(250)
     tab(page, 'Master List')
-    lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(6).get_attribute('data-v'))
+    lab_this = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(5).get_attribute('data-v'))
     lab_next = float(page.locator('tr', has_text='Direct Labor').locator('td').nth(col).get_attribute('data-v'))
     check(abs(lab_next - r_next) < 1e-4 and abs(lab_this - this_rate) < 1e-4, f'Standard Cost uses each year’s own labor rate ({lab_this}, {lab_next})')
     tab(page, 'Labor')
@@ -468,17 +470,17 @@ with sync_playwright() as p:
 
     # ---- admin edits a standard cost and recipe cost follows ----
     tab(page, 'Master List')
-    rec = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(6).get_attribute('data-v')
+    rec = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v')
     orig = cell(page, 'sc|100001|2026').input_value()
     check(orig.startswith('$') is False and cell(page, 'sc|100001|2026').evaluate("e => getComputedStyle(e.closest('td'), '::before').content") == '"$"', f'entered costs show a $ at the left of the cell ({orig})')
-    cells = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(6)
+    cells = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5)
     check(cells.locator('.cur').inner_text() == '$' and cells.inner_text().replace('$', '').strip() == '0.13', f'calculated costs: $ at the left, to the penny or two significant digits ({cells.inner_text()!r})')
-    ls = page.locator('tr', has_text='Sodium Benzoate').locator('td').nth(6).locator('input')
+    ls = page.locator('tr', has_text='Sodium Benzoate').locator('td').nth(5).locator('input')
     check(ls.input_value() in ('0.14',), f'entered costs show to the penny ({ls.input_value()})')
     check(page.locator('th', has_text='Latest cost').count() == 0, 'no Latest cost column')
     ch = page.locator('tr', has_text='Cheese').first.locator('td'); cb = page.locator('tr', has_text='7 oz Case Box').first.locator('td')
-    check([ch.nth(4).inner_text(), ch.nth(5).inner_text(), cb.nth(4).inner_text(), cb.nth(5).inner_text()] == ['Box', '30 lb', 'Case', '500 each'], 'Master List shows what each item comes in and what one holds')
-    want_years = [str(y) for y in range(2026, datetime.date.today().year + 2)]
+    check([ch.nth(4).locator('input').input_value(), cb.nth(4).locator('input').input_value()] == ['30 lb box', '500 ea case'], 'Master List shows each item’s Receipt')
+    want_years = [str(y) for y in range(2026, TODAY.year + 2)]
     heads = [t.split('\n')[0].strip(' ▾') for t in page.locator('table.xtable thead th').all_inner_texts() if t[:2] == '20']
     check(heads == want_years, f'Master List shows 2026 through next year ({heads})')
     check(page.locator('table.xtable tbody tr button', has_text='Edit').count() == 0, 'no Edit buttons on the Master List rows')
@@ -489,7 +491,7 @@ with sync_playwright() as p:
     check(cls == cls2 and page.locator('.item-selected').count() == 0, f'Edit item looks like Add item, with nothing else ({cls})')
     bgs = page.evaluate("""(() => { const r = [...document.querySelectorAll('table.xtable tbody tr')]; const sel = r.find(t => t.classList.contains('selected')); const other = r.find(t => !t.classList.contains('selected') && t.textContent.includes('Cheese'));
       const bg = (e) => getComputedStyle(e).backgroundColor; const rec = r.find(t => t.textContent.includes('RECIPE: Original'));
-      return [bg(sel.querySelector('td')), bg(other.querySelector('td.cell')), bg(other.querySelector('td.cell input')), bg(rec.querySelectorAll('td')[6])]; })()""")
+      return [bg(sel.querySelector('td')), bg(other.querySelector('td.cell')), bg(other.querySelector('td.cell input')), bg(rec.querySelectorAll('td')[5])]; })()""")
     check(bgs[0] != 'rgb(255, 244, 194)' and 'rgb(2' in bgs[0] and bgs[1] == 'rgb(255, 255, 255)' and bgs[3] in ('rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)') and bgs[2] in ('rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)'), f'selected row is blue; typed-in and calculated cells are white ({bgs})')
     page.get_by_role('button', name='Edit item').click(); page.wait_for_timeout(150)
     check(page.locator('dialog[open]').count() == 0 and page.locator('.sidebar .item-form .tb-title').inner_text() == 'Edit Pepper', 'Edit item opens a form in the side bar, not a popup')
@@ -497,8 +499,7 @@ with sync_playwright() as p:
     check(w == 300, f'the side bar widens for the form ({w}px)')
     shot(page, '12-item-form')
     page.locator('.item-form').get_by_role('button', name='Cancel').click(); page.wait_for_timeout(100); shot(page, '12b-selected'); page.get_by_role('button', name='Edit item').click(); page.wait_for_timeout(100)
-    page.select_option('#item-rcv-unit', 'bag'); page.fill('#item-rcv-per', '88'); page.wait_for_timeout(50)
-    check(page.locator('.rcv-sentence').inner_text() == '1 bag of Pepper = 88 cups', f'the form says it in a sentence ({page.locator(".rcv-sentence").inner_text()})')
+    page.fill('#item-receipt', '88 cups bags'); page.wait_for_timeout(50)
     page.fill('#item-pack', '1 c'); page.locator('.item-form').get_by_role('button', name='Save').click(); page.wait_for_timeout(250)
     pep = page.evaluate("window.__MOCK_DB__.items.find(i => i.name === 'Pepper')")
     check(pep['pack_note'] == '1 c' and pep['receiving_unit'] == 'bag' and pep['units_per_receiving'] == 88 and page.locator('.item-form').count() == 0, 'saving the item saves its receiving unit and closes the form')
@@ -527,13 +528,13 @@ with sync_playwright() as p:
     tab(page, 'Master List')
     check(page.locator('text=Type in the yellow').count() == 0, 'no “Type in the yellow cells” note')
     check(page.locator('.sidebar').evaluate("e => Math.round(e.getBoundingClientRect().width)") == 170, 'the Master List side bar is narrower (170px)')
-    nos = page.locator('table.t tbody tr td:nth-child(3)').all_inner_texts()
-    check(all(len(n) == 6 for n in nos) and page.locator('tr', has_text='Cheese').locator('td').nth(2).inner_text() == '100001' and page.locator('tr', has_text='Original gallon').locator('td').nth(2).inner_text() == '500003', f'item numbers are 6 digits by type ({nos[:3]})')
+    nos = page.locator('table.t tbody tr td:nth-child(1)').all_inner_texts()
+    check(all(len(n) == 6 for n in nos) and page.locator('tr', has_text='Cheese').locator('td').nth(0).inner_text() == '100001' and page.locator('tr', has_text='Original gallon').locator('td').nth(0).inner_text() == '500003', f'item numbers are 6 digits by type ({nos[:3]})')
     c = cell(page, 'sc|100001|2026'); c.click(); orig = c.input_value(); c.fill(str(float(orig) + 1)); c.press('Tab'); page.wait_for_timeout(300)
-    rec2 = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(6).get_attribute('data-v')
+    rec2 = page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v')
     check(rec != rec2, f'recipe cost recalculates when cheese cost changes ({rec} -> {rec2})')
     c = cell(page, 'sc|100001|2026'); c.click(); c.fill(orig); c.press('Tab'); page.wait_for_timeout(300)
-    check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(6).get_attribute('data-v') == rec, 'restoring cheese cost restores recipe cost')
+    check(page.locator('tr', has_text='RECIPE: Original').locator('td').nth(5).get_attribute('data-v') == rec, 'restoring cheese cost restores recipe cost')
     check(not errors, 'no browser errors during edits' + (f': {errors[:3]}' if errors else ''))
 
     # ---- sales summaries ----
@@ -593,7 +594,8 @@ with sync_playwright() as p:
     check(page.get_by_role('tab', name='Demand Plan').count() == 0 and page.get_by_role('tab', name='Purchase Plan').count() == 0 and page.get_by_role('tab', name='Planning Dashboard').count() == 0, 'old planning tabs are gone')
     check(page.locator('.pd-half h2').count() == 0 and page.locator('table.pd-status').count() == 0 and page.locator('table.pd-prod', has_text='Total').count() == 0, 'Production shows only the production grid, no heading or totals')
     prow = page.locator('table.pd-prod tbody tr').first
-    check(prow.locator('td.cell input').count() == 6 and prow.locator('td.pd-actual').count() == 6 and prow.locator('td.pd-avg').count() == 1, 'production: 6 actual weeks, the average, 6 weeks typed in')
+    check(prow.locator('td.cell input').count() == 6 and prow.locator('td.pd-actual').count() == 6 and prow.locator('td.pd-avg').count() == 0 and page.locator('table.pd-prod th', has_text='Average').count() == 0, 'production: 6 actual weeks and 6 weeks typed in, no Average column')
+    check(prow.locator('td').first.evaluate("e => getComputedStyle(e).position") == 'sticky', 'the product name stays put when scrolling sideways')
     ph = prow.locator('td.cell input').first.get_attribute('placeholder')
     check(ph not in (None, '', '0') and prow.locator('td.cell.suggested').count() == 6, f'blank weeks show the average demand, lighter ({ph})')
     key = prow.locator('td.cell input').nth(1).get_attribute('data-k'); _, item_no, week = key.split('|')
@@ -841,15 +843,28 @@ with sync_playwright() as p:
     tab(page, 'Master List')
     with page.expect_download() as dl: page.get_by_role('button', name='⤓ Download for Excel').click()
     path = dl.value.path(); csv = open(path, encoding='utf-8-sig').read().splitlines()
-    check(csv[0].startswith('Item,Type,Item #') and len(csv) == 1 + page.evaluate('window.__MOCK_DB__.items.length') and any(l.startswith('Cheese,') and ',1.937' in l for l in csv), f'Master List downloads for Excel ({len(csv)} lines)')
-    nxt_y = datetime.date.today().year + 1
-    check(page.locator('.note.warn.missing-costs', has_text=f'no {nxt_y} standard cost').count() == 1, f'Master List warns that {nxt_y} costs are missing')
+    check(csv[0].startswith('Item #,Item,Type,Base unit,Receipt') and len(csv) == 1 + page.evaluate('window.__MOCK_DB__.items.length') and any(',Cheese,' in l and '30 lb box' in l and ',1.937' in l for l in csv), f'Master List downloads for Excel ({len(csv)} lines)')
+    nxt_y = TODAY.year + 1
+    check(page.locator('.note.warn.missing-costs').count() == 0, 'the next-year standards warning only shows in December')
+    check(page.locator('table.xtable thead', has_text='Scenario').count() == 0, 'no scenario label under the years')
+    heads = [x.split('\n')[0].strip() for x in page.locator('table.xtable thead th').all_inner_texts()]
+    check(heads[:5] == ['Item #', 'Item', 'Type', 'Base unit', 'Receipt'], f'Master List columns ({heads[:6]})')
+    rc = page.locator('[data-k="rc|100002"]')
+    check(rc.input_value() == '420 lb drum', f'Receipt reads like "420 lb drum" ({rc.input_value()})')
+    rc.fill('400 lbs drums'); rc.press('Enter'); page.wait_for_timeout(250)
+    mayo = page.evaluate("window.__MOCK_DB__.items.find(i => i.item_no === 100002)")
+    check(mayo['receiving_unit'] == 'drum' and mayo['units_per_receiving'] == 400, 'Receipt can be typed in the table')
+    rc = page.locator('[data-k="rc|100002"]'); rc.fill('400 cups drum'); rc.press('Enter'); page.wait_for_timeout(250)
+    check(page.locator('.toast.bad', has_text='counted in lb').count() >= 1 and page.evaluate("window.__MOCK_DB__.items.find(i => i.item_no === 100002).units_per_receiving") == 400, 'a Receipt in the wrong unit is refused')
+    rc = page.locator('[data-k="rc|100002"]'); rc.fill('420 lb drum'); rc.press('Enter'); page.wait_for_timeout(250)
+    sb = page.locator('.side-inner .btn.download').evaluate("e => e.scrollWidth <= e.clientWidth + 1 && e.getBoundingClientRect().right <= e.closest('.sidebar').getBoundingClientRect().right")
+    check(sb, 'Download for Excel fits in the side bar')
     tab(page, 'Standard Price')
     check(page.locator('.note.warn.missing-prices', has_text=str(nxt_y)).count() == 1, f'Standard Price warns that {nxt_y} prices are missing')
 
     # ---- Accounting with amounts ----
     tab(page, 'Journals')
-    back = (datetime.date.today().year - 2026) * 12 + datetime.date.today().month - 7
+    back = (TODAY.year - 2026) * 12 + TODAY.month - 7
     for _ in range(back): page.get_by_role('button', name='Previous month').click(); page.wait_for_timeout(60)
     page.wait_for_timeout(150)
     check('Jul 2026' in page.locator('.bom-year-head').inner_text(), 'Journals go back to July 2026')
@@ -887,7 +902,7 @@ with sync_playwright() as p:
     page.keyboard.press('Escape')
     check(cell(page, 'sc|100001|2026').is_disabled(), 'staff cannot edit standard costs')
     tab(page, 'Production')
-    check(not cell(page, 'production|' + page.evaluate("(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01'})()") + '|500001').is_disabled(), 'staff can enter production')
+    check(not cell(page, f'production|{TODAY.isoformat()[:8]}01|500001').is_disabled(), 'staff can enter production')
     shot(page, '23-staff-production')
     page.goto(BASE + '/#users'); page.wait_for_timeout(200)
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'staff going to #users lands on the dashboard')

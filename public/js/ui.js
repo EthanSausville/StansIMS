@@ -1,5 +1,5 @@
 // Small DOM helpers shared by every tab.
-import { MONTHS, evalEntry, toDate } from './calc.js';
+import { MONTHS, evalEntry, toDate, setCurrentYear } from './calc.js';
 
 // h('div', {class: 'x', onclick: fn}, child, 'text', [more children])
 export function h(tag, attrs, ...children) {
@@ -72,15 +72,24 @@ export const dateLabel = (iso) => {
 };
 export const longDate = (iso) => toDate(iso).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
 
+// The date the whole site treats as today. The data runs through the week of
+// 7/6/2026, so for now it's pinned to Monday 7/13/2026. Set it to null to use
+// the real date.
+export const PRETEND_TODAY = '2026-07-13';
 export function todayIso() {
+  if (PRETEND_TODAY) return PRETEND_TODAY;
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+export const thisYear = () => Number(todayIso().slice(0, 4));
+setCurrentYear(thisYear()); // so calc.js's year lists and defaults agree
+export const thisMonth = () => Number(todayIso().slice(5, 7));
+
 // Prev / month name / next control. value = {year, month(1-12)}.
 export function monthPicker(value, onChange) {
   // Months run from January 2026 through December of next year, like every year list on the site.
-  const first = 2026; const last = new Date().getFullYear() + 1;
+  const first = 2026; const last = thisYear() + 1;
   const shift = (n) => { let m = value.month + n, y = value.year; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } if (y < first || y > last) return; onChange({ year: y, month: m }); };
   return h('div', { class: 'monthpick' },
     h('button', { class: 'btn icon', title: 'Previous month', 'aria-label': 'Previous month', disabled: value.year <= first && value.month === 1, onclick: () => shift(-1) }, '‹'),

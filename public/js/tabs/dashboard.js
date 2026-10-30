@@ -1,4 +1,4 @@
-import { h, bigHead, money, pct, yearSelect, todayIso, qty } from '../ui.js';
+import { h, bigHead, money, pct, yearSelect, todayIso, qty, thisYear } from '../ui.js';
 import { state, derived } from '../store.js';
 import { dashboard, MONTHS, missingStandards } from '../calc.js';
 import { barChart, hbarChart } from '../charts.js';
@@ -13,7 +13,7 @@ export default {
   label: 'Dashboard',
   render({ rerender }) {
     const years = derived.years();
-    if (!years.includes(year)) year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years.at(-1);
+    if (!years.includes(year)) year = years.includes(thisYear()) ? thisYear() : years.at(-1);
     const d = dashboard(state.data, year, month);
     const ix = derived.ix(); const inv = derived.inventory();
     const items = [...ix.byType('Raw Material'), ...ix.byType('Component')];

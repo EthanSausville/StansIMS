@@ -3,7 +3,7 @@
 // recalculates locally, and writes each change straight to the database.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import * as C from './calc.js';
-import { todayIso } from './ui.js';
+import { todayIso, thisYear } from './ui.js';
 
 const cfg = window.STANS_CONFIG || {};
 export const configured = Boolean(cfg.supabaseUrl && cfg.supabaseKey);
@@ -76,7 +76,7 @@ export const derived = {
   consumption: () => memo('consumption', () => C.consumptionByDate(state.data)),
   horizon: () => memo('horizon', () => {
     const d = state.data; const dates = [...d.production, ...d.goods_receipts, ...d.cycle_counts, ...d.sales].map((r) => r.date);
-    const lastYear = Math.max(new Date().getFullYear(), ...dates.map(C.yearOf));
+    const lastYear = Math.max(thisYear(), ...dates.map(C.yearOf));
     return `${lastYear}-12-31`;
   }),
   inventory: () => memo('inventory', () => C.dailyInventory(state.data, derived.horizon())),

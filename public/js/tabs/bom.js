@@ -4,11 +4,11 @@
 // Quantities and line costs are for one run of the BOM directly above.
 // BOMs are by year: a year shows its own BOMs, or carries the latest earlier one.
 // Click a BOM to select it; Edit BOM (left) opens it in the editor.
-import { h, pageHead, qty, money, fmt, yearSelect, typePill } from '../ui.js';
+import { h, pageHead, qty, money, fmt, yearSelect, typePill, thisYear } from '../ui.js';
 import { state, derived, isAdmin } from '../store.js';
 import { openInEditor, bomEditor, editorOpen } from './createbom.js';
 
-const THIS_YEAR = new Date().getFullYear();
+const THIS_YEAR = thisYear();
 let year = THIS_YEAR;
 let selected = null; // item_no of the selected BOM
 const open = new Set(); // open rows, by path of item numbers ("20001>10021")

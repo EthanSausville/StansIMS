@@ -135,6 +135,15 @@ create table if not exists public.settings (
   production_batch_size numeric not null default 0  -- oz
 );
 
+-- The date the whole site treats as today (Settings → Site). Blank = the real
+-- date. Added pinned to 7/13/2026, since the data runs through the week of 7/6.
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'settings' and column_name = 'site_date') then
+    alter table public.settings add column site_date date;
+    update public.settings set site_date = '2026-07-13' where id = 1;
+  end if;
+end $$;
+
 create table if not exists public.year_settings (
   year           int primary key,
   labor_scenario int not null check (labor_scenario between 1 and 5)

@@ -72,12 +72,23 @@ export const dateLabel = (iso) => {
 };
 export const longDate = (iso) => toDate(iso).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
 
-// The date the whole site treats as today. The data runs through the week of
-// 7/6/2026, so for now it's pinned to Monday 7/13/2026. Set it to null to use
-// the real date.
+// The date the whole site treats as today: Settings → Site (settings.site_date),
+// blank for the real date. Until the database has that setting, it's pinned to
+// Monday 7/13/2026 (the data runs through the week of 7/6).
 export const PRETEND_TODAY = '2026-07-13';
+// undefined: no setting yet; null: the real date; 'YYYY-MM-DD': pinned. The last
+// value is remembered in the browser so the pages start on the right date
+// before the data has loaded.
+let siteDate = (() => { try { const v = localStorage.getItem('site-date'); return v === null ? undefined : v === '' ? null : v; } catch { return undefined; } })();
+export function setSiteDate(v) {
+  siteDate = v; setCurrentYear(Number(todayIso().slice(0, 4)));
+  try { if (v === undefined) localStorage.removeItem('site-date'); else localStorage.setItem('site-date', v || ''); } catch { /* not remembered */ }
+}
+export const realTodayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+export const siteDateSetting = () => siteDate;
 export function todayIso() {
-  if (PRETEND_TODAY) return PRETEND_TODAY;
+  if (siteDate) return siteDate;
+  if (siteDate === undefined && PRETEND_TODAY) return PRETEND_TODAY;
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

@@ -1254,3 +1254,31 @@ table.t.pu-table tfoot td { position: sticky; bottom: 0; background: var(--stans
 table.t.pu-table > thead, table.t.pd-prod > thead { position: sticky; top: 0; z-index: 4; }
 table.t.pu-table > thead th, table.t.pd-prod > thead th:not(.sticky-col) { position: static; }
 table.t.pu-table tfoot td { z-index: 2; }
+
+/* ---------- Settings: the gear is a section like the others, at the far right ---------- */
+.grouprow .gear-slot { flex: none; margin-right: 0; }
+.group.gear-group { display: grid; place-items: center; padding: 9px 14px 10px; }
+.group.gear-group svg { display: block; }
+.set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px 32px; max-width: 1100px; }
+.set-card { display: flex; flex-direction: column; gap: 10px; padding: 0 0 16px; border-bottom: 1px solid var(--line); }
+.set-card h2 { margin: 0; font-size: 15px; color: var(--stans-orange); }
+.set-card .kv { grid-template-columns: max-content 1fr; }
+.set-card .kv dt { color: var(--muted); }
+.set-card .kv dd { margin: 0; }
+.set-card label.field { display: flex; flex-direction: column; gap: 4px; max-width: 320px; }
+.set-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-actions { margin-bottom: 12px; }
+.health-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.hs { padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; }
+.hs.bad { background: #fbd5d2; color: #8f1d17; } .hs.warn { background: #fbf0b8; color: #6b5600; } .hs.ok { background: #d6f1dd; color: #1c6b37; }
+table.t.health-table td { vertical-align: top; padding-top: 8px; padding-bottom: 8px; }
+table.t.health-table td.hc-detail { white-space: normal; color: var(--muted); font-size: 13px; }
+table.t.health-table td.hc-title { font-weight: 600; color: var(--stans-brown); white-space: normal; min-width: 240px; }
+table.t.health-table td.hc-icon { width: 34px; }
+table.t.health-table td.hc-icon span { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-weight: 800; font-size: 12px; }
+table.t.health-table tr.hc-ok td.hc-icon span { background: #d6f1dd; color: #1c6b37; }
+table.t.health-table tr.hc-warn td.hc-icon span { background: #fbf0b8; color: #6b5600; }
+table.t.health-table tr.hc-bad td.hc-icon span { background: #fbd5d2; color: #8f1d17; }
+table.t.health-table tr.link { cursor: pointer; }
+table.t.health-table td.hc-go { color: var(--stans-orange); font-weight: 700; text-align: right; }
+.grouprow .gear-slot { margin-right: 4px; }

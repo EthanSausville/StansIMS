@@ -17,9 +17,10 @@ import labor from './tabs/labor.js';
 import journals from './tabs/journals.js';
 import users from './tabs/users.js';
 import history from './tabs/history.js';
+import { account, site, health, data as dataTab } from './tabs/settings.js';
 
 // Groups across the top; the open group's tabs show in the row beneath.
-// Users isn't in a group: admins reach it from the gear menu.
+// Settings is the gear at the far right; staff see only My Account there.
 const GROUPS = [
   { id: 'overview', label: 'Dashboard', tabs: [dashboard] },
   { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
@@ -27,8 +28,11 @@ const GROUPS = [
   { id: 'inventory', label: 'Inventory', tabs: [production, newReceipts, allReceipts, newCounts, allCounts, inventory, consumption] },
   { id: 'planning', label: 'Planning', tabs: [productionPlanTab, purchasingTab, safetyStocksTab] },
   { id: 'costing', label: 'Standards', tabs: [costs, bom, labor] },
+  { id: 'settings', label: 'Settings', gear: true, tabs: [account, site, health, users, history, dataTab] },
 ];
-const TABS = [...GROUPS.flatMap((g) => g.tabs), users, history];
+const TABS = GROUPS.flatMap((g) => g.tabs);
+const visibleTabs = (g) => g.tabs.filter((t) => !t.adminOnly || isAdmin());
+const GEAR_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.6 7.6 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.3.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>';
 const groupOf = (id) => GROUPS.find((g) => g.tabs.some((t) => t.id === id));
 const lastInGroup = new Map(); // remembers the tab you were on in each group
 const app = document.getElementById('app');
@@ -97,24 +101,6 @@ function notConfigured() {
 function routeId() { const id = location.hash.slice(1).split('?')[0]; return TABS.find((t) => t && t.id === id && (!t.adminOnly || isAdmin())) ? id : 'dashboard'; }
 
 // The account menu behind the gear at the right of the blue bar.
-function gearMenu() {
-  const p = state.profile || {};
-  const menu = h('div', { class: 'gear-menu', role: 'menu', hidden: true },
-    h('div', { class: 'gear-who' }, h('div', { class: 'gear-email' }, p.email || state.user?.email || ''), h('span', { class: 'role' }, p.role || 'staff')),
-    isAdmin() ? h('a', { class: 'gear-item', role: 'menuitem', href: '#users', onclick: () => close() }, 'Users') : null,
-    isAdmin() ? h('a', { class: 'gear-item', role: 'menuitem', href: '#history', onclick: () => close() }, 'Change history') : null,
-    h('button', { class: 'gear-item', role: 'menuitem', title: 'Reload data from the database', onclick: () => { close(); refresh(true); } }, 'Refresh data'),
-    h('button', { class: 'gear-item', role: 'menuitem', onclick: () => sb.auth.signOut() }, 'Sign out'));
-  const btn = h('button', { class: 'gear', 'aria-label': 'Account and settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Account and settings',
-    onclick: (e) => { e.stopPropagation(); menu.hidden ? openMenu() : close(); } });
-  btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.6 7.6 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.3.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>';
-  function openMenu() { menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); document.addEventListener('mousedown', outside); }
-  function close() { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); document.removeEventListener('mousedown', outside); }
-  function outside(e) { if (!menu.contains(e.target) && !btn.contains(e.target)) close(); }
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { close(); btn.focus(); } });
-  return h('div', { class: 'gear-wrap' }, btn, menu);
-}
-
 // The left side bar that holds a tab's actions. It can be dragged wider or
 // narrower and folded away to a thin strip; both are remembered.
 const pref = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* not saved */ } } };
@@ -166,6 +152,7 @@ function sideBar() {
 
 function shell() {
   const groupBar = h('nav', { class: 'groups', 'aria-label': 'Sections' });
+  const gearSlot = h('nav', { class: 'groups gear-slot', 'aria-label': 'Settings' });
   const tabBar = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': 'Pages' });
   const about = h('div', { class: 'about-slot' });
   const { side, inner, useTab } = sideBar();
@@ -173,10 +160,10 @@ function shell() {
   const main = h('main', { id: 'main', role: 'tabpanel' }, h('div', { class: 'layout' }, side, content));
   app.replaceChildren(
     h('header', { class: 'topbar' },
-      h('div', { class: 'grouprow' }, h('a', { class: 'brand', href: '#dashboard', title: 'Dashboard' }, h('img', { src: 'logo.webp', alt: 'The Original Stan’s', width: 439, height: 237 })), groupBar, h('span', { class: 'spacer' }), gearMenu()),
+      h('div', { class: 'grouprow' }, h('a', { class: 'brand', href: '#dashboard', title: 'Dashboard' }, h('img', { src: 'logo.webp', alt: 'The Original Stan’s', width: 439, height: 237 })), groupBar, h('span', { class: 'spacer' }), gearSlot),
       h('div', { class: 'tabrow' }, tabBar, h('span', { class: 'spacer' }), about)),
     main);
-  const bars = { groupBar, tabBar };
+  const bars = { groupBar, tabBar, gearSlot };
   topbarObserver.observe(app.querySelector('.topbar'));
   renderTabs(bars);
   return { tabBar: bars, main, content, side, sideInner: inner, about, useTab };
@@ -188,15 +175,19 @@ function pageIntro(description) {
   return h('div', { class: 'page-intro' }, h('p', null, description));
 }
 
-function renderTabs({ groupBar, tabBar }) {
+function renderTabs({ groupBar, tabBar, gearSlot }) {
   const id = routeId();
   const open = groupOf(id);
   if (open) lastInGroup.set(open.id, id);
-  groupBar.replaceChildren(...GROUPS.map((g) => h('button', {
-    class: 'group', 'aria-current': g === open ? 'true' : null,
-    onclick: () => { location.hash = lastInGroup.get(g.id) || g.tabs[0].id; },
-  }, g.label)));
-  const tabs = open && open.tabs.length > 1 ? open.tabs : [];
+  const groupButton = (g) => {
+    const b = h('button', { class: 'group' + (g.gear ? ' gear-group' : ''), 'aria-current': g === open ? 'true' : null, 'aria-label': g.gear ? g.label : null, title: g.gear ? g.label : null,
+      onclick: () => { location.hash = lastInGroup.get(g.id) || visibleTabs(g)[0].id; } }, g.gear ? null : g.label);
+    if (g.gear) b.innerHTML = GEAR_SVG;
+    return b;
+  };
+  groupBar.replaceChildren(...GROUPS.filter((g) => !g.gear).map(groupButton));
+  gearSlot?.replaceChildren(...GROUPS.filter((g) => g.gear).map(groupButton));
+  const tabs = open && visibleTabs(open).length > 1 ? visibleTabs(open) : [];
   tabBar.hidden = !tabs.length;
   tabBar.parentElement?.classList.toggle('only-about', !tabs.length);
   groupBar.closest('.topbar')?.classList.toggle('no-subtabs', !tabs.length);
@@ -246,6 +237,7 @@ function render() {
 }
 function schedule() { if (scheduled) return; scheduled = true; requestAnimationFrame(() => { scheduled = false; render(); }); }
 
+window.addEventListener('stans:refresh', () => refresh(true));
 async function refresh(manual) {
   try { await loadAll(); if (manual) toast('Data reloaded.'); } catch (e) { toast(niceError(e), 'bad'); }
 }

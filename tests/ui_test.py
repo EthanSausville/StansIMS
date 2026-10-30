@@ -87,7 +87,7 @@ GROUPS = {
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
-ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['Users', 'Change history']
+ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['My Account', 'Site', 'Site Health', 'Users', 'Change history', 'Data']
 
 def edit_bom(page, name):
     row = page.locator('table.tree-table tr.d0', has=page.locator('.tree-name', has_text=name)).first
@@ -96,8 +96,9 @@ def edit_bom(page, name):
 
 
 def tab(page, label):
-    if label in ('Users', 'Change history'):
-        page.locator('.gear').click(); page.locator('.gear-menu a', has_text=label).click()
+    if label in ('Users', 'Change history', 'My Account', 'Site', 'Site Health', 'Data'):
+        page.locator('.gear-group').click(); page.wait_for_timeout(80)
+        if page.get_by_role('tab', name=label, exact=True).count(): page.get_by_role('tab', name=label, exact=True).click()
     else:
         group, label = label.split('/') if '/' in label else (next(g for g, ts in GROUPS.items() if label in ts), label)
         page.locator('.groups .group', has_text=group).first.click(); page.wait_for_timeout(80)
@@ -132,7 +133,7 @@ with sync_playwright() as p:
     page.fill('input[type=password]', 'correct-horse'); page.click('button[type=submit]')
     page.wait_for_selector('.groups .group')
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'dashboard loads after sign-in')
-    groups = page.locator('.groups .group').all_inner_texts()
+    groups = page.locator('.groups:not(.gear-slot) .group').all_inner_texts()
     print('   groups:', ' | '.join(groups))
     check([g.title() for g in groups] == ['Dashboard', 'Accounting', 'Sales', 'Inventory', 'Planning', 'Standards'], 'six sections across the top, in order')
     check(page.locator('.brandrow').count() == 0 or page.locator('.brandrow').is_hidden(), 'no gray bar')
@@ -151,8 +152,22 @@ with sync_playwright() as p:
     page.locator('.groups .group', has_text='Accounting').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
     check(sub == GROUPS['Accounting'], f'Accounting group shows Journals and T-Accounts ({sub})')
-    page.locator('.gear').click(); page.wait_for_timeout(80)
-    check(page.locator('.gear-menu a', has_text='Users').is_visible(), 'admin sees Users in the gear menu')
+    page.locator('.gear-group').click(); page.wait_for_timeout(120)
+    st = page.locator('.tabs .tab').all_inner_texts()
+    check(st == ['My Account', 'Site', 'Site Health', 'Users', 'Change history', 'Data'], f'the gear opens Settings, with its pages in the yellow bar ({st})')
+    gx = page.evaluate("[Math.round(document.querySelector('.gear-group').getBoundingClientRect().right), innerWidth]")
+    check(gx[1] - gx[0] < 40, f'the gear is at the far right ({gx})')
+    page.get_by_role('tab', name='Site Health', exact=True).click(); page.wait_for_timeout(500)
+    check(page.locator('table.health-table tbody tr').count() >= 8 and page.locator('.health-summary').count() == 1, f'Site Health lists its checks ({page.locator("table.health-table tbody tr").count()})')
+    check(page.locator('table.health-table tr', has_text='pinned to').count() == 1, 'Site Health notes the pinned date')
+    page.get_by_role('tab', name='Data', exact=True).click(); page.wait_for_timeout(150)
+    with page.expect_download() as dlb: page.get_by_role('button', name='Download a backup').click()
+    bk = json.loads(open(dlb.value.path()).read())
+    check(len(bk['items']) == len(inputs['items']) and 'goods_receipts' in bk, 'Data downloads a backup of every table')
+    page.get_by_role('tab', name='My Account', exact=True).click(); page.wait_for_timeout(150)
+    check(page.get_by_role('button', name='Sign out').count() == 1 and page.get_by_role('button', name='Change password').count() == 1, 'My Account has sign out and change password')
+    page.get_by_role('tab', name='Site', exact=True).click(); page.wait_for_timeout(150)
+    check(page.locator('.set-card', has_text='Today’s date').count() == 1, 'Site shows the site date')
     page.keyboard.press('Escape')
     tabs = ALL_TABS
 
@@ -583,7 +598,7 @@ with sync_playwright() as p:
         # A customer QuickBooks name not on the saved list is offered for confirmation.
         page.evaluate("window.__STANS_FORGET__ = true")
         page.evaluate("""(() => { const m = window.__MOCK_DB__.qb_name_map; const i = m.findIndex(x => x.kind === 'customer' && x.name === %s); m.splice(i, 1); })()""" % json.dumps(newcust))
-        page.locator('.gear').click(); page.get_by_role('menuitem', name='Refresh data').click(); page.wait_for_timeout(500)
+        page.evaluate("window.dispatchEvent(new Event('stans:refresh'))"); page.wait_for_timeout(500)
         page.set_input_files('#qb-file', str(QB)); page.wait_for_selector('.import-panel h3', timeout=10000)
         check(page.locator('.confirm-names tbody tr').count() == 1, 'an unknown QuickBooks customer is listed to confirm')
         inp = page.locator('.confirm-names input'); check(inp.input_value() == newcust, 'suggested name matches an existing customer')
@@ -899,7 +914,7 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Month', exact=True).click()
 
     # ---- sign out ----
-    page.locator('.gear').click(); page.get_by_role('menuitem', name='Sign out').click(); page.wait_for_selector('form input[type=email]')
+    tab(page, 'My Account'); page.get_by_role('button', name='Sign out').click(); page.wait_for_selector('form input[type=email]')
     check(True, 'sign out returns to sign-in')
     ctx.close()
 
@@ -910,9 +925,9 @@ with sync_playwright() as p:
         f'window.__MOCK_DB__={json.dumps(dict(mock_db(), profiles=[dict(user_id="u1", email="owner@stans.test", role="staff")]))};'
         'window.__MOCK_ROLE__="staff";window.__MOCK_SIGNED_IN__=true;')))
     page.goto(BASE + '/#costs'); page.wait_for_selector('.groups .group')
-    page.locator('.gear').click(); page.wait_for_timeout(80)
-    check(page.locator('.gear-menu a', has_text='Users').count() == 0, 'staff does not see Users in the gear menu')
-    page.keyboard.press('Escape')
+    page.locator('.gear-group').click(); page.wait_for_timeout(120)
+    check(page.get_by_role('tab', name='Users').count() == 0 and page.locator('.set-card', has_text='Signed in as').count() == 1, 'staff see only My Account under Settings')
+    tab(page, 'Master List')
     check(cell(page, 'sc|100001|2026').is_disabled(), 'staff cannot edit standard costs')
     tab(page, 'Production')
     check(not cell(page, f'production|{TODAY.isoformat()[:8]}01|500001').is_disabled(), 'staff can enter production')

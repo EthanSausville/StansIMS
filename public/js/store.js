@@ -3,7 +3,7 @@
 // recalculates locally, and writes each change straight to the database.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import * as C from './calc.js';
-import { todayIso, thisYear } from './ui.js';
+import { todayIso, thisYear, setSiteDate } from './ui.js';
 
 const cfg = window.STANS_CONFIG || {};
 export const configured = Boolean(cfg.supabaseUrl && cfg.supabaseKey);
@@ -48,6 +48,8 @@ export async function loadAll() {
   if (error) throw error;
   data.settings = s || { id: 1 };
   data.missingTables = new Set(missing);
+  // The site's "today" (Settings → Site); undefined until the database has the setting.
+  setSiteDate(data.settings && 'site_date' in data.settings ? data.settings.site_date : undefined);
   state.data = data; state.loadedAt = Date.now();
   changed();
   return data;

@@ -137,7 +137,7 @@ export const productionPlanTab = {
     const weeks = plan.weeks.slice(0, ENTRY_WEEKS);
     const head = (w, i, kind) => h('th', { class: `num wk ${kind}${i === 0 ? ' first' : ''}`, title: `Week of ${longDate(w)}` },
       h('span', { class: 'wk-label' }, kind === 'plan' && i === 0 ? 'This week' : 'Week of'), h('span', { class: 'wk-date' }, shortDate(w)));
-    return h('div', null,
+    return h('div', { class: 'page-fill' },
       pageHead('Production', [
         `The grey columns on the left are the cases actually made in each of the last ${ACTUAL_WEEKS} weeks (from Inventory → Production).`,
         `The boxes on the right are the plan for this week and the next ${ENTRY_WEEKS - 1}. A grey number in a box is the average of the last ${ACTUAL_WEEKS} weeks, and is used until you type over it.`,
@@ -153,7 +153,9 @@ export const productionPlanTab = {
           r.actuals.map((v, i) => h('td', { class: 'num pd-actual' + (i === 0 ? ' first' : ''), title: `${r.item.name}: made the week of ${longDate(plan.actualWeeks[i])}` }, v ? qty(v, 0) : '–')),
           r.weeks.slice(0, ENTRY_WEEKS).map((c, i) => numberCell(c.typed ? c.production : null, (v) => saveCell('production_plan', { item_no: r.item.item_no, week: c.week }, 'cases', v),
             { disabled: !admin, digits: 0, key: `pp|${r.item.item_no}|${c.week}`, placeholder: qty(Math.round(c.demand), 0), cls: (c.typed ? 'typed' : 'suggested') + ' pd-plan' + (i === 0 ? ' first' : ''),
-              title: `${r.item.name}, week of ${longDate(c.week)} (average ${qty(c.demand, 1)} a week; clear to use it)` }))))))));
+              title: `${r.item.name}, week of ${longDate(c.week)} (average ${qty(c.demand, 1)} a week; clear to use it)` })))),
+          // Fills the rest of the page so the grey of the weeks made runs to the bottom.
+          h('tr', { class: 'pd-fill', 'aria-hidden': 'true' }, h('td', { class: 'sticky-col' }), plan.actualWeeks.map(() => h('td', { class: 'pd-actual' })), weeks.map(() => h('td', { class: 'pd-plan' })))))));
   },
 };
 
@@ -193,7 +195,7 @@ export const purchasingTab = {
       noData(),
       h('div', { class: 'table-block wide' },
         tableActions(downloadButton('purchases', dl, rows)),
-        h('div', { class: 'scroll-x' }, h('table', { class: 't natural pd-status' },
+        h('div', { class: 'tablewrap pd-status-wrap', 'data-scroll': 'pd-status' }, h('table', { class: 't natural pd-status' },
           h('thead', null, h('tr', null, h('th', null, 'Item'), h('th', null, 'Status'), h('th', { class: 'num' }, 'On hand'), h('th', null, 'Order by'), h('th', null, 'How much'))),
           h('tbody', null, rows.map((r) => [h('tr', { class: `st-${r.status}` + (r.item.item_no === selected ? ' picked' : ''), title: 'Click to see its orders', onclick: () => { selected = r.item.item_no === selected ? null : r.item.item_no; rerender(); } },
             h('td', null, r.item.name), h('td', null, STATUS[r.status][0]), h('td', { class: 'num' }, stock(r)),

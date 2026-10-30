@@ -1153,7 +1153,6 @@ table.t.pd-prod thead th.sticky-col { position: sticky; left: 0; }
 .page-intro ol { margin: 0; padding-left: 20px; }
 .page-intro li + li { margin-top: 3px; }
 .about-slot { display: none; }
-#app .content .tablewrap, #app .content .tablewrap:has(> table.t), #app .content .tablewrap:has(> table.t.natural) { width: 100% !important; max-width: 100%; }
 #app .content .tablewrap > table.t { width: 100%; }
 #app .content .tablewrap.wide { padding-bottom: 0; }
 .float-foot.no-rows .ff-rows { display: none; }
@@ -1176,9 +1175,47 @@ table.t.journal tr.entry td:nth-child(2) { white-space: normal; min-width: 260px
 #app .content table.t th.grow { width: 100%; }
 /* Long text wraps so these tables fit the page without sideways scrolling. */
 table.t.journal td:last-child { white-space: normal; min-width: 160px; }
-.tree-table td:not(.num) { white-space: normal; }
-.tree-table td .pill { white-space: nowrap; }
 @media (max-width: 640px) {
   table.t.pd-prod .sticky-col { width: 132px; min-width: 132px; }
   #app .content .tablewrap > table.t.pd-prod { min-width: 132px; width: calc(132px + 12 * 58px); }
 }
+
+/* ---------- Edge to edge ----------
+   Tables run to the edges of the page area, with the page's margin moved
+   inside the first and last columns; no vertical borders, only lines between
+   rows. How-to text is plain, with no box. */
+:root { --page-x: 20px; }
+@media (max-width: 760px) { :root { --page-x: 12px; } }
+.page-intro { background: none; border: 0; border-radius: 0; padding: 0; margin: 0 0 14px; color: var(--muted); }
+#app .content .tablewrap, #app .content .tablewrap:has(> table.t), #app .content .tablewrap:has(> table.t.natural), #app .content .table-block.wide {
+  margin-left: calc(-1 * var(--page-x)) !important; margin-right: calc(-1 * var(--page-x)) !important;
+  width: calc(100% + 2 * var(--page-x)) !important; max-width: none !important; border-left: 0 !important; border-right: 0 !important; border-radius: 0 !important; }
+#app .content .table-block.wide > .tablewrap.tablewrap.tablewrap.tablewrap { margin-left: 0 !important; margin-right: 0 !important; width: 100% !important; }
+#app .content .table-block.wide > .table-actions { padding-right: var(--page-x); }
+#app .content .tablewrap > table.t > * > tr > :first-child { padding-left: var(--page-x); }
+#app .content .tablewrap > table.t > * > tr > :last-child { padding-right: var(--page-x); }
+#app .content .tablewrap > table.t th, #app .content .tablewrap > table.t td { border-left: 0; border-right: 0; }
+#app .content .tablewrap > table.t thead tr:first-child th { border-radius: 0 !important; }
+/* Purchases: colored rows edge to edge, no rounded ends. */
+table.pd-status td:first-child, table.pd-status td:last-child { border-radius: 0; }
+/* Production fills the page: the table reaches the bottom, and so does the grey of the weeks made. */
+#app .layout > .content > .page-fill { min-height: 100%; display: flex; flex-direction: column; padding-bottom: 0; }
+.page-fill > .tablewrap.pd-prod-wrap { flex: 1; border: 0; border-top: 0; display: flex; flex-direction: column; }
+.page-fill > .tablewrap.pd-prod-wrap > table.t.pd-prod { flex: 1; height: 100%; }
+table.t.pd-prod tbody tr:not(.pd-fill) { height: 34px; }
+table.t.pd-prod tbody tr.pd-fill { height: 100%; }
+table.t.pd-prod tbody tr.pd-fill td { border-bottom: 0; height: auto; padding: 0; }
+table.t.pd-prod tbody tr.pd-fill:hover td { background: revert-layer; }
+table.t.pd-prod tbody tr.pd-fill td.pd-actual { background: var(--weekend); }
+table.t.pd-prod tbody tr.pd-fill td.pd-plan, table.t.pd-prod tbody tr.pd-fill td.sticky-col { background: #fff; }
+table.t.pd-prod tbody tr:nth-last-child(2) td { border-bottom: 1px solid var(--line); }
+/* More room under "Made · last 6 weeks" and "Plan · next 6 weeks". */
+table.t.pd-prod tr.pd-bands th { padding-top: 8px; padding-bottom: 10px; }
+table.t.pd-prod th.wk { padding-top: 0; }
+table.t thead tr.group th { padding-bottom: 6px; }
+/* The page's side margins go on the page itself, not the scrolling area, so
+   columns that stay put stick right at the edge of the page area. */
+#app .layout > .content { padding-left: 0 !important; padding-right: 0 !important; }
+#app .layout > .content > * { padding-left: var(--page-x); padding-right: var(--page-x); }
+#app .sidebar { z-index: 16; }
+.tree-table td:nth-child(7) { white-space: normal; min-width: 120px; }

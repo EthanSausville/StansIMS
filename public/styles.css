@@ -1,33 +1,41 @@
 :root {
-  /* Stan's brown and cream on warm white. */
-  --bg: #f7f3ee;
+  /* Stan's colors (from stans pimento cheese site):
+     brown #502b1b, orange #e6530f, bright orange #f2682a, yellow #fdd105,
+     cream #fdf2be, warm grey #f0e9e6. */
+  --stans-brown: #502b1b;
+  --stans-orange: #e6530f;
+  --stans-orange-2: #f2682a;
+  --stans-yellow: #fdd105;
+  --stans-cream: #fdf2be;
+  --stans-grey: #f0e9e6;
+  --bg: var(--stans-grey);
   --panel: #ffffff;
-  --ink: #2a1c12;
-  --muted: #6e5f53;
-  --faint: #a09184;
-  --line: #ebe3da;
-  --line-strong: #d8cbbd;
-  --banner: #4a2a14;      /* Stan's brown: the top banner */
-  --banner-2: #6b3f1f;
-  --accent: #7a4521;
-  --accent-dark: #4a2a14;
+  --ink: #2e1a10;
+  --muted: #6e5546;
+  --faint: #a38c7e;
+  --line: #ece2dc;
+  --line-strong: #d9c8bd;
+  --banner: var(--stans-brown);
+  --banner-2: var(--stans-brown);
+  --accent: var(--stans-orange);
+  --accent-dark: var(--stans-brown);
   --accent-ink: #ffffff;
-  --accent-soft: #f4e9dd;
-  --accent-2: #cfa67c;
-  --weekend: #f7f1ea;
-  --calc: #f9f5f0;
-  --entry: #ffffff;          /* cells you type in: white, like the rest (was yellow) */
+  --accent-soft: #fef7dc;   /* light cream: hover and selected rows */
+  --accent-2: var(--stans-yellow);
+  --weekend: #faf5f2;
+  --calc: #faf6f3;
+  --entry: #ffffff;
   --entry-weekend: var(--weekend);
-  --entry-focus: #fffbe6;    /* a pale yellow only while typing */
+  --entry-focus: #fff9db;
   --good: #1d8350;
   --good-soft: #e3f3ea;
-  --warn: #8a5a00;
-  --warn-soft: #fff3d2;
+  --warn: #8a4a00;
+  --warn-soft: var(--stans-cream);
   --bad: #c2302a;
   --bad-soft: #fdeceb;
-  --focus: #7a4521;
+  --focus: var(--stans-orange);
   --radius: 10px;
-  --shadow: 0 1px 2px rgba(45, 28, 15, 0.05), 0 6px 20px rgba(45, 28, 15, 0.06);
+  --shadow: 0 1px 2px rgba(80, 43, 27, 0.06), 0 6px 20px rgba(80, 43, 27, 0.07);
   --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color-scheme: light;
 }
@@ -962,3 +970,66 @@ table.t.ss-table thead th { vertical-align: bottom; }
 table.t.pd-status tr.pd-detail > td { font-weight: 400; color: var(--ink); border: 1px solid var(--line); }
 table.ss-table td.cell.suggested input::placeholder { color: var(--faint); opacity: 1; }
 table.ss-table td.cell.typed input { font-weight: 700; color: var(--ink); }
+
+/* ---------- Stan's brand colors ----------
+   Brown banner with an orange stripe under it, cream page-tab row, orange
+   headings and buttons, yellow accents. */
+.grouprow { background: var(--stans-brown); }
+.topbar { border-bottom: 4px solid var(--stans-orange); }
+.topbar.no-subtabs { border-bottom: 4px solid var(--stans-orange); }
+.group { color: #fff; text-transform: uppercase; letter-spacing: .03em; font-weight: 700; }
+.group:hover { background: rgba(253, 209, 5, .16); color: var(--stans-yellow); }
+:root { --tabrow: var(--stans-cream); }
+.topbar.no-subtabs { --tabrow: var(--stans-cream); }
+.group[aria-current="true"], .group[aria-current="true"]:hover { color: var(--stans-brown); }
+.tabs .tab { color: var(--stans-brown); font-weight: 600; }
+.tabs .tab:hover { color: var(--stans-orange); }
+.tab[aria-selected="true"] { color: var(--stans-orange); border-bottom: 3px solid var(--stans-orange); }
+.btn.primary { background: var(--stans-orange); border: 2px solid var(--stans-yellow); color: #fff; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.btn.primary:hover { background: var(--stans-orange-2); filter: none; }
+.btn:hover { border-color: var(--stans-orange); }
+a { color: var(--stans-orange); }
+.pagehead h1, .section-title, .panel h2, .tb-title { color: var(--stans-orange); }
+.pagehead h1 { font-weight: 800; }
+.section-title, .panel h2 { border-bottom: 3px solid var(--stans-yellow); padding-bottom: 6px; }
+.sidebar { background: var(--stans-grey); border-right: 0; }
+.sidebar.folded { background: var(--stans-cream); }
+.side-inner .tb-chip, .tb-chip { background: #fff; border-color: var(--line-strong); }
+.side-inner .btn:not(.primary) { background: #fff; }
+.side-detail, .side-inner form { background: #fff; }
+table.t thead th, table.t thead tr.group th { background: var(--stans-brown); color: #fff; border-bottom-color: var(--stans-brown); }
+table.t thead tr.group + tr + tr th { color: var(--stans-cream); }
+table.t thead th .muted, table.t thead th small { color: var(--stans-cream); }
+table.t tfoot td, table.t tr.xt-totals td { background: var(--stans-cream); color: var(--stans-brown); font-weight: 700; }
+table.t tbody tr:hover td, table.t tbody tr:hover td.sticky-col { background: var(--accent-soft); }
+table.xtable tbody tr.selected > td, .tree-table tr.selected > td { background: var(--stans-cream) !important; }
+table.xtable tbody tr.selected > td:first-child, .tree-table tr.selected > td:first-child { box-shadow: inset 4px 0 0 var(--stans-orange); }
+.stat { border-top: 4px solid var(--stans-orange); }
+.cards .stat:nth-child(2n) { border-top-color: var(--stans-yellow); }
+.stat .value { color: var(--stans-brown); }
+.note.warn { background: var(--stans-cream); color: var(--stans-brown); border-left: 4px solid var(--stans-yellow); }
+.note.info { background: #fff; border-left: 4px solid var(--stans-orange); }
+.chart .bar-a { fill: var(--stans-brown); }
+.chart .bar-b { fill: var(--stans-orange-2); }
+.chart .line, .chart .dot { stroke: var(--stans-orange); }
+.chart .dot { fill: var(--stans-yellow); stroke: var(--stans-brown); stroke-width: 1.5; }
+.chart .line { stroke: var(--stans-yellow); stroke-width: 3; }
+.pill.rm { background: #fde3d3; color: #9a3a0a; border-color: transparent; }
+.pill.cp { background: var(--stans-cream); color: #6b5300; border-color: transparent; }
+.pill.ic { background: #efe3dc; color: var(--stans-brown); border-color: transparent; }
+.role { background: var(--stans-yellow); color: var(--stans-brown); }
+.seg button[aria-pressed="true"], .seg button.on, .seg .active { background: var(--stans-brown); color: #fff; border-color: var(--stans-brown); }
+input:focus-visible, select:focus-visible, button:focus-visible { outline-color: var(--stans-orange); }
+table.t thead th.sticky-col, table.t thead .sticky-col { background: var(--stans-brown); }
+table.t thead .xf-btn { background: transparent; border-color: rgba(253, 242, 190, .45); color: var(--stans-cream); }
+table.t thead .xf-btn:hover { border-color: var(--stans-yellow); color: var(--stans-yellow); }
+table.t thead .xf-btn.on { background: var(--stans-orange); border-color: var(--stans-yellow); color: #fff; }
+table.t thead .xf-arrow { color: var(--stans-yellow); }
+table.t.pd-status thead th, table.t.pd-prod thead th { background: var(--stans-brown); color: #fff; }
+table.t.pd-prod thead th .wk-label { color: var(--stans-cream); }
+.pd-detail-body table.side-orders th { background: transparent; color: var(--stans-brown); border-bottom: 2px solid var(--stans-yellow); }
+table.t.pd-status thead th:first-child, table.t.pd-prod thead th:first-child { border-radius: 8px 0 0 0; }
+table.t.pd-status thead th:last-child, table.t.pd-prod thead th:last-child { border-radius: 0 8px 0 0; }
+.tabs .tab { border-bottom: 3px solid transparent; }
+.content h1, .dl-title { color: var(--stans-orange); }
+.dl-group h3, table.count-sheet tr.grp td { background: var(--stans-cream); color: var(--stans-brown); }

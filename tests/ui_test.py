@@ -132,7 +132,7 @@ with sync_playwright() as p:
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'dashboard loads after sign-in')
     groups = page.locator('.groups .group').all_inner_texts()
     print('   groups:', ' | '.join(groups))
-    check(groups == ['Dashboard', 'Accounting', 'Sales', 'Inventory', 'Planning', 'Standards'], 'six sections across the top, in order')
+    check([g.title() for g in groups] == ['Dashboard', 'Accounting', 'Sales', 'Inventory', 'Planning', 'Standards'], 'six sections across the top, in order')
     check(page.locator('.brandrow').count() == 0 or page.locator('.brandrow').is_hidden(), 'no gray bar')
     check(page.locator('.tabs').is_hidden(), 'Dashboard has no second row of tabs')
     page.locator('.groups .group', has_text='Inventory').click(); page.wait_for_timeout(100)

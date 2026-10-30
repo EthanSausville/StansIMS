@@ -602,13 +602,16 @@ export function materialPlan(data, plan, { today, inv }) {
     const w = mondayOf(d);
     for (const [it, q] of m) { const k = `${it}|${w}`; used.set(k, (used.get(k) || 0) + q); }
   }
-  const planEnd = addDays(plan.weeks.at(-1), 6);
+  // Purchases plan from the production entered on the Production tab: its
+  // next ENTRY_WEEKS weeks.
+  const planWeeks = plan.weeks.slice(0, ENTRY_WEEKS);
+  const planEnd = addDays(planWeeks.at(-1), 6);
   const days = []; for (let d = today; d <= planEnd; d = addDays(d, 1)) days.push(d);
   const rows = mats.map((item) => {
     const s = settings.get(item.item_no) || {};
     const leadDays = s.lead_days === null || s.lead_days === undefined || s.lead_days === '' ? DEFAULT_LEAD_DAYS : n(s.lead_days);
     const past = hist.map((w) => used.get(`${item.item_no}|${w}`) || 0);
-    const weeks = plan.weeks.map((w) => ({ week: w, need: need.get(`${item.item_no}|${w}`) || 0 }));
+    const weeks = planWeeks.map((w) => ({ week: w, need: need.get(`${item.item_no}|${w}`) || 0 }));
     const avgPlanned = mean(weeks.map((c) => c.need));
     const avgPast = mean(past);
     const demand = weeks.slice(0, ENTRY_WEEKS).reduce((t, c) => t + c.need, 0);
@@ -636,7 +639,10 @@ export function materialPlan(data, plan, { today, inv }) {
         let qty = Math.max(safety - atArrival, 0) + useBetween(addDays(arrives, 1), addDays(arrives, leadDays));
         qty = Math.max(qty, minOrder);
         qty = unitSize ? Math.ceil(qty / unitSize - 1e-9) * unitSize : Math.ceil(qty - 1e-9);
-        const orderBy = addDays(arrives, -leadDays);
+        // Order by: one lead time before the day stock would drop below safety
+        // stock. If that's already past, the order is overdue (and arrives one
+        // lead time from today).
+        const orderBy = addDays(d, -leadDays);
         orders.push({ arrives, week: mondayOf(arrives), qty, orderBy, late: orderBy < today, short: d < earliest, below: d });
         lastArrival = arrives;
         if (arrives === d) proj += qty; else pending.set(arrives, qty);
@@ -644,14 +650,14 @@ export function materialPlan(data, plan, { today, inv }) {
       projected.push([d, proj]);
     }
     const next = orders[0] || null;
-    // red: below safety stock now; orange: order by the end of this week (or
-    // overdue); yellow: order by the end of next week; green: nothing to order before then.
-    const endThisWeek = addDays(mondayOf(today), 6); const endNextWeek = addDays(endThisWeek, 7);
-    const status = onHand < safety ? 'red' : next && next.orderBy <= endThisWeek ? 'orange' : next && next.orderBy <= endNextWeek ? 'yellow' : 'green';
+    // red: below safety stock now; orange: past the day it should have been
+    // ordered; yellow: to order within the next week; white: nothing yet.
+    const weekOut = addDays(today, 7);
+    const status = onHand < safety ? 'red' : next && next.orderBy < today ? 'orange' : next && next.orderBy <= weekOut ? 'yellow' : 'white';
     return { item, leadDays, earliest, short: orders.some((o) => o.short), safety, typedSafety, autoSafety, minOrder, unitSize, multiple, avgPlanned, avgPast, demand, onHand,
       weeks, projected, orders, next, status };
   });
-  return { weeks: plan.weeks, history: { from: histStart, to: histEnd }, rows };
+  return { weeks: planWeeks, history: { from: histStart, to: histEnd }, rows };
 }
 
 // ---------- Consumption ----------

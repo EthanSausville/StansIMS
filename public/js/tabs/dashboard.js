@@ -32,7 +32,7 @@ export default {
           MONTHS.map((m, i) => h('option', { value: i + 1, selected: i + 1 === month }, m))))),
       (() => { const m = missingStandards(state.data, year); const n = m.costs.length + m.prices.length;
         return n ? h('div', { class: 'note warn' }, `${year} standards are incomplete: ${m.costs.length ? `${m.costs.length} item cost${m.costs.length > 1 ? 's' : ''}` : ''}${m.costs.length && m.prices.length ? ' and ' : ''}${m.prices.length ? `${m.prices.length} product price${m.prices.length > 1 ? 's' : ''}` : ''} missing. See Standards → Master List and Sales → Standard Price.`) : null; })(),
-      orderNow.length ? h('div', { class: 'note warn' }, `Below safety stock or to order this week: ${orderNow.map((r) => r.item.name).join(', ')}. See Purchases.`) : null,
+      orderNow.length ? h('div', { class: 'note warn' }, `Below safety stock or overdue to order: ${orderNow.map((r) => r.item.name).join(', ')}. See Purchases.`) : null,
       negative.length ? h('div', { class: 'note warn' }, `${negative.length} item${negative.length > 1 ? 's show' : ' shows'} negative inventory today. Enter missing deliveries on New Receipts, or count it on New Counts.`) : null,
       h('div', { class: 'cards' },
         stat('Sales', money(d.totalSales, 0)),

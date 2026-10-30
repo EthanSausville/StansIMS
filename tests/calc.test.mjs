@@ -230,15 +230,16 @@ test('planning: demand plan, material plan', () => {
   for (const r of m.rows) {
     assert.equal(r.leadDays, 14);
     close(r.safety, Math.max(r.avgPlanned, r.avgPast) * 2 * (14 / 7), `${r.item.name} safety = use over twice the lead time`);
-    assert.ok(['red', 'orange', 'yellow', 'green'].includes(r.status));
+    assert.ok(['red', 'orange', 'yellow', 'white'].includes(r.status));
     if (r.onHand < r.safety) assert.equal(r.status, 'red');
-    else if (r.next && r.next.orderBy <= '2026-11-01') assert.equal(r.status, 'orange');
-    else if (r.next && r.next.orderBy <= '2026-11-08') assert.equal(r.status, 'yellow');
-    else assert.equal(r.status, 'green');
+    else if (r.next && r.next.orderBy < today) assert.equal(r.status, 'orange');
+    else if (r.next && r.next.orderBy <= C.addDays(today, 7)) assert.equal(r.status, 'yellow');
+    else assert.equal(r.status, 'white');
+    assert.equal(r.weeks.length, 6, 'purchases plan from the next 6 weeks of production');
     for (const [day, q] of r.projected) if (day >= r.earliest) assert.ok(q >= r.safety - 1e-6, `${r.item.name} ${day} stays above safety once an order can arrive`);
     assert.equal(r.earliest, C.addDays(today, r.leadDays));
     for (const o of r.orders) assert.ok(o.arrives >= r.earliest, 'no order planned to arrive sooner than the lead time allows');
-    for (const o of r.orders) { assert.equal(o.orderBy, C.addDays(o.arrives, -14)); if (!o.short) assert.equal(o.arrives, o.below, 'an order arrives the day stock would drop below safety'); }
+    for (const o of r.orders) { assert.equal(o.orderBy, C.addDays(o.below, -14), 'ordered one lead time before stock would drop below safety'); if (!o.short) assert.equal(o.arrives, o.below, 'an order arrives the day stock would drop below safety'); else assert.equal(o.arrives, r.earliest); }
     close(r.demand, r.weeks.slice(0, 6).reduce((t, c) => t + c.need, 0), 'demand = next 6 weeks of planned use');
   }
   // a typed-in lead time and safety stock win; orders are whole boxes and at least the minimum order
@@ -247,7 +248,7 @@ test('planning: demand plan, material plan', () => {
   const r2 = m2.rows.find((r) => r.item.item_no === cheese);
   assert.equal(r2.leadDays, 21); assert.equal(r2.safety, 100);
   assert.ok(r2.orders.length > 0);
-  for (const o of r2.orders) { assert.equal(o.qty % (r2.unitSize || 1), 0); assert.ok(o.qty >= 1000); assert.equal(o.orderBy, C.addDays(o.arrives, -21)); }
+  for (const o of r2.orders) { assert.equal(o.qty % (r2.unitSize || 1), 0); assert.ok(o.qty >= 1000); assert.equal(o.orderBy, C.addDays(o.below, -21)); }
 });
 
 test('consumption: count to count', () => {

@@ -8,7 +8,7 @@
 //                  QuickBooks.
 //   Safety Stocks  lead times, safety stocks, minimum orders.
 // The rules are in calc.js (demandPlan, materialPlan).
-import { h, pageHead, numberCell, qty, chip, longDate, typePill, todayIso, toast, niceError } from '../ui.js';
+import { h, pageHead, numberCell, qty, chip, longDate, typePill, todayIso, toast, niceError, acctCell, acctText } from '../ui.js';
 import { state, derived, saveCell, saveField, isAdmin } from '../store.js';
 import { DEFAULT_LEAD_DAYS, SAFETY_LEAD_MULTIPLE, PLAN_WEEKS, ENTRY_WEEKS, ACTUAL_WEEKS, addDays, holdsLabel, inReceiving, hasReceiving, unitWord, mondayOf } from '../calc.js';
 
@@ -19,8 +19,8 @@ import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton }
 const shortDate = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 const weekHead = (w) => h('th', { class: 'num', title: `Week of ${longDate(w)}` }, h('span', { class: 'wk-label' }, 'Wk of'), h('br'), shortDate(w));
 // Status colors (the rows on Purchases).
-const STATUS = { red: ['Below safety stock', 'red'], orange: ['Order this week', 'orange'], yellow: ['Order next week', 'yellow'], green: ['OK', 'green'] };
-const ORDER = ['red', 'orange', 'yellow', 'green'];
+const STATUS = { red: ['Below safety stock', 'red'], orange: ['Order overdue', 'orange'], yellow: ['Order this week', 'yellow'], white: ['OK', 'white'] };
+const ORDER = ['red', 'orange', 'yellow', 'white'];
 const statusPill = (s) => h('span', { class: `status ${STATUS[s][1]}` }, STATUS[s][0]);
 const noData = () => (state.data.missingTables?.has('production_plan')
   ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for planning yet, so production plans can’t be saved until the next deploy to main. The plan uses the average of recent production.') : null);
@@ -167,39 +167,56 @@ export const purchasingTab = {
   id: 'purchasing',
   label: 'Purchases',
   render({ rerender }) {
-    const mp = derived.materials(); const today = todayIso();
+    const mp = derived.materials(); const cm = derived.costs(); const today = todayIso();
     const rows = [...mp.rows].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || (a.next?.orderBy || '9').localeCompare(b.next?.orderBy || '9') || a.item.sort - b.item.sort);
-    const stock = (r) => (hasReceiving(r.item) ? asReceived(r.item, r.onHand) : `${qty(r.onHand, 0)} ${unitWord(r.item.unit, r.onHand)}`);
+    const inUnits = (it, q) => (hasReceiving(it) ? asReceived(it, q) : `${qty(q, 0)} ${unitWord(it.unit, q)}`);
     const unit = (r) => r.item.unit || '';
-    const when = (d) => (d < today ? 'Now' : longDate(d));
-    const detail = (r) => h('tr', { class: 'pd-detail' }, h('td', { colspan: 5 }, h('div', { class: 'pd-detail-body' },
+    // Estimated cost of an order: how much × the item's standard cost for the year it's ordered.
+    const costOf = (r, o) => o.qty * (cm.cost(r.item.item_no, Number((o.orderBy < today ? today : o.orderBy).slice(0, 4))) || cm.latest(r.item.item_no));
+    const md = (iso) => longDate(iso).replace(/, \d{4}$/, '');
+    const when = (o) => (o.orderBy < today ? h('span', { class: 'overdue' }, `Overdue · ${md(o.orderBy)}`) : o.orderBy === today ? 'Today' : md(o.orderBy));
+    const whenText = (o) => (o.orderBy < today ? `Overdue (${o.orderBy})` : o.orderBy);
+    const cols = 7;
+    const detail = (r) => h('tr', { class: 'pu-detail' }, h('td', { colspan: cols }, h('div', { class: 'pd-detail-body' },
       h('dl', { class: 'kv' },
         h('dt', null, 'Use a week'), h('dd', null, orderText(r.item, r.avgPlanned)),
-        h('dt', null, 'Safety stock'), h('dd', null, orderText(r.item, r.safety)),
-        h('dt', null, 'Lead time'), h('dd', null, `${r.leadDays} days`)),
-      r.orders.length ? h('div', null, h('div', { class: 'small muted' }, `Orders over the next ${PLAN_WEEKS} weeks`),
-        h('table', { class: 't natural side-orders' }, h('thead', null, h('tr', null, h('th', null, 'Order by'), h('th', null, 'How much'), h('th', null, 'Arrives'), h('th', null, ''))),
-          h('tbody', null, r.orders.map((o) => h('tr', { class: o.orderBy <= today ? 'late' : null }, h('td', null, when(o.orderBy)), h('td', { title: `${qty(o.qty, 0)} ${unit(r)}` }, orderText(r.item, o.qty)), h('td', null, longDate(o.arrives)),
-            h('td', { class: 'small muted' }, o.short ? `Below safety stock from ${longDate(o.below)} until it arrives` : 'Just as it would drop below safety stock'))))))
-        : h('p', { class: 'small muted' }, `Nothing to order in the next ${PLAN_WEEKS} weeks.`))));
+        h('dt', null, 'Lead time'), h('dd', null, `${r.leadDays} days`),
+        h('dt', null, `Next ${ENTRY_WEEKS} weeks`), h('dd', null, orderText(r.item, r.demand))),
+      r.orders.length ? h('div', null, h('div', { class: 'small muted' }, `Every order over the next ${ENTRY_WEEKS} weeks`),
+        h('table', { class: 't natural side-orders' }, h('thead', null, h('tr', null, h('th', null, 'Order by'), h('th', null, 'How much'), h('th', { class: 'num' }, 'Est. cost'), h('th', null, 'Arrives'), h('th', null, ''))),
+          h('tbody', null, r.orders.map((o) => h('tr', { class: o.orderBy < today ? 'late' : null }, h('td', null, when(o)), h('td', { title: `${qty(o.qty, 0)} ${unit(r)}` }, orderText(r.item, o.qty)),
+            acctCell(costOf(r, o)), h('td', null, md(o.arrives)),
+            h('td', { class: 'small muted' }, o.short ? `Below safety stock from ${longDate(o.below)} until it arrives` : 'Arrives as stock reaches safety stock'))))))
+        : h('p', { class: 'small muted' }, `Nothing to order in the next ${ENTRY_WEEKS} weeks.`))));
+    const nextCost = (r) => (r.next ? costOf(r, r.next) : 0);
+    const total = rows.reduce((t, r) => t + nextCost(r), 0);
+    const dueSoon = rows.filter((r) => r.status !== 'white').reduce((t, r) => t + nextCost(r), 0);
     const dl = [{ key: 'item', label: 'Item', value: (r) => r.item.name }, { key: 'status', label: 'Status', value: (r) => STATUS[r.status][0] },
-      { key: 'on', label: 'On hand', value: (r) => stock(r) }, { key: 'by', label: 'Order by', value: (r) => (r.next ? r.next.orderBy : '') }, { key: 'how', label: 'How much', value: (r) => (r.next ? orderText(r.item, r.next.qty) : '') }];
-    return h('div', null,
+      { key: 'on', label: 'On hand', value: (r) => inUnits(r.item, r.onHand) }, { key: 'safety', label: 'Safety stock', value: (r) => inUnits(r.item, r.safety) },
+      { key: 'by', label: 'Order by', value: (r) => (r.next ? whenText(r.next) : '') }, { key: 'how', label: 'How much', value: (r) => (r.next ? orderText(r.item, r.next.qty) : '') },
+      { key: 'cost', label: 'Est. cost', num: true, value: (r) => (r.next ? Math.round(nextCost(r) * 100) / 100 : null) }];
+    const band = (label, span) => h('th', { colspan: span, class: 'band' }, label ? h('span', { class: 'band-label' }, label) : null);
+    return h('div', { class: 'page-fill' },
       pageHead('Purchases', [
-        'Each row is a raw material or packaging item. Red: below safety stock now. Orange: order by the end of this week. Yellow: order by the end of next week. Green: nothing to order yet.',
-        'Order by is the last day to place the order so the delivery arrives before stock drops below safety stock; How much is what to order, in whole boxes, bags or cases.',
-        `Click a row to see every order it needs over the next ${PLAN_WEEKS} weeks.`,
-        'Place the order in QuickBooks. When it arrives, enter it on Inventory → New Receipts; until then the item still shows as needing it.',
-        'The plan comes from the Production tab; lead times, safety stocks and minimum orders are set on Safety Stocks.',
+        `Each row is a raw material or packaging item. What to buy comes from the next ${ENTRY_WEEKS} weeks on the Production tab, so stock never drops below safety stock once an order can arrive (one lead time from today).`,
+        'Red (flashing): below safety stock now. Orange: the day to order has passed. Yellow: order within the next week. White: nothing to order yet.',
+        'Order by is the last day to place the order so it arrives before stock drops below safety stock. How much is in whole boxes, bags or cases, and Est. cost is How much at the standard cost (Master List).',
+        `Click a row to see every order it needs over the next ${ENTRY_WEEKS} weeks. Place orders in QuickBooks; until the delivery is entered on Inventory → New Receipts, the item still shows as needing it.`,
       ]),
       noData(),
-      h('div', { class: 'table-block wide' },
-        tableActions(downloadButton('purchases', dl, rows)),
-        h('div', { class: 'tablewrap pd-status-wrap', 'data-scroll': 'pd-status' }, h('table', { class: 't natural pd-status' },
-          h('thead', null, h('tr', null, h('th', null, 'Item'), h('th', null, 'Status'), h('th', { class: 'num' }, 'On hand'), h('th', null, 'Order by'), h('th', null, 'How much'))),
-          h('tbody', null, rows.map((r) => [h('tr', { class: `st-${r.status}` + (r.item.item_no === selected ? ' picked' : ''), title: 'Click to see its orders', onclick: () => { selected = r.item.item_no === selected ? null : r.item.item_no; rerender(); } },
-            h('td', null, r.item.name), h('td', null, STATUS[r.status][0]), h('td', { class: 'num' }, stock(r)),
-            h('td', null, r.next ? when(r.next.orderBy) : ''),
-            h('td', null, r.next ? orderText(r.item, r.next.qty) : '')), r.item.item_no === selected ? detail(r) : null]))))));
+      h('div', { class: 'table-actions page-x' }, h('span', { class: 'small muted' }, 'Orders due within a week: ', h('strong', null, '$' + acctText(dueSoon))), downloadButton('purchases', dl, rows)),
+      h('div', { class: 'tablewrap pu-wrap', 'data-scroll': 'pu' }, h('table', { class: 't pu-table' },
+        h('thead', null,
+          h('tr', { class: 'pd-bands' }, band('', 2), band('Stock', 2), band(`Next order · from the next ${ENTRY_WEEKS} weeks`, 3)),
+          h('tr', null, h('th', null, 'Item'), h('th', null, 'Status'), h('th', { class: 'num' }, 'On hand'), h('th', { class: 'num' }, 'Safety stock'),
+            h('th', null, 'Order by'), h('th', null, 'How much'), h('th', { class: 'num' }, 'Est. cost'))),
+        h('tbody', null, rows.map((r) => [h('tr', { class: `st-${r.status}` + (r.item.item_no === selected ? ' picked' : ''), title: 'Click to see its orders', onclick: () => { selected = r.item.item_no === selected ? null : r.item.item_no; rerender(); } },
+          h('td', { class: 'pu-name' }, r.item.name), h('td', { class: 'pu-status' }, STATUS[r.status][0]),
+          h('td', { class: 'num' }, inUnits(r.item, r.onHand)), h('td', { class: 'num muted' }, inUnits(r.item, r.safety)),
+          h('td', null, r.next ? when(r.next) : ''),
+          h('td', null, r.next ? orderText(r.item, r.next.qty) : ''),
+          r.next ? acctCell(nextCost(r)) : h('td')), r.item.item_no === selected ? detail(r) : null]),
+          h('tr', { class: 'pu-fill', 'aria-hidden': 'true' }, Array.from({ length: cols }, () => h('td')))),
+        h('tfoot', null, h('tr', { class: 'pu-total' }, h('td', { colspan: cols - 1 }, `Next orders, all items (next ${ENTRY_WEEKS} weeks)`), acctCell(total))))));
   },
 };

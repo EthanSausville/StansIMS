@@ -934,7 +934,6 @@ table.pd-prod tr.pd-batches td { font-weight: 400; color: var(--muted); font-siz
 .pd-half > .body { padding: 12px 14px 14px; }
 .pd-half table.pd-status, .pd-half table.pd-prod { width: 100%; }
 table.t.pd-status thead th, table.t.pd-prod thead th { background: transparent; position: static; }
-table.t.pd-prod th:first-child, table.t.pd-prod td:first-child { width: 40%; }
 table.t.pd-prod tfoot tr.xt-totals td { position: static; background: transparent; box-shadow: none; border-top: 1px solid var(--line-strong); color: var(--ink); font-size: 13px; }
 table.t.pd-prod tfoot tr.pd-batches td { position: static; background: transparent; border-top: 0; color: var(--muted); font-weight: 400; font-size: 12px; padding-top: 2px; padding-bottom: 2px; }
 .pd-legend { margin-bottom: 12px; }
@@ -1042,33 +1041,35 @@ table.t.pd-status > thead > tr > th { font-size: 14px; font-weight: 700; padding
 table.pd-status { border-spacing: 0 3px; }
 table.pd-status > tbody > tr > td { font-size: 13.5px; padding: 5px 10px; }
 
-/* Production: the weeks made (grey) and the weeks planned (white boxes to type in). */
-.pd-prod-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
-table.t.pd-prod { border-collapse: separate; border-spacing: 0; }
-table.t.pd-prod th:first-child, table.t.pd-prod td:first-child { width: auto; }
-table.t.pd-prod .sticky-col { position: sticky; left: 0; z-index: 2; min-width: 220px; box-shadow: 1px 0 0 var(--line-strong); }
+/* Production: the weeks made (grey) and the weeks planned (boxes to type in),
+   compact, every week the same width, no lines between columns. */
+.tablewrap.pd-prod-wrap { border: 1px solid var(--line); border-radius: 10px; max-width: 100%; }
+.tablewrap.pd-prod-wrap.wide { padding-bottom: 18px; }
+table.t.pd-prod { border-collapse: separate; border-spacing: 0; width: auto; table-layout: fixed; }
+table.t.pd-prod th, table.t.pd-prod td { border-left: 0 !important; border-right: 0 !important; box-shadow: none !important; }
+table.t.pd-prod .sticky-col { position: sticky; left: 0; z-index: 2; width: 210px; min-width: 210px; }
 table.t.pd-prod thead .sticky-col { z-index: 3; }
-table.t.pd-prod tbody td.sticky-col { background: #fff; font-weight: 600; color: var(--stans-brown); }
-table.t.pd-prod thead th { border-radius: 0 !important; }
-table.t.pd-prod tr.pd-bands th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; text-align: center; padding: 7px 8px 5px; font-weight: 700; }
-table.t.pd-prod tr.pd-bands th.band-actual { background: #6b4232; color: var(--stans-cream); }
-table.t.pd-prod tr.pd-bands th.band-plan { background: var(--stans-orange); color: #fff; }
-table.t.pd-prod th.wk { min-width: 84px; text-align: center; padding: 6px 6px 7px; vertical-align: bottom; }
-table.t.pd-prod th.wk .wk-label { display: block; font-size: 10.5px; font-weight: 500; color: var(--stans-cream); opacity: .8; }
-table.t.pd-prod th.wk .wk-date { display: block; font-size: 14px; font-weight: 700; }
+table.t.pd-prod tbody td.sticky-col { background: #fff; font-weight: 600; color: var(--stans-brown); white-space: nowrap; }
+table.t.pd-prod thead th { border-radius: 0 !important; background: var(--stans-brown); }
+table.t.pd-prod tr.pd-bands th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; text-align: left; padding: 6px 10px 0; font-weight: 700; color: var(--stans-yellow); }
+table.t.pd-prod tr.pd-bands th.band-actual, table.t.pd-prod tr.pd-bands th.band-plan { background: var(--stans-brown); }
+table.t.pd-prod th.wk, table.t.pd-prod td.pd-actual, table.t.pd-prod td.pd-plan { width: 72px; min-width: 72px; max-width: 72px; }
+table.t.pd-prod th.wk { text-align: center; padding: 2px 4px 6px; vertical-align: bottom; }
+table.t.pd-prod th.wk .wk-label { display: block; font-size: 10px; font-weight: 500; color: var(--stans-cream); opacity: .75; line-height: 1.2; }
+table.t.pd-prod th.wk .wk-date { display: block; font-size: 13px; font-weight: 700; line-height: 1.25; }
 table.t.pd-prod th.wk.plan.first .wk-label { color: var(--stans-yellow); opacity: 1; font-weight: 700; }
-table.t.pd-prod th.plan.first, table.t.pd-prod td.pd-plan.first { border-left: 3px solid var(--stans-yellow); }
-table.t.pd-prod tbody td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.t.pd-prod th:first-child { vertical-align: bottom; padding: 2px 10px 6px; }
+table.t.pd-prod tbody td { padding: 3px 4px; border-bottom: 1px solid var(--line); height: 34px; }
+table.t.pd-prod tbody td.sticky-col { padding: 3px 10px; }
 table.t.pd-prod tbody tr:last-child td { border-bottom: 0; }
-table.t.pd-prod td.pd-actual { text-align: center; color: var(--muted); background: var(--weekend); font-size: 14px; }
+table.t.pd-prod td.pd-actual { text-align: center; color: var(--muted); background: var(--weekend); font-size: 13.5px; }
 table.t.pd-prod td.pd-plan { text-align: center; background: #fff; }
-table.t.pd-prod td.pd-plan input { width: 64px; text-align: center; font-size: 15px; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; }
+table.t.pd-prod td.pd-plan input { width: 60px; text-align: center; font-size: 13.5px; padding: 2px 4px; height: 26px; border: 1px solid var(--line-strong); border-radius: 5px; background: #fff; }
 table.t.pd-prod td.pd-plan input:hover { border-color: var(--stans-orange); }
 table.t.pd-prod td.pd-plan input:focus { border-color: var(--stans-orange); outline: 2px solid color-mix(in srgb, var(--stans-orange) 30%, transparent); background: var(--entry-focus); }
 table.t.pd-prod td.pd-plan.typed input { font-weight: 700; color: var(--stans-brown); background: var(--stans-cream); border-color: var(--stans-yellow); }
 table.t.pd-prod td.pd-plan.suggested input::placeholder { color: var(--faint); opacity: 1; }
-table.t.pd-prod tbody tr:hover td { background: var(--accent-soft); }
-table.t.pd-prod tbody tr:hover td.sticky-col { background: var(--accent-soft); }
+table.t.pd-prod tbody tr:hover td, table.t.pd-prod tbody tr:hover td.sticky-col { background: var(--accent-soft); }
 table.t.full, .tablewrap.full, .tablewrap.full:has(> table.t) { width: 100% !important; max-width: 100%; }
 table.t.pd-status .pd-detail-body table.side-orders thead th { background: transparent; color: var(--stans-brown); font-size: 12px; padding: 3px 8px; border-radius: 0; border-bottom: 2px solid var(--stans-yellow); }
 table.t.pd-status .pd-detail-body table.side-orders td { font-weight: 600; padding: 3px 8px; }
@@ -1101,3 +1102,44 @@ table.t td.receipt-cell input::placeholder { color: var(--faint); }
 table.t td.cell.carried input::placeholder { color: var(--faint); opacity: 1; }
 /* Side bar buttons never spill past the bar. */
 .side-inner > .btn { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+
+/* ---------- Scrolling: only the page area scrolls ----------
+   The header and the left side bar stay put, and the page's scrollbar runs
+   only beside the part that moves (not beside the header). On phones the
+   side bar sits above the page, so the whole area under the header scrolls. */
+html:has(body > #app > .topbar), body:has(> #app > .topbar) { height: 100%; overflow: hidden; }
+body:has(> #app > .topbar) { min-height: 0; display: flex; flex-direction: column; }
+#app:has(> .topbar) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#app > .topbar { position: relative; flex: none; }
+#app > main#main { flex: 1; min-height: 0; display: flex; width: 100%; min-width: 0; margin: 0; }
+#app > main#main > .layout { flex: 1; min-width: 0; min-height: 0; display: flex; align-items: stretch; }
+#app .sidebar { position: relative; top: auto; height: auto; }
+#app .layout > .content { overflow: auto; scrollbar-width: auto; }
+.tablewrap.fits table.t thead th, .tablewrap.fits table.t.xtable thead { top: 0; }
+.tablewrap.fits table.t thead tr.group + tr th { top: 22px; }
+.tablewrap.fits table.t thead tr.group + tr + tr th { top: 52px; }
+.layout { min-height: 0; }
+@media (max-width: 760px) {
+  #app > main#main { display: block; overflow: auto; }
+  #app > main#main > .layout { display: block; }
+  #app .layout > .content { overflow: visible; }
+}
+
+/* Tables wider than the page scroll sideways with the site's own scrollbar,
+   which starts after the columns that stay put (like the item or date). */
+.tablewrap { scrollbar-width: none; }
+.tablewrap::-webkit-scrollbar { display: none; }
+.tablewrap.wide { padding-bottom: 18px; }
+.float-foot.inline { background: transparent; border: 0; box-shadow: none; }
+.float-foot.inline .ff-rows { display: none; }
+.float-foot .ff-scroll { margin-right: 6px; }
+table.t.pd-prod thead th.sticky-col { position: sticky; left: 0; }
+/* Pinned table headers sit right at the top of the scrolling area, so the
+   space above the page goes on the page itself, not the scroller. */
+#app .layout > .content { padding-top: 0; padding-bottom: 0; }
+#app .layout > .content > * { padding-top: 16px; padding-bottom: 20px; }
+@media (max-width: 760px) { #app .layout > .content > * { padding-top: 12px; } }
+@media (max-width: 640px) {
+  table.t.pd-prod .sticky-col { width: 132px; min-width: 132px; }
+  table.t.pd-prod tbody td.sticky-col { white-space: normal; line-height: 1.2; font-size: 13px; }
+}

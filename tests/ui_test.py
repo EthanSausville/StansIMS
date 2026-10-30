@@ -162,7 +162,7 @@ with sync_playwright() as p:
         check(bad == 0, f'tab renders: {label}')
         shot(page, f'{i + 1:02d}-{re.sub(r"[^a-z]+", "-", label.lower())}')
     # Scrolling: no area inside the page scrolls up and down on its own.
-    js_vert = """[...document.querySelectorAll('main *')].filter(e => { if (e.closest('.side-inner')) return false; const s = getComputedStyle(e); return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1; }).length"""
+    js_vert = """[...document.querySelectorAll('main *')].filter(e => { if (e.closest('.side-inner') || e.matches('.layout > .content')) return false; const s = getComputedStyle(e); return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1; }).length"""
     for label in ALL_TABS:
         tab(page, label)
         n = page.evaluate(js_vert)
@@ -176,12 +176,12 @@ with sync_playwright() as p:
     check(side_w == 10, f'the side bar folds to a 10px strip ({side_w}px)')
     wraps = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.classList.contains('fits'))")
     check(wraps and all(wraps), f'the Sales Detail table fits the screen, so it has no sideways scrollbar ({wraps})')
-    page.evaluate('window.scrollTo(0, 1500)'); page.wait_for_timeout(150)
+    page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 1500"); page.wait_for_timeout(150)
     top = page.evaluate("Math.round(document.querySelector('main .tablewrap thead th').getBoundingClientRect().top)")
     bar = page.evaluate("Math.round(document.querySelector('.topbar').getBoundingClientRect().height)")
     check(abs(top - bar) <= 1, f'Sales Detail column headings stay pinned under the site header ({top} vs {bar})')
     shot(page, '32-sales-scrolled')
-    page.evaluate('window.scrollTo(0, 0)')
+    page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 0")
     page.locator('.side-fold').click(); page.wait_for_timeout(200)
     g = page.locator('.side-grip').bounding_box()
     page.mouse.move(g['x'] + 4, g['y'] + 200); page.mouse.down(); page.mouse.move(g['x'] + 104, g['y'] + 200, steps=4); page.mouse.up(); page.wait_for_timeout(150)
@@ -193,15 +193,19 @@ with sync_playwright() as p:
     tab(page, 'Production')
     side = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.scrollWidth > w.clientWidth)")
     tab(page, 'Daily Inventory')
-    page.evaluate('window.scrollTo(0, 700)'); page.wait_for_timeout(200)
+    page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 700"); page.wait_for_timeout(200)
     fh = page.evaluate("(() => { const f = document.querySelector('.float-head'); if (!f) return null; const r = f.getBoundingClientRect(); return [Math.round(r.top), f.textContent.includes('Cheese')]; })()")
     check(fh is not None and abs(fh[0] - bar) <= 1 and fh[1], f'wide tables keep their column names under the site header too ({fh})')
     page.evaluate("document.querySelector('main .tablewrap').scrollLeft = 300"); page.wait_for_timeout(150)
     off = page.evaluate("(() => { const w = document.querySelector('main .tablewrap'); const real = w.querySelector('thead tr:nth-child(2) th:nth-child(5)').getBoundingClientRect().left; const copy = document.querySelector('.float-head thead tr:nth-child(2) th:nth-child(5)').getBoundingClientRect().left; return Math.round(real - copy); })()")
     check(abs(off) <= 1, f'the floating header lines up with the columns after scrolling sideways (off by {off}px)')
-    page.evaluate('window.scrollTo(0, 0)'); page.wait_for_timeout(150)
+    page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 0"); page.wait_for_timeout(150)
     dock = page.evaluate("(() => { const f = document.querySelector('.float-foot .ff-scroll'); if (!f) return null; return Math.round(innerHeight - f.getBoundingClientRect().bottom); })()")
     check(dock is not None and 0 <= dock <= 4, f'wide tables have their sideways scrollbar docked at the bottom of the screen ({dock})')
+    st = page.evaluate("(() => { const w = document.querySelector('main .tablewrap'); const c = w.querySelector('tbody tr .sticky-col'); return [Math.round(document.querySelector('.float-foot .ff-scroll').getBoundingClientRect().left), Math.round(c.getBoundingClientRect().right)]; })()")
+    check(st[0] >= st[1], f'the sideways scrollbar starts after the column that stays put ({st})')
+    pg_sc = page.evaluate("[document.documentElement.scrollHeight - innerHeight, Math.round(document.querySelector('#app .layout > .content').getBoundingClientRect().top - document.querySelector('.topbar').getBoundingClientRect().bottom)]")
+    check(pg_sc[0] <= 0 and pg_sc[1] == 0, f'only the page area scrolls, so its scrollbar starts under the header ({pg_sc})')
     page.evaluate("document.querySelector('main .tablewrap').scrollLeft = 0"); page.wait_for_timeout(150)
     t = page.locator('.float-foot .ff-thumb').bounding_box()
     page.mouse.move(t['x'] + 10, t['y'] + 5); page.mouse.down(); page.mouse.move(t['x'] + 210, t['y'] + 5, steps=5); page.mouse.up(); page.wait_for_timeout(150)
@@ -209,7 +213,7 @@ with sync_playwright() as p:
     t2 = page.locator('.float-foot .ff-thumb').bounding_box()
     check(sl > 200 and abs(t2['x'] - t['x'] - 200) <= 2, f'dragging the docked scrollbar scrolls the table sideways (table at {sl}px, thumb moved {t2["x"] - t["x"]:.0f}px)')
     shot(page, '36-wide-table-docked-scrollbar')
-    page.evaluate('window.scrollTo(0, 0)')
+    page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 0")
 
     check(not errors, 'no browser errors while visiting tabs' + (f': {errors[:3]}' if errors else ''))
 
@@ -320,11 +324,11 @@ with sync_playwright() as p:
     money = lambda v: round(v, 2)
     latest = max(int(s['date'][:4]) for s in inputs['sales'])
     yr = [s for s in inputs['sales'] if s['date'].startswith(str(latest))]
-    page.evaluate('window.scrollTo(0, 400)'); page.wait_for_timeout(150)
+    page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 400"); page.wait_for_timeout(150)
     gap = page.evaluate("Math.round(innerHeight - document.querySelector('main table.xtable tfoot tr.xt-totals td:nth-child(3)').getBoundingClientRect().bottom)")
     check(abs(gap) <= 1, f'the totals row is pinned to the bottom of the screen ({gap}px from the bottom)')
     shot(page, '35-sales-totals-bottom')
-    page.evaluate('window.scrollTo(0, 0)')
+    page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 0")
     tot = lambda: [x.split('\n')[0] if i == 0 else acct(x) for i, x in enumerate(page.locator('tfoot tr.xt-totals td').all_inner_texts())]
     t = tot()
     check(t[0] == (f'{len(yr):,} lines' if len(yr) == len(inputs['sales']) else f'{len(yr):,} of {len(inputs["sales"]):,}') and t[4] == money(sum(s['amount'] or 0 for s in yr)),
@@ -918,7 +922,7 @@ with sync_playwright() as p:
     tab(page, 'Production'); shot(page, '25-phone-production')
     for i, t in enumerate(['New Receipts', 'New Counts', 'Purchases', 'Planning/Production', 'Sales Detail']):
         tab(page, t); page.wait_for_timeout(150)
-        ov = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
+        ov = page.evaluate('Math.max(document.documentElement.scrollWidth - window.innerWidth, document.querySelector("main").scrollWidth - document.querySelector("main").clientWidth)')
         check(ov <= 0, f'{t}: no sideways page scroll on a phone ({ov}px)')
         shot(page, f'25{chr(98 + i)}-phone-{t.lower().replace(" ", "-")}')
     ctx.close()

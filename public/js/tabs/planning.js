@@ -135,7 +135,7 @@ export const productionPlanTab = {
     return h('div', null,
       pageHead('Production', `The cases made each of the last ${ACTUAL_WEEKS} weeks (from Production entries), and the cases to make each of the next ${ENTRY_WEEKS} weeks. A grey number is the average of the last ${ACTUAL_WEEKS} weeks, and is used until you type over it. This is what Purchases orders materials for.`),
       noData(),
-      h('div', { class: 'scroll-x pd-prod-wrap' }, h('table', { class: 't plain-cells pd-prod full' },
+      h('div', { class: 'tablewrap pd-prod-wrap', 'data-scroll': 'pd-prod' }, h('table', { class: 't plain-cells pd-prod' },
         h('thead', null,
           h('tr', { class: 'pd-bands' }, h('th', { class: 'sticky-col' }, ''), h('th', { colspan: ACTUAL_WEEKS, class: 'band-actual' }, `Made · last ${ACTUAL_WEEKS} weeks`), h('th', { colspan: ENTRY_WEEKS, class: 'band-plan' }, `Plan · next ${ENTRY_WEEKS} weeks`)),
           h('tr', null, h('th', { class: 'sticky-col' }, 'Product'), plan.actualWeeks.map((w, i) => head(w, i, 'actual')), weeks.map((w, i) => head(w, i, 'plan')))),

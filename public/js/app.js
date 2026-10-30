@@ -206,6 +206,9 @@ function renderTabs({ groupBar, tabBar }) {
 
 let ui = null;
 let scheduled = false;
+// The part of the page that scrolls: the content beside the side bar, or on
+// phones (side bar on top) the whole area under the header.
+const scroller = () => (ui && getComputedStyle(ui.content).overflowY !== 'visible' ? ui.content : ui?.main);
 function render() {
   if (!ui || !state.data) return;
   const id = routeId();
@@ -214,7 +217,7 @@ function render() {
   const active = document.activeElement;
   const focusKey = active?.dataset?.k; const typed = active?.value; const sel = [active?.selectionStart, active?.selectionEnd];
   const scrolls = [...ui.main.querySelectorAll('[data-scroll]')].map((el) => [el.dataset.scroll, el.scrollTop, el.scrollLeft]);
-  const pageY = current === id ? window.scrollY : 0;
+  const pageY = current === id ? scroller().scrollTop : 0;
   let content;
   try { content = tab.render({ rerender: schedule }); } catch (e) { console.error(e); content = h('div', { class: 'note bad' }, 'Something went wrong showing this page: ' + e.message); }
   // A tab's bar of controls moves to the side bar; its description goes
@@ -229,7 +232,7 @@ function render() {
   ui.about.replaceChildren(info?.description ? aboutButton(info.title, info.description) : '');
   ui.content.replaceChildren(content);
   for (const [k, top, left] of scrolls) { const el = ui.main.querySelector(`[data-scroll="${k}"]`); if (el) { el.scrollTop = top; el.scrollLeft = left; } }
-  if (current === id) window.scrollTo(0, pageY);
+  if (current === id) scroller().scrollTop = pageY; else { ui.content.scrollTop = 0; ui.main.scrollTop = 0; }
   if (focusKey) {
     const el = ui.main.querySelector(`[data-k="${CSS.escape(focusKey)}"]`);
     if (el) { el.focus(); if (typed !== undefined && el.value !== typed) el.value = typed; try { el.setSelectionRange(sel[0], sel[1]); } catch { /* not a text input */ } }
@@ -261,15 +264,16 @@ async function start() {
   }
 }
 
-window.addEventListener('hashchange', () => { if (ui) { renderTabs(ui.tabBar); render(); window.scrollTo(0, 0); } });
+window.addEventListener('hashchange', () => { if (ui) { renderTabs(ui.tabBar); render(); ui.content.scrollTop = 0; ui.main.scrollTop = 0; } });
 onChange(schedule);
 // Tables that fit the screen don't need their own sideways scrolling, so
 // they're marked .fits and their header row pins under the site header.
 function fitTables() {
   if (!ui) return;
   for (const w of ui.main.querySelectorAll('.tablewrap')) {
-    w.classList.remove('fits');
-    w.classList.toggle('fits', w.scrollWidth <= w.clientWidth + 1);
+    w.classList.remove('fits', 'wide');
+    const fits = w.scrollWidth <= w.clientWidth + 1;
+    w.classList.toggle('fits', fits); w.classList.toggle('wide', !fits);
   }
 }
 const topbarObserver = new ResizeObserver((entries) => {
@@ -281,7 +285,7 @@ const topbarObserver = new ResizeObserver((entries) => {
 // following the table's sideways scroll.
 function pinWideHeaders() {
   if (!ui) return;
-  const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 0;
+  const top = scroller().getBoundingClientRect().top;
   for (const w of ui.main.querySelectorAll('.tablewrap')) {
     const table = w.querySelector(':scope > table'); const head = table?.querySelector(':scope > thead');
     let float = w._float;
@@ -318,12 +322,15 @@ function pinWideHeaders() {
 // screen, kept in step with the table's own sideways scroll.
 function dockWideFooters() {
   if (!ui) return;
-  const vh = window.innerHeight;
+  const sr = scroller().getBoundingClientRect(); const vh = sr.bottom;
   for (const w of ui.main.querySelectorAll('.tablewrap')) {
     const table = w.querySelector(':scope > table'); const foot = table?.querySelector(':scope > tfoot');
     const r = w.getBoundingClientRect();
     const wide = !w.classList.contains('fits') && w.scrollWidth > w.clientWidth + 1;
-    const show = table && wide && r.bottom > vh && r.top < vh - 80;
+    // Docked to the bottom of the screen while the table runs past it;
+    // otherwise drawn just under the table, in the room left for it.
+    const floating = r.bottom > vh;
+    const show = table && wide && (floating ? r.top < vh - 80 : r.bottom - 16 > sr.top);
     let dock = w._dock;
     if (!show) { if (dock) { dock.remove(); w._dock = null; } continue; }
     if (!dock || !dock.isConnected) {
@@ -364,9 +371,16 @@ function dockWideFooters() {
       dock.append(rows, bar); document.body.append(dock); w._dock = dock;
     }
     dock.style.left = `${r.left}px`; dock.style.width = `${r.width}px`;
+    dock.classList.toggle('inline', !floating);
+    if (floating) { dock.style.top = ''; dock.style.bottom = `${Math.max(0, window.innerHeight - vh)}px`; }
+    else { dock.style.bottom = 'auto'; dock.style.top = `${r.bottom - 18}px`; }
     const [rows, bar] = dock.children;
+    // The scrollbar starts after the columns that don't scroll.
+    const fixedCells = table.querySelector(':scope > tbody > tr')?.querySelectorAll(':scope > .sticky-col') || [];
+    const fixedW = fixedCells.length ? fixedCells[fixedCells.length - 1].getBoundingClientRect().right - r.left : 0;
+    bar.style.marginLeft = `${Math.max(6, Math.round(fixedW) + 4)}px`;
     const thumb = bar.firstChild; const track = bar.clientWidth;
-    const tw = Math.max(48, Math.round(track * w.clientWidth / w.scrollWidth));
+    const tw = Math.max(48, Math.round(track * Math.max(1, w.clientWidth - fixedW) / Math.max(1, w.scrollWidth - fixedW)));
     const max = w.scrollWidth - w.clientWidth;
     thumb.style.width = `${tw}px`;
     thumb.style.transform = `translateX(${max > 0 ? Math.round((track - tw) * w.scrollLeft / max) : 0}px)`;

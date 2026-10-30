@@ -4,7 +4,7 @@
 // Quantities and line costs are for one run of the BOM directly above.
 // BOMs are by year: a year shows its own BOMs, or carries the latest earlier one.
 // Click a BOM to select it; Edit BOM (left) opens it in the editor.
-import { h, pageHead, qty, money, fmt, yearSelect, typePill, thisYear } from '../ui.js';
+import { h, pageHead, qty, money, fmt, yearSelect, typePill, thisYear, itemNoTh } from '../ui.js';
 import { state, derived, isAdmin } from '../store.js';
 import { openInEditor, bomEditor, editorOpen } from './createbom.js';
 
@@ -53,15 +53,15 @@ export default {
       const q = line && !blankQty ? ix.lineQty(line) : null;
       const toggle = () => { if (!b) return; isOpen ? open.delete(key) : open.add(key); rerender(); };
       const pick = () => { if (!b) return; if (!editorOpen()) selected = itemNo; toggle(); };
-      const nameCell = h('td', { class: 'sticky-col tree-cell' }, h('div', { class: 'tree' },
+      const nameCell = h('td', { class: 'sticky-col sticky-col2 tree-cell' }, h('div', { class: 'tree' },
         guides.map((cont) => h('span', { class: 'guide ' + (cont ? 'pipe' : 'blank'), 'aria-hidden': 'true' })),
         depth > 0 ? h('span', { class: 'guide ' + (isLast ? 'elbow' : 'tee'), 'aria-hidden': 'true' }) : null,
         b ? h('button', { class: 'twisty' + (isOpen ? ' open' : ''), 'aria-expanded': String(isOpen), 'aria-label': `${isOpen ? 'Close' : 'Open'} ${it.name}`, onclick: (e) => { e.stopPropagation(); toggle(); } }, isOpen ? '−' : '+')
           : h('span', { class: 'leaf', 'aria-hidden': 'true' }),
         h('span', { class: 'tree-name' + (depth === 0 ? ' top' : '') }, it.name)));
       rows.push(h('tr', { class: `tree-row d${Math.min(depth, 3)}` + (b ? ' has-bom' : '') + (b && itemNo === selected ? ' selected' : ''), onclick: b ? pick : null, 'aria-selected': b ? String(itemNo === selected) : null },
+        h('td', { class: 'sticky-col itemno' }, itemNo),
         nameCell,
-        h('td', { class: 'muted' }, itemNo),
         h('td', null, typePill(it.type)),
         h('td', { class: 'small muted used-in' }, depth === 0 && b ? usedInText(itemNo) : ''),
         h('td', { class: 'num' }, line && q !== null ? (line.uses_batch_minutes ? h('span', { title: 'Labor minutes per run of this BOM' }, qty(q, 4)) : qty(q, 4)) : ''),
@@ -99,7 +99,7 @@ export default {
         carried && Number.isFinite(firstYear) && carried === tops.length && firstYear < year ? h('span', { class: 'small muted' }, `Same as ${firstYear} until changed`)
           : carried ? h('span', { class: 'small muted' }, `${carried} of ${tops.length} carried over from earlier years`) : null),
       tops.length ? h('div', { class: 'tablewrap', 'data-scroll': 'bomtree' }, h('table', { class: 't tree-table' },
-        h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Item #'), h('th', null, 'Type'), h('th', null, 'Used in'),
+        h('thead', null, h('tr', null, itemNoTh(), h('th', { class: 'sticky-col sticky-col2' }, 'Item'), h('th', null, 'Type'), h('th', null, 'Used in'),
           h('th', { class: 'num' }, 'Qty'), h('th', null, 'Unit'), h('th', null, 'One run makes'),
           h('th', { class: 'num' }, `Unit cost (${year})`), h('th', { class: 'num' }, 'Line cost'))),
         h('tbody', null, rows)))

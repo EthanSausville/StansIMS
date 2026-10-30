@@ -8,9 +8,9 @@
 //                  QuickBooks.
 //   Safety Stocks  lead times, safety stocks, minimum orders.
 // The rules are in calc.js (demandPlan, materialPlan).
-import { h, pageHead, numberCell, qty, chip, longDate, typePill, todayIso, toast, niceError, acctCell, acctText } from '../ui.js';
+import { h, pageHead, numberCell, qty, chip, longDate, typePill, todayIso, toast, niceError, acctCell, acctText, itemNoCol, itemNoTh, itemNoTd } from '../ui.js';
 import { state, derived, saveCell, saveField, isAdmin } from '../store.js';
-import { DEFAULT_LEAD_DAYS, SAFETY_LEAD_MULTIPLE, PLAN_WEEKS, ENTRY_WEEKS, ACTUAL_WEEKS, addDays, holdsLabel, inReceiving, hasReceiving, unitWord, mondayOf } from '../calc.js';
+import { DEFAULT_LEAD_DAYS, SAFETY_LEAD_MULTIPLE, PLAN_WEEKS, ENTRY_WEEKS, ACTUAL_WEEKS, addDays, holdsLabel, inReceiving, hasReceiving, unitWord, mondayOf, receiptText } from '../calc.js';
 
 // "2,640 box" for a quantity in base units, when the item has a receiving unit.
 const asReceived = (it, q) => { if (!hasReceiving(it)) return ''; const x = inReceiving(it, q); return `${qty(x, 1)} ${unitWord(it.receiving_unit, x)}`; };
@@ -35,43 +35,8 @@ const tableActions = (...items) => h('div', { class: 'table-actions' }, items);
 // ---------- Safety Stocks ----------
 // One row per item; amounts are in the item's unit from the Master List, and
 // the three white columns can be typed over (a grey number is the default).
-// The (i) by each name opens a little note pad: what the item comes in, and
-// notes anyone can keep about it (purchase_settings.notes).
-let notepad = null; // the open note pad, if any
-function closeNotepad() { if (notepad) { notepad.remove(); notepad = null; document.removeEventListener('mousedown', outsideNotepad, true); } }
-function outsideNotepad(e) { if (notepad && !notepad.contains(e.target) && !e.target.closest?.('.note-btn')) closeNotepad(); }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && notepad) closeNotepad(); });
-function openNotepad(btn, item, note, canEdit) {
-  const same = notepad && notepad.dataset.item === String(item.item_no);
-  closeNotepad(); if (same) return;
-  const area = h('textarea', { rows: 6, placeholder: canEdit ? 'Type notes about this item: supplier, who to call, anything worth remembering…' : 'No notes yet.', disabled: !canEdit, 'aria-label': `Notes about ${item.name}` });
-  area.value = note || '';
-  const status = h('span', { class: 'small muted np-status' });
-  let saved = note || '';
-  const save = async () => {
-    const v = area.value.trim() ? area.value : null;
-    if ((v || '') === (saved || '')) return;
-    status.textContent = 'Saving…';
-    try { await saveField('purchase_settings', { item_no: item.item_no }, 'notes', v); saved = v || ''; status.textContent = 'Saved'; }
-    catch (err) { status.textContent = ''; toast(niceError(err), 'bad'); }
-  };
-  area.addEventListener('blur', save);
-  const facts = [['Item #', item.item_no], ['Unit', item.unit || 'each'],
-    ['Comes in', hasReceiving(item) ? `${item.receiving_unit[0].toUpperCase()}${item.receiving_unit.slice(1)} of ${holdsLabel(item)}` : 'No receiving unit set (Master List)']];
-  notepad = h('div', { class: 'notepad', role: 'dialog', 'aria-label': `${item.name} notes`, 'data-item': item.item_no },
-    h('div', { class: 'np-head' }, h('strong', null, item.name), h('button', { type: 'button', class: 'np-close', 'aria-label': 'Close', onclick: () => { save(); closeNotepad(); } }, '×')),
-    h('dl', { class: 'np-facts' }, facts.map(([k, v]) => [h('dt', null, k), h('dd', null, String(v))])),
-    h('label', { class: 'np-label' }, 'Notes'), area,
-    h('div', { class: 'np-foot' }, status, canEdit ? h('button', { type: 'button', class: 'btn primary', onclick: async () => { await save(); closeNotepad(); } }, 'Save') : null));
-  document.body.append(notepad);
-  const r = btn.getBoundingClientRect();
-  const w = notepad.offsetWidth; const hgt = notepad.offsetHeight;
-  notepad.style.left = `${Math.max(8, Math.min(r.right + 8, window.innerWidth - w - 8))}px`;
-  notepad.style.top = `${Math.max(8, Math.min(r.top - 10, window.innerHeight - hgt - 8))}px`;
-  document.addEventListener('mousedown', outsideNotepad, true);
-  if (canEdit) area.focus();
-}
-
+// The Notes column starts with the minimum order and what the item comes in;
+// type over it to keep anything else (supplier, who to call...).
 export const safetyStocksTab = {
   id: 'safety',
   label: 'Safety Stocks',
@@ -87,13 +52,24 @@ export const safetyStocksTab = {
     const cls = (r, field) => (set(r, field) === null ? 'suggested' : 'typed');
     const unitMin = (r) => (hasReceiving(r.item) ? Number(r.item.units_per_receiving) : 1);
     const minOf = (r) => r.minOrder || unitMin(r);
-    const noteBtn = (r) => { const note = set(r, 'notes');
-      const b = h('button', { type: 'button', class: 'note-btn' + (note ? ' has-note' : ''), title: note ? `Notes: ${note}` : 'Details and notes', 'aria-label': `${r.item.name} details and notes`,
-        onclick: (e) => { e.stopPropagation(); openNotepad(b, r.item, settings.get(r.item.item_no)?.notes, admin); } }, 'i');
-      return b; };
+    // Notes: what the item comes in and its minimum order, until someone types their own.
+    const defaultNote = (r) => [`Min order ${withUnit(r)(minOf(r))}${hasReceiving(r.item) && minOf(r) % Number(r.item.units_per_receiving) === 0 ? ` (${qty(minOf(r) / Number(r.item.units_per_receiving), 0)} ${unitWord(r.item.receiving_unit, minOf(r) / Number(r.item.units_per_receiving))})` : ''}`,
+      hasReceiving(r.item) ? `comes in a ${receiptText(r.item)}` : 'comes loose'].join('; ');
+    const noteOf = (r) => set(r, 'notes') || defaultNote(r);
+    const notesCell = (r) => {
+      const typed = set(r, 'notes');
+      const input = h('input', { type: 'text', class: 'note-input', value: noteOf(r), disabled: !admin, 'data-k': `ps|${r.item.item_no}|notes`, 'aria-label': `Notes about ${r.item.name}`,
+        title: typed ? typed : 'Defaults to the minimum order and what it comes in; type over it to keep your own notes',
+        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } if (e.key === 'Escape') { input.value = noteOf(r); input.blur(); } },
+        onchange: async () => {
+          const v = input.value.trim(); const value = !v || v === defaultNote(r) ? null : v;
+          try { await saveField('purchase_settings', { item_no: r.item.item_no }, 'notes', value); } catch (err) { input.classList.add('error'); toast(niceError(err), 'bad'); }
+        } });
+      return h('td', { class: 'cell entry note-cell' + (typed ? ' typed' : ' suggested') }, input);
+    };
     const columns = [
-      { key: 'name', label: 'Item', sticky: true, grow: true, value: (r) => r.item.name,
-        cell: (r) => h('td', { class: 'sticky-col' }, h('div', { class: 'item-note' }, h('span', null, r.item.name), noteBtn(r))) },
+      itemNoCol((r) => r.item),
+      { key: 'name', label: 'Item', sticky2: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col sticky-col2' }, r.item.name) },
       { key: 'min', label: 'Min Order', num: true, value: minOf, text: (r) => withUnit(r)(minOf(r)),
         cell: (r) => numberCell(set(r, 'standard_purchase'), save(r, 'standard_purchase'),
           { disabled: !admin, digits: 2, display: withUnit(r), key: `ps|${r.item.item_no}|standard_purchase`, placeholder: withUnit(r)(unitMin(r)), cls: cls(r, 'standard_purchase'),
@@ -106,7 +82,7 @@ export const safetyStocksTab = {
       { key: 'safety', label: 'Safety stock', num: true, value: (r) => r.safety, text: (r) => n0(r.safety),
         cell: (r) => numberCell(set(r, 'safety_stock'), save(r, 'safety_stock'),
           { disabled: !admin, digits: 2, display: n0, key: `ps|${r.item.item_no}|safety_stock`, placeholder: n0(r.autoSafety), cls: cls(r, 'safety_stock'), title: `${r.item.name}: safety stock in ${unit(r)} (blank = calculated, ${n0(r.autoSafety)})` }) },
-      { key: 'notes', label: 'Notes', hidden: true, value: (r) => set(r, 'notes') || '' },
+      { key: 'notes', label: 'Notes', grow: true, value: noteOf, cell: notesCell },
     ];
     const shown = filteredRows({ id: 'safety-stocks', columns, rows });
     const nFilters = activeFilterCount('safety-stocks');
@@ -114,14 +90,14 @@ export const safetyStocksTab = {
       pageHead('Safety Stocks', [
         `Each row is a raw material or packaging item, in its unit from the Master List. Demand is what the next ${ENTRY_WEEKS} weeks on the Production tab will use.`,
         `Grey numbers are the defaults: a ${DEFAULT_LEAD_DAYS}-day lead time, a safety stock that covers ${SAFETY_LEAD_MULTIPLE}× the lead time of use, and a minimum order of one box, bag or case. Type over one to change it; clear it to go back.`,
-        'Click the (i) by an item to see what it comes in and to keep notes about it (supplier, who to call…).',
+        'Notes start with the minimum order and what the item comes in; type over them to keep your own (supplier, who to call…), or clear them to go back.',
         'Purchases uses these to tell you when to order and how much.' + (admin ? '' : ' Only admins can change them.'),
       ]),
       noData(),
       h('div', { class: 'table-block wide' },
         tableActions(nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('safety-stocks'); rerender(); } }, `Clear filters (${nFilters})`) : null,
           downloadButton('safety-stocks', columns, shown)),
-        h('div', { class: 'tablewrap full', 'data-scroll': 'safety-stocks' }, xtable({ id: 'safety-stocks', columns: columns.filter((c) => !c.hidden), allRows: rows, rows: shown, rerender, className: 'plain-cells ss-table full' }))));
+        h('div', { class: 'tablewrap full', 'data-scroll': 'safety-stocks' }, xtable({ id: 'safety-stocks', columns, allRows: rows, rows: shown, rerender, className: 'plain-cells ss-table full' }))));
   },
 };
 
@@ -147,15 +123,15 @@ export const productionPlanTab = {
       noData(),
       h('div', { class: 'tablewrap pd-prod-wrap', 'data-scroll': 'pd-prod' }, h('table', { class: 't plain-cells pd-prod' },
         h('thead', null,
-          h('tr', { class: 'pd-bands' }, h('th', { class: 'sticky-col' }, ''), h('th', { colspan: ACTUAL_WEEKS, class: 'band-actual' }, h('span', { class: 'band-label' }, `Made · last ${ACTUAL_WEEKS} weeks`)), h('th', { colspan: ENTRY_WEEKS, class: 'band-plan' }, h('span', { class: 'band-label' }, `Plan · next ${ENTRY_WEEKS} weeks`))),
-          h('tr', null, h('th', { class: 'sticky-col' }, 'Product'), plan.actualWeeks.map((w, i) => head(w, i, 'actual')), weeks.map((w, i) => head(w, i, 'plan')))),
-        h('tbody', null, plan.rows.map((r) => h('tr', null, h('td', { class: 'sticky-col pd-name' }, r.item.name),
+          h('tr', { class: 'pd-bands' }, h('th', { class: 'sticky-col itemno' }, ''), h('th', { class: 'sticky-col sticky-col2' }, ''), h('th', { colspan: ACTUAL_WEEKS, class: 'band-actual' }, h('span', { class: 'band-label' }, `Made · last ${ACTUAL_WEEKS} weeks`)), h('th', { colspan: ENTRY_WEEKS, class: 'band-plan' }, h('span', { class: 'band-label' }, `Plan · next ${ENTRY_WEEKS} weeks`))),
+          h('tr', null, itemNoTh(), h('th', { class: 'sticky-col sticky-col2' }, 'Product'), plan.actualWeeks.map((w, i) => head(w, i, 'actual')), weeks.map((w, i) => head(w, i, 'plan')))),
+        h('tbody', null, plan.rows.map((r) => h('tr', null, itemNoTd(r.item), h('td', { class: 'sticky-col sticky-col2 pd-name' }, r.item.name),
           r.actuals.map((v, i) => h('td', { class: 'num pd-actual' + (i === 0 ? ' first' : ''), title: `${r.item.name}: made the week of ${longDate(plan.actualWeeks[i])}` }, v ? qty(v, 0) : '–')),
           r.weeks.slice(0, ENTRY_WEEKS).map((c, i) => numberCell(c.typed ? c.production : null, (v) => saveCell('production_plan', { item_no: r.item.item_no, week: c.week }, 'cases', v),
             { disabled: !admin, digits: 0, key: `pp|${r.item.item_no}|${c.week}`, placeholder: qty(Math.round(c.demand), 0), cls: (c.typed ? 'typed' : 'suggested') + ' pd-plan' + (i === 0 ? ' first' : ''),
               title: `${r.item.name}, week of ${longDate(c.week)} (average ${qty(c.demand, 1)} a week; clear to use it)` })))),
           // Fills the rest of the page so the grey of the weeks made runs to the bottom.
-          h('tr', { class: 'pd-fill', 'aria-hidden': 'true' }, h('td', { class: 'sticky-col' }), plan.actualWeeks.map(() => h('td', { class: 'pd-actual' })), weeks.map(() => h('td', { class: 'pd-plan' })))))));
+          h('tr', { class: 'pd-fill', 'aria-hidden': 'true' }, h('td', { class: 'sticky-col itemno' }), h('td', { class: 'sticky-col sticky-col2' }), plan.actualWeeks.map(() => h('td', { class: 'pd-actual' })), weeks.map(() => h('td', { class: 'pd-plan' })))))));
   },
 };
 
@@ -176,7 +152,7 @@ export const purchasingTab = {
     const md = (iso) => longDate(iso).replace(/, \d{4}$/, '');
     const when = (o) => (o.orderBy < today ? h('span', { class: 'overdue' }, `Overdue · ${md(o.orderBy)}`) : o.orderBy === today ? 'Today' : md(o.orderBy));
     const whenText = (o) => (o.orderBy < today ? `Overdue (${o.orderBy})` : o.orderBy);
-    const cols = 7;
+    const cols = 8;
     const detail = (r) => h('tr', { class: 'pu-detail' }, h('td', { colspan: cols }, h('div', { class: 'pd-detail-body' },
       h('dl', { class: 'kv' },
         h('dt', null, 'Use a week'), h('dd', null, orderText(r.item, r.avgPlanned)),
@@ -191,7 +167,7 @@ export const purchasingTab = {
     const nextCost = (r) => (r.next ? costOf(r, r.next) : 0);
     const total = rows.reduce((t, r) => t + nextCost(r), 0);
     const dueSoon = rows.filter((r) => r.status !== 'white').reduce((t, r) => t + nextCost(r), 0);
-    const dl = [{ key: 'item', label: 'Item', value: (r) => r.item.name }, { key: 'status', label: 'Status', value: (r) => STATUS[r.status][0] },
+    const dl = [{ key: 'item_no', label: 'Item #', value: (r) => r.item.item_no }, { key: 'item', label: 'Item', value: (r) => r.item.name }, { key: 'status', label: 'Status', value: (r) => STATUS[r.status][0] },
       { key: 'on', label: 'On hand', value: (r) => inUnits(r.item, r.onHand) }, { key: 'safety', label: 'Safety stock', value: (r) => inUnits(r.item, r.safety) },
       { key: 'by', label: 'Order by', value: (r) => (r.next ? whenText(r.next) : '') }, { key: 'how', label: 'How much', value: (r) => (r.next ? orderText(r.item, r.next.qty) : '') },
       { key: 'cost', label: 'Est. cost', num: true, value: (r) => (r.next ? Math.round(nextCost(r) * 100) / 100 : null) }];
@@ -207,11 +183,11 @@ export const purchasingTab = {
       h('div', { class: 'table-actions page-x' }, h('span', { class: 'small muted' }, 'Orders due within a week: ', h('strong', null, '$' + acctText(dueSoon))), downloadButton('purchases', dl, rows)),
       h('div', { class: 'tablewrap pu-wrap', 'data-scroll': 'pu' }, h('table', { class: 't pu-table' },
         h('thead', null,
-          h('tr', { class: 'pd-bands' }, band('', 2), band('Stock', 2), band(`Next order · from the next ${ENTRY_WEEKS} weeks`, 3)),
-          h('tr', null, h('th', null, 'Item'), h('th', null, 'Status'), h('th', { class: 'num' }, 'On hand'), h('th', { class: 'num' }, 'Safety stock'),
+          h('tr', { class: 'pd-bands' }, band('', 3), band('Stock', 2), band(`Next order · from the next ${ENTRY_WEEKS} weeks`, 3)),
+          h('tr', null, h('th', { class: 'itemno' }, 'Item #'), h('th', null, 'Item'), h('th', null, 'Status'), h('th', { class: 'num' }, 'On hand'), h('th', { class: 'num' }, 'Safety stock'),
             h('th', null, 'Order by'), h('th', null, 'How much'), h('th', { class: 'num' }, 'Est. cost'))),
         h('tbody', null, rows.map((r) => [h('tr', { class: `st-${r.status}` + (r.item.item_no === selected ? ' picked' : ''), title: 'Click to see its orders', onclick: () => { selected = r.item.item_no === selected ? null : r.item.item_no; rerender(); } },
-          h('td', { class: 'pu-name' }, r.item.name), h('td', { class: 'pu-status' }, STATUS[r.status][0]),
+          h('td', { class: 'itemno' }, r.item.item_no), h('td', { class: 'pu-name' }, r.item.name), h('td', { class: 'pu-status' }, STATUS[r.status][0]),
           h('td', { class: 'num' }, inUnits(r.item, r.onHand)), h('td', { class: 'num muted' }, inUnits(r.item, r.safety)),
           h('td', null, r.next ? when(r.next) : ''),
           h('td', null, r.next ? orderText(r.item, r.next.qty) : ''),

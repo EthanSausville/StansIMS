@@ -1,4 +1,4 @@
-import { h, pageHead, monthPicker, seg, yearSelect, qty, money, typePill, todayIso, longDate, acctParts, thisYear } from '../ui.js';
+import { h, pageHead, monthPicker, seg, yearSelect, qty, money, typePill, todayIso, longDate, acctParts, thisYear, itemNoCol } from '../ui.js';
 import { state, derived } from '../store.js';
 import { viewGrid, view } from './grid.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
@@ -38,7 +38,7 @@ export default {
     const totals = (type) => monthIdx.map((m) => rows.filter((r) => r.item.type === type).reduce((s, r) => s + r.value[m], 0));
     const cellText = (r, m) => { const v = show === 'qty' ? r.qty[m] : r.value[m]; return v ? (show === 'qty' ? qty(v, 1) : acctParts(v)) : ''; };
     const columns = [
-      { key: 'name', label: 'Item', sticky: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col' }, r.item.name) },
+      itemNoCol((r) => r.item), { key: 'name', label: 'Item', sticky2: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col sticky-col2' }, r.item.name) },
       { key: 'type', label: 'Type', value: (r) => r.item.type, text: (r) => (r.item.type === 'Component' ? 'Packaging' : r.item.type), cell: (r) => h('td', null, typePill(r.item.type)) },
       { key: 'unit', label: 'Unit', value: (r) => r.item.unit || '', cell: (r) => h('td', { class: 'muted' }, r.item.unit) },
       ...monthIdx.map((m) => ({ key: `m${m}`, label: C.MONTHS[m], num: true, value: (r) => (show === 'qty' ? r.qty[m] : r.value[m]),

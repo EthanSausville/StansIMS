@@ -3,7 +3,7 @@
 //   Count to count  actual usage between two cycle counts vs. standard usage.
 //   Daily      standard usage by day (the workbook's hidden Consumption sheet),
 //              and what one case of each product uses.
-import { h, pageHead, monthPicker, seg, yearSelect, qty, typePill, longDate, acctText, acctCell, chip, thisYear } from '../ui.js';
+import { h, pageHead, monthPicker, seg, yearSelect, qty, typePill, longDate, acctText, acctCell, chip, thisYear, itemNoCol, itemNoTh, itemNoTd } from '../ui.js';
 import { state, derived } from '../store.js';
 import { viewGrid, view } from './grid.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
@@ -32,8 +32,8 @@ export default {
         viewGrid({ id: 'cons-daily', items: mats, ym: view.ym, digits: 3, value: (d, it) => cons.get(d)?.get(it.item_no) ?? null }),
         h('h2', { class: 'section-title' }, `Used per case produced (${view.ym.year} BOMs)`),
         h('div', { class: 'tablewrap' }, h('table', { class: 't natural plain-cells' },
-          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Finished good'), mats.map((it) => h('th', { class: 'num wrap' }, it.name)))),
-          h('tbody', null, fgs.map((fg) => h('tr', null, h('td', { class: 'sticky-col' }, fg.name),
+          h('thead', null, h('tr', null, itemNoTh(), h('th', { class: 'sticky-col sticky-col2' }, 'Finished good'), mats.map((it) => h('th', { class: 'num wrap' }, it.name)))),
+          h('tbody', null, fgs.map((fg) => h('tr', null, itemNoTd(fg), h('td', { class: 'sticky-col sticky-col2' }, fg.name),
             mats.map((it) => { const v = usage.get(fg.item_no)?.get(it.item_no); return h('td', { class: 'num' + (v ? '' : ' blank') }, v ? qty(v, 4) : ''); })))))));
     }
 
@@ -42,7 +42,7 @@ export default {
       const cost = (r) => cm.cost(r.item.item_no, C.yearOf(r.to)) || cm.latest(r.item.item_no);
       const pctOf = (r) => (r.standard ? r.variance / r.standard : null);
       const columns = [
-        { key: 'name', label: 'Item', sticky: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col' }, r.item.name) },
+        itemNoCol((r) => r.item), { key: 'name', label: 'Item', sticky2: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col sticky-col2' }, r.item.name) },
         { key: 'type', label: 'Type', value: (r) => (r.item.type === 'Component' ? 'Packaging' : r.item.type), cell: (r) => h('td', null, typePill(r.item.type)) },
         { key: 'from', label: 'From count', value: (r) => r.from, text: (r) => longDate(r.from), cell: (r) => h('td', null, longDate(r.from)) },
         { key: 'to', label: 'To count', value: (r) => r.to, text: (r) => longDate(r.to), cell: (r) => h('td', null, longDate(r.to)) },
@@ -80,7 +80,7 @@ export default {
     const tot = (r) => (show === 'qty' ? r.q : r.d).reduce((s, v) => s + v, 0);
     const cell = (v, extra = '') => (show === 'qty' ? h('td', { class: 'num ' + extra }, v ? qty(v, 1) : '') : acctCell(v, { class: extra }));
     const columns = [
-      { key: 'name', label: 'Item', sticky: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col' }, r.item.name) },
+      itemNoCol((r) => r.item), { key: 'name', label: 'Item', sticky2: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col sticky-col2' }, r.item.name) },
       { key: 'type', label: 'Type', value: (r) => (r.item.type === 'Component' ? 'Packaging' : r.item.type), cell: (r) => h('td', null, typePill(r.item.type)) },
       { key: 'unit', label: 'Unit', value: (r) => r.item.unit || '', cell: (r) => h('td', { class: 'muted' }, show === 'qty' ? r.item.unit || '' : '$') },
       ...C.MONTHS.map((m, i) => ({ key: `m${i}`, label: m, num: true, value: (r) => val(r, i), text: (r) => (show === 'qty' ? qty(val(r, i), 1) : money(val(r, i))),

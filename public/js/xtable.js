@@ -144,7 +144,7 @@ export function xtable({ id, columns, allRows, rows, rerender, defaultSort, show
         if (openMenu?._button === b) closeFilterMenu(); else showMenu(b, anchor, { id, columns, rows: allRows, col, rerender, defaultSort });
       } },
       filtered ? '⏷' : '▾');
-    return h('th', { class: [col.num ? 'num' : '', col.sticky ? 'sticky-col' : '', col.grow ? 'grow' : '', 'xf-th'].join(' ').trim(), 'aria-sort': sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : null },
+    return h('th', { class: [col.num ? 'num' : '', col.sticky ? 'sticky-col' : '', col.sticky2 ? 'sticky-col sticky-col2' : '', col.key === 'item_no' && col.sticky ? 'itemno' : '', col.grow ? 'grow' : '', 'xf-th'].join(' ').trim(), 'aria-sort': sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : null },
       h('span', { class: 'xf-head' }, h('span', { class: 'xf-label' }, col.label, col.sub ? h('span', { class: 'xf-sub' }, col.sub) : null, sorted ? h('span', { class: 'xf-arrow', 'aria-hidden': 'true' }, sorted === 'asc' ? ' ↑' : ' ↓') : null), btn));
   }), extraCells ? h('th', null, extraHead || null) : null);
   const count = h('span', { title: `${rows.length.toLocaleString()} of ${allRows.length.toLocaleString()} lines shown` },
@@ -154,7 +154,7 @@ export function xtable({ id, columns, allRows, rows, rerender, defaultSort, show
   const first = totalsLabel ? totalsLabel(rows, allRows) : count;
   let foot = null;
   if (showTotals) {
-    foot = h('tr', { class: 'xt-totals' }, columns.map((col, i) => h('td', { class: [col.num ? 'num' : '', col.sticky ? 'sticky-col' : ''].join(' ').trim() },
+    foot = h('tr', { class: 'xt-totals' }, columns.map((col, i) => h('td', { class: [col.num ? 'num' : '', col.sticky ? 'sticky-col' : '', col.sticky2 ? 'sticky-col sticky-col2' : '', col.key === 'item_no' && col.sticky ? 'itemno' : ''].join(' ').trim() },
       i === 0 ? (extraCells || !onToggleTotals ? first : h('span', { class: 'ft-label' }, first, toggle(false))) : col.total ? col.total(rows) : '')),
       extraCells ? h('td', { class: 'xt-hide' }, onToggleTotals ? toggle(false) : null) : null);
   } else if (onToggleTotals) {

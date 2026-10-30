@@ -3,7 +3,7 @@
 //               boxes + loose). Blind: it doesn't show what's expected.
 //   All Counts  every count by day (the month grid), and Check a day:
 //               expected vs. counted, with differences flagged.
-import { h, pageHead, monthPicker, longDate, seg, qty, todayIso, acctCell, chip, toast, niceError } from '../ui.js';
+import { h, pageHead, monthPicker, longDate, seg, qty, todayIso, acctCell, chip, toast, niceError, itemNoTh, itemNoTd } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
 import { countSheet, COUNT_TOLERANCE, yearOf, hasReceiving, splitReceiving, unitWord, evalEntry } from '../calc.js';
@@ -62,10 +62,10 @@ export const newCounts = {
     const done = rows.filter((r) => r.counted !== null).length;
     let group = null; const body = [];
     for (const r of rows) {
-      if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 3 }, groupName(group)))); }
+      if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 4 }, groupName(group)))); }
       const saveIt = (v) => saveCell('cycle_counts', { date: sheetDate, item_no: r.item.item_no }, 'qty', v);
       body.push(h('tr', null,
-        h('td', { class: 'sticky-col cnt-name' }, h('strong', null, r.item.name)),
+        itemNoTd(r.item), h('td', { class: 'sticky-col sticky-col2 cnt-name' }, h('strong', null, r.item.name)),
         h('td', { class: 'muted' }, comesIn(r.item)),
         hasReceiving(r.item) ? boxCountCell(r.item, r.counted, saveIt) : plainCountCell(r.item, r.counted, saveIt)));
     }
@@ -78,7 +78,7 @@ export const newCounts = {
       busyNote(sheetDate),
       h('h2', { class: 'dl-title' }, `What’s on the shelf on ${longDate(sheetDate)}?`),
       h('div', { class: 'tablewrap', 'data-scroll': 'count-sheet' }, h('table', { class: 't count-sheet' },
-        h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Comes in'), h('th', null, 'How many are there?'))),
+        h('thead', null, h('tr', null, itemNoTh(), h('th', { class: 'sticky-col sticky-col2' }, 'Item'), h('th', null, 'Comes in'), h('th', null, 'How many are there?'))),
         h('tbody', null, body))));
   },
 };
@@ -105,10 +105,10 @@ export const allCounts = {
       const flagged = rows.filter((r) => r.flag).length;
       let group = null; const body = [];
       for (const r of rows) {
-        if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 6 }, groupName(group)))); }
+        if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 7 }, groupName(group)))); }
         const std = cm.cost(r.item.item_no, yearOf(checkDate)) || cm.latest(r.item.item_no);
         body.push(h('tr', { class: r.flag ? 'flagged' : null },
-          h('td', { class: 'sticky-col cnt-name' }, h('strong', null, r.item.name)),
+          itemNoTd(r.item), h('td', { class: 'sticky-col sticky-col2 cnt-name' }, h('strong', null, r.item.name)),
           h('td', null, countText(r.item, r.counted)),
           h('td', { class: 'num' + (r.expected < 0 ? ' neg' : '') }, r.expected === null ? '—' : `${qty(r.expected, 1)} ${unitWord(r.item.unit, 2)}`),
           h('td', { class: 'num' + (r.diff < 0 ? ' neg' : '') }, r.diff === null ? '' : (r.diff > 0 ? '+' : '') + qty(r.diff, 1)),
@@ -123,7 +123,7 @@ export const allCounts = {
           chip('Items counted', rows.length), chip(`Off by over ${tolerance}`, flagged)),
         busyNote(checkDate),
         rows.length ? h('div', { class: 'tablewrap', 'data-scroll': 'count-check' }, h('table', { class: 't count-sheet count-check' },
-          h('thead', null, h('tr', null, h('th', { class: 'sticky-col' }, 'Item'), h('th', null, 'Counted'), h('th', { class: 'num' }, 'Expected'), h('th', { class: 'num' }, 'Difference'), h('th', { class: 'num' }, '%'), h('th', { class: 'num' }, 'At standard'))),
+          h('thead', null, h('tr', null, itemNoTh(), h('th', { class: 'sticky-col sticky-col2' }, 'Item'), h('th', null, 'Counted'), h('th', { class: 'num' }, 'Expected'), h('th', { class: 'num' }, 'Difference'), h('th', { class: 'num' }, '%'), h('th', { class: 'num' }, 'At standard'))),
           h('tbody', null, body)))
           : h('div', { class: 'panel empty' }, 'No counts entered yet. Use New Counts to enter one.'));
     }

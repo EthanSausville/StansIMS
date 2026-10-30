@@ -1,4 +1,4 @@
-import { h, pageHead, numberCell, qty, acctText } from '../ui.js';
+import { h, pageHead, numberCell, qty, acctText, itemNoCol } from '../ui.js';
 import { state, derived, saveCell, isAdmin } from '../store.js';
 import { avgPricePerOz, missingStandards } from '../calc.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
@@ -12,7 +12,7 @@ export default {
     const prices = new Map(state.data.standard_prices.map((p) => [`${p.item_no}|${p.year}`, p.price]));
     const price = (fg, y) => prices.get(`${fg.item_no}|${y}`) ?? null;
     const columns = [
-      { key: 'name', label: 'Product', sticky: true, value: (fg) => fg.name, cell: (fg) => h('td', { class: 'sticky-col' }, fg.name) },
+      itemNoCol((fg) => fg), { key: 'name', label: 'Product', sticky2: true, value: (fg) => fg.name, cell: (fg) => h('td', { class: 'sticky-col sticky-col2' }, fg.name) },
       { key: 'oz', label: 'Oz per case', num: true, value: (fg) => ix.fgCaseOz.get(fg.item_no) || 0, text: (fg) => qty(ix.fgCaseOz.get(fg.item_no) || 0),
         cell: (fg) => h('td', { class: 'num calc' }, qty(ix.fgCaseOz.get(fg.item_no) || 0)) },
       ...cm.years.map((y) => ({ key: `y${y}`, label: String(y), num: true, value: (fg) => price(fg, y), text: (fg) => (price(fg, y) === null ? '' : '$' + qty(price(fg, y), 2)),

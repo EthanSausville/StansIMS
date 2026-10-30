@@ -1,7 +1,7 @@
 // Sales summaries: one row per customer (or product), one column per month,
 // for the chosen year and measure. Built from the same lines as Invoices.
-import { h, pageHead, money, qty, pct, seg, yearSelect, acctParts, thisYear } from '../ui.js';
-import { derived } from '../store.js';
+import { h, pageHead, money, qty, pct, seg, yearSelect, acctParts, thisYear, itemNoCol } from '../ui.js';
+import { derived, state } from '../store.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 import { MONTHS } from '../calc.js';
 
@@ -11,7 +11,7 @@ const MEASURES = [
   ['margin', 'Std margin $', (r) => r.stdMargin, (v) => money(v, 0)],
 ];
 
-function summaryTab({ id, label, title, keyOf, description, colLabel }) {
+function summaryTab({ id, label, title, keyOf, description, colLabel, itemNos = false }) {
   let year = thisYear();
   let measure = 'amount';
   return {
@@ -37,8 +37,10 @@ function summaryTab({ id, label, title, keyOf, description, colLabel }) {
       const isMoney = measure !== 'cases';
       const cell = (v) => h('td', { class: 'num' + (isMoney ? ' acct' : '') + (v < 0 ? ' neg' : '') + (v ? '' : ' muted') }, v ? (isMoney ? acctParts(v) : show(v)) : '–');
       const sum = (rs, f) => rs.reduce((acc, t) => acc + f(t), 0);
+      const byName = new Map(state.data.items.map((i) => [i.name, i]));
       const columns = [
-        { key: 'key', label: colLabel, sticky: true, value: (t) => t.key, cell: (t) => h('td', { class: 'sticky-col' }, t.key) },
+        ...(itemNos ? [itemNoCol((t) => byName.get(t.key))] : []),
+        { key: 'key', label: colLabel, sticky: !itemNos, sticky2: itemNos, value: (t) => t.key, cell: (t) => h('td', { class: itemNos ? 'sticky-col sticky-col2' : 'sticky-col' }, t.key) },
         ...months.map((m, i) => ({ key: `m${i}`, label: m, num: true, value: (t) => t.months[i], text: (t) => (t.months[i] ? show(t.months[i]) : '–'),
           cell: (t) => cell(t.months[i]), total: (rs) => { const v = sum(rs, (t) => t.months[i]); return v ? (isMoney ? acctParts(v) : show(v)) : '–'; } })),
         { key: 'total', label: `Total ${mLabel.toLowerCase()}`, num: true, value: (t) => t.total, text: (t) => show(t.total),
@@ -74,7 +76,7 @@ export const byCustomer = summaryTab({
 });
 
 export const byProduct = summaryTab({
-  id: 'sales-products', label: 'By Product', title: 'Sales by Product', colLabel: 'Product',
+  id: 'sales-products', label: 'By Product', title: 'Sales by Product', colLabel: 'Product', itemNos: true,
   keyOf: (r) => r.product || 'Other',
   description: 'Each product by month. Switch between sales dollars, cases and standard margin. “Other” is fees, credits and promotions.',
 });

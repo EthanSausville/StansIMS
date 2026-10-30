@@ -193,4 +193,11 @@ export function bigHead(title, description, ...controls) {
 // A small figure for the bar (e.g. "Cases 1,240").
 export const chip = (label, value) => h('span', { class: 'tb-chip' }, h('span', { class: 'muted' }, label), ' ', h('strong', null, value));
 
+// Item # as the first column of a table of items; it stays put when the table
+// scrolls sideways, with the item's name pinned next to it (sticky2).
+export const itemNoCol = (get) => ({ key: 'item_no', label: 'Item #', sticky: true, value: (r) => get(r)?.item_no ?? '',
+  cell: (r) => h('td', { class: 'sticky-col itemno' }, get(r)?.item_no ?? '') });
+export const itemNoTh = () => h('th', { class: 'sticky-col itemno' }, 'Item #');
+export const itemNoTd = (it) => h('td', { class: 'sticky-col itemno' }, it?.item_no ?? '');
+
 export const shortName = (name) => name.replace(/\s*\(Case of 24\)/, ' (24)').replace(/\.\s/, ' ');

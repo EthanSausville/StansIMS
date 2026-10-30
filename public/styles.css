@@ -1282,3 +1282,31 @@ table.t.health-table tr.hc-bad td.hc-icon span { background: #fbd5d2; color: #8f
 table.t.health-table tr.link { cursor: pointer; }
 table.t.health-table td.hc-go { color: var(--stans-orange); font-weight: 700; text-align: right; }
 .grouprow .gear-slot { margin-right: 4px; }
+
+/* ---------- Item # first, pinned with the name next to it ---------- */
+:root { --itemno-w: calc(66px + var(--page-x)); }
+table.t th.itemno, table.t td.itemno { width: var(--itemno-w); min-width: var(--itemno-w); max-width: var(--itemno-w); box-sizing: border-box; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.t thead th.itemno { color: #fff; }
+table.t .sticky-col.sticky-col2 { left: var(--itemno-w); }
+table.t.pd-prod .sticky-col.itemno { width: var(--itemno-w); min-width: var(--itemno-w); }
+table.t.pd-prod .sticky-col.sticky-col2 { width: 230px; min-width: 230px; }
+table.t.pd-prod thead th.sticky-col2 { position: sticky; left: var(--itemno-w); }
+@media (max-width: 640px) { table.t.pd-prod .sticky-col.sticky-col2 { width: 132px; min-width: 132px; } }
+table.t.pu-table td.itemno { color: inherit; opacity: .75; }
+
+/* ---------- Anything you can type in has a light yellow background ---------- */
+:root { --entry: #fff7d1; --entry-focus: #ffefa6; }
+#app td.cell.entry, #app td.cell.entry input,
+#app table.t.plain-cells td.cell.entry, #app table.t.plain-cells td.cell.entry input,
+#app table.t.plain-cells tbody tr:hover td.cell.entry,
+#app input:not([type=checkbox]):not([type=radio]):not([type=search]):not([type=button]):not([type=submit]):not([disabled]),
+#app textarea:not([disabled]), #app select:not([disabled]) { background-color: var(--entry); }
+#app td.cell.entry input:focus, #app input:not([disabled]):focus, #app textarea:not([disabled]):focus { background-color: var(--entry-focus); }
+#app table.t.pd-prod td.pd-plan input, #app table.t.pd-prod td.pd-plan.typed input { background: var(--entry); }
+#app table.t.pd-prod td.pd-plan { background: #fff; }
+#app .dl-input, #app .cnt-input { background: var(--entry); }
+/* Notes on Safety Stocks: a full-width line to type in. */
+table.t td.note-cell input { width: 100%; min-width: 260px; text-align: left; border: 1px solid transparent; border-radius: 4px; padding: 3px 6px; }
+table.t td.note-cell.suggested input { color: var(--muted); }
+table.t td.note-cell.typed input { color: var(--ink); }
+table.t td.note-cell input:hover { border-color: var(--line-strong); }

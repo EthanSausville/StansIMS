@@ -33,8 +33,45 @@ let selected = null; // item_no opened on Purchases
 const tableActions = (...items) => h('div', { class: 'table-actions' }, items);
 
 // ---------- Safety Stocks ----------
-// One row per item; amounts are in the item's base unit (the Unit column), and
+// One row per item; amounts are in the item's unit from the Master List, and
 // the three white columns can be typed over (a grey number is the default).
+// The (i) by each name opens a little note pad: what the item comes in, and
+// notes anyone can keep about it (purchase_settings.notes).
+let notepad = null; // the open note pad, if any
+function closeNotepad() { if (notepad) { notepad.remove(); notepad = null; document.removeEventListener('mousedown', outsideNotepad, true); } }
+function outsideNotepad(e) { if (notepad && !notepad.contains(e.target) && !e.target.closest?.('.note-btn')) closeNotepad(); }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && notepad) closeNotepad(); });
+function openNotepad(btn, item, note, canEdit) {
+  const same = notepad && notepad.dataset.item === String(item.item_no);
+  closeNotepad(); if (same) return;
+  const area = h('textarea', { rows: 6, placeholder: canEdit ? 'Type notes about this item: supplier, who to call, anything worth remembering…' : 'No notes yet.', disabled: !canEdit, 'aria-label': `Notes about ${item.name}` });
+  area.value = note || '';
+  const status = h('span', { class: 'small muted np-status' });
+  let saved = note || '';
+  const save = async () => {
+    const v = area.value.trim() ? area.value : null;
+    if ((v || '') === (saved || '')) return;
+    status.textContent = 'Saving…';
+    try { await saveField('purchase_settings', { item_no: item.item_no }, 'notes', v); saved = v || ''; status.textContent = 'Saved'; }
+    catch (err) { status.textContent = ''; toast(niceError(err), 'bad'); }
+  };
+  area.addEventListener('blur', save);
+  const facts = [['Item #', item.item_no], ['Unit', item.unit || 'each'],
+    ['Comes in', hasReceiving(item) ? `${item.receiving_unit[0].toUpperCase()}${item.receiving_unit.slice(1)} of ${holdsLabel(item)}` : 'No receiving unit set (Master List)']];
+  notepad = h('div', { class: 'notepad', role: 'dialog', 'aria-label': `${item.name} notes`, 'data-item': item.item_no },
+    h('div', { class: 'np-head' }, h('strong', null, item.name), h('button', { type: 'button', class: 'np-close', 'aria-label': 'Close', onclick: () => { save(); closeNotepad(); } }, '×')),
+    h('dl', { class: 'np-facts' }, facts.map(([k, v]) => [h('dt', null, k), h('dd', null, String(v))])),
+    h('label', { class: 'np-label' }, 'Notes'), area,
+    h('div', { class: 'np-foot' }, status, canEdit ? h('button', { type: 'button', class: 'btn primary', onclick: async () => { await save(); closeNotepad(); } }, 'Save') : null));
+  document.body.append(notepad);
+  const r = btn.getBoundingClientRect();
+  const w = notepad.offsetWidth; const hgt = notepad.offsetHeight;
+  notepad.style.left = `${Math.max(8, Math.min(r.right + 8, window.innerWidth - w - 8))}px`;
+  notepad.style.top = `${Math.max(8, Math.min(r.top - 10, window.innerHeight - hgt - 8))}px`;
+  document.addEventListener('mousedown', outsideNotepad, true);
+  if (canEdit) area.focus();
+}
+
 export const safetyStocksTab = {
   id: 'safety',
   label: 'Safety Stocks',
@@ -42,39 +79,44 @@ export const safetyStocksTab = {
     const rows = derived.materials().rows; const admin = isAdmin();
     const settings = new Map(state.data.purchase_settings.map((s) => [s.item_no, s]));
     const unit = (r) => r.item.unit || 'each';
-    const comes = (r) => (hasReceiving(r.item) ? `${r.item.receiving_unit[0].toUpperCase()}${r.item.receiving_unit.slice(1)} of ${holdsLabel(r.item)}` : '');
     const n0 = (v) => qty(v, 0);
+    const withUnit = (r) => (v) => `${qty(v, 0)} ${unit(r)}`;
     const days = (v) => `${qty(v, 0)} day${Number(v) === 1 ? '' : 's'}`;
     const set = (r, field) => settings.get(r.item.item_no)?.[field] ?? null;
     const save = (r, field) => (v) => saveField('purchase_settings', { item_no: r.item.item_no }, field, v);
     const cls = (r, field) => (set(r, field) === null ? 'suggested' : 'typed');
     const unitMin = (r) => (hasReceiving(r.item) ? Number(r.item.units_per_receiving) : 1);
+    const minOf = (r) => r.minOrder || unitMin(r);
+    const noteBtn = (r) => { const note = set(r, 'notes');
+      const b = h('button', { type: 'button', class: 'note-btn' + (note ? ' has-note' : ''), title: note ? `Notes: ${note}` : 'Details and notes', 'aria-label': `${r.item.name} details and notes`,
+        onclick: (e) => { e.stopPropagation(); openNotepad(b, r.item, settings.get(r.item.item_no)?.notes, admin); } }, 'i');
+      return b; };
     const columns = [
-      { key: 'name', label: 'Item', sticky: true, value: (r) => r.item.name, cell: (r) => h('td', { class: 'sticky-col' }, r.item.name) },
-      { key: 'unit', label: 'Unit', value: (r) => unit(r), cell: (r) => h('td', { class: 'muted' }, unit(r)) },
-      { key: 'comes', label: 'Comes in', value: comes, cell: (r) => h('td', { class: 'muted' }, comes(r)) },
+      { key: 'name', label: 'Item', sticky: true, value: (r) => r.item.name,
+        cell: (r) => h('td', { class: 'sticky-col' }, h('div', { class: 'item-note' }, h('span', null, r.item.name), noteBtn(r))) },
+      { key: 'min', label: 'Min Order', num: true, value: minOf, text: (r) => withUnit(r)(minOf(r)),
+        cell: (r) => numberCell(set(r, 'standard_purchase'), save(r, 'standard_purchase'),
+          { disabled: !admin, digits: 2, display: withUnit(r), key: `ps|${r.item.item_no}|standard_purchase`, placeholder: withUnit(r)(unitMin(r)), cls: cls(r, 'standard_purchase'),
+            title: `${r.item.name}: the least to order, in ${unit(r)} (blank = one ${r.item.receiving_unit || unit(r)})` }) },
       { key: 'demand', label: 'Demand', num: true, value: (r) => r.demand, text: (r) => n0(r.demand),
-        cell: (r) => h('td', { class: 'num', title: `${r.item.name}: what the next ${ENTRY_WEEKS} weeks on the Production tab use` }, n0(r.demand)) },
+        cell: (r) => h('td', { class: 'num', title: `${r.item.name}: what the next ${ENTRY_WEEKS} weeks on the Production tab use, in ${unit(r)}` }, n0(r.demand)) },
       { key: 'lead', label: 'Lead time', num: true, value: (r) => r.leadDays, text: (r) => days(r.leadDays),
         cell: (r) => numberCell(set(r, 'lead_days'), save(r, 'lead_days'),
           { disabled: !admin, digits: 0, display: days, key: `ps|${r.item.item_no}|lead_days`, placeholder: days(DEFAULT_LEAD_DAYS), cls: cls(r, 'lead_days'), title: `${r.item.name}: lead time in days (blank = ${DEFAULT_LEAD_DAYS})` }) },
       { key: 'safety', label: 'Safety stock', num: true, value: (r) => r.safety, text: (r) => n0(r.safety),
         cell: (r) => numberCell(set(r, 'safety_stock'), save(r, 'safety_stock'),
           { disabled: !admin, digits: 2, display: n0, key: `ps|${r.item.item_no}|safety_stock`, placeholder: n0(r.autoSafety), cls: cls(r, 'safety_stock'), title: `${r.item.name}: safety stock in ${unit(r)} (blank = calculated, ${n0(r.autoSafety)})` }) },
-      { key: 'min', label: 'Min Order', num: true, value: (r) => r.minOrder || unitMin(r), text: (r) => n0(r.minOrder || unitMin(r)),
-        cell: (r) => numberCell(set(r, 'standard_purchase'), save(r, 'standard_purchase'),
-          { disabled: !admin, digits: 2, display: n0, key: `ps|${r.item.item_no}|standard_purchase`, placeholder: n0(unitMin(r)), cls: cls(r, 'standard_purchase'),
-            title: `${r.item.name}: the least to order, in ${unit(r)} (blank = one ${r.item.receiving_unit || unit(r)})` }) },
+      { key: 'notes', label: 'Notes', hidden: true, value: (r) => set(r, 'notes') || '' },
     ];
     const shown = filteredRows({ id: 'safety-stocks', columns, rows });
     const nFilters = activeFilterCount('safety-stocks');
     return h('div', null,
-      pageHead('Safety Stocks', `How much of each raw material and packaging item to keep in reserve, and how long it takes to arrive. Purchases tells you when to order so stock never drops below safety stock. Amounts are in the item’s unit. Demand is what the next ${ENTRY_WEEKS} weeks on the Production tab use. Grey numbers are the defaults; type over one to change it, or clear it to go back. Lead time is ${DEFAULT_LEAD_DAYS} days unless typed in. The default safety stock is enough for ${SAFETY_LEAD_MULTIPLE}× the lead time at the average weekly use (a ${DEFAULT_LEAD_DAYS}-day lead time means ${(SAFETY_LEAD_MULTIPLE * DEFAULT_LEAD_DAYS) / 7} weeks of use). Orders are in whole boxes, bags or cases and at least the Min Order.` + (admin ? '' : ' Only admins can change these.')),
+      pageHead('Safety Stocks', `How much of each raw material and packaging item to keep in reserve, and how long it takes to arrive. Purchases tells you when to order so stock never drops below safety stock. Amounts are in the item’s unit from the Master List. Click the (i) by an item for what it comes in and to keep notes about it. Demand is what the next ${ENTRY_WEEKS} weeks on the Production tab use. Grey numbers are the defaults; type over one to change it, or clear it to go back. Lead time is ${DEFAULT_LEAD_DAYS} days unless typed in. The default safety stock is enough for ${SAFETY_LEAD_MULTIPLE}× the lead time at the average weekly use (a ${DEFAULT_LEAD_DAYS}-day lead time means ${(SAFETY_LEAD_MULTIPLE * DEFAULT_LEAD_DAYS) / 7} weeks of use). Orders are in whole boxes, bags or cases and at least the Min Order.` + (admin ? '' : ' Only admins can change these.')),
       noData(),
       h('div', { class: 'table-block wide' },
         tableActions(nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('safety-stocks'); rerender(); } }, `Clear filters (${nFilters})`) : null,
           downloadButton('safety-stocks', columns, shown)),
-        h('div', { class: 'tablewrap full', 'data-scroll': 'safety-stocks' }, xtable({ id: 'safety-stocks', columns, allRows: rows, rows: shown, rerender, className: 'plain-cells ss-table full' }))));
+        h('div', { class: 'tablewrap full', 'data-scroll': 'safety-stocks' }, xtable({ id: 'safety-stocks', columns: columns.filter((c) => !c.hidden), allRows: rows, rows: shown, rerender, className: 'plain-cells ss-table full' }))));
   },
 };
 

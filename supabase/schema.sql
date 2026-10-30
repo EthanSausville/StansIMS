@@ -216,9 +216,11 @@ create table if not exists public.purchase_settings (
   lead_time         numeric,
   safety_threshold  numeric
 );
--- Planning: lead time in days (blank = 14) and a typed-in safety stock (blank = calculated).
+-- Planning: lead time in days (blank = 14), a typed-in safety stock (blank =
+-- calculated), and free notes about the item (Safety Stocks, the (i) by its name).
 alter table public.purchase_settings add column if not exists lead_days    int check (lead_days >= 0);
 alter table public.purchase_settings add column if not exists safety_stock numeric check (safety_stock >= 0);
+alter table public.purchase_settings add column if not exists notes        text;
 
 -- Production plan: cases of a finished good to make in a week (weeks start
 -- Monday). Weeks with no row use the product's average weekly sales.

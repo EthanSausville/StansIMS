@@ -144,7 +144,7 @@ export function xtable({ id, columns, allRows, rows, rerender, defaultSort, show
         if (openMenu?._button === b) closeFilterMenu(); else showMenu(b, anchor, { id, columns, rows: allRows, col, rerender, defaultSort });
       } },
       filtered ? '⏷' : '▾');
-    return h('th', { class: [col.num ? 'num' : '', col.sticky ? 'sticky-col' : '', 'xf-th'].join(' ').trim(), 'aria-sort': sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : null },
+    return h('th', { class: [col.num ? 'num' : '', col.sticky ? 'sticky-col' : '', col.grow ? 'grow' : '', 'xf-th'].join(' ').trim(), 'aria-sort': sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : null },
       h('span', { class: 'xf-head' }, h('span', { class: 'xf-label' }, col.label, col.sub ? h('span', { class: 'xf-sub' }, col.sub) : null, sorted ? h('span', { class: 'xf-arrow', 'aria-hidden': 'true' }, sorted === 'asc' ? ' ↑' : ' ↓') : null), btn));
   }), extraCells ? h('th', null, extraHead || null) : null);
   const count = h('span', { title: `${rows.length.toLocaleString()} of ${allRows.length.toLocaleString()} lines shown` },

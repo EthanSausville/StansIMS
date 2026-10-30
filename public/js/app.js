@@ -182,10 +182,10 @@ function shell() {
   return { tabBar: bars, main, content, side, sideInner: inner, about, useTab };
 }
 
-function aboutButton(title, description) {
-  return h('details', { class: 'tb-info' },
-    h('summary', { title: 'About this page', 'aria-label': `About ${title}` }, h('span', { 'aria-hidden': 'true' }, 'i')),
-    h('div', { class: 'tb-info-pop' }, h('strong', null, title), h('p', null, description)));
+// How to use the page, shown above it: a sentence or two, or a list of steps.
+function pageIntro(description) {
+  if (Array.isArray(description)) return h('div', { class: 'page-intro' }, h('ol', null, description.map((d) => h('li', null, d))));
+  return h('div', { class: 'page-intro' }, h('p', null, description));
 }
 
 function renderTabs({ groupBar, tabBar }) {
@@ -220,8 +220,8 @@ function render() {
   const pageY = current === id ? scroller().scrollTop : 0;
   let content;
   try { content = tab.render({ rerender: schedule }); } catch (e) { console.error(e); content = h('div', { class: 'note bad' }, 'Something went wrong showing this page: ' + e.message); }
-  // A tab's bar of controls moves to the side bar; its description goes
-  // behind the (i) at the right of the page-tab row.
+  // A tab's bar of controls moves to the side bar; its description, which
+  // says how to use the page, goes at the top of the page.
   const bar = content.querySelector?.(':scope > .toolbar');
   const controls = bar ? [...bar.querySelector('.tb-row').children] : [];
   if (bar) bar.remove();
@@ -229,7 +229,8 @@ function render() {
   ui.side.hidden = !controls.length;
   ui.useTab(tab);
   const info = bar?._about || content._about;
-  ui.about.replaceChildren(info?.description ? aboutButton(info.title, info.description) : '');
+  ui.about.replaceChildren('');
+  if (info?.description && content.prepend) content.prepend(pageIntro(info.description));
   ui.content.replaceChildren(content);
   for (const [k, top, left] of scrolls) { const el = ui.main.querySelector(`[data-scroll="${k}"]`); if (el) { el.scrollTop = top; el.scrollLeft = left; } }
   if (current === id) scroller().scrollTop = pageY; else { ui.content.scrollTop = 0; ui.main.scrollTop = 0; }
@@ -327,10 +328,10 @@ function dockWideFooters() {
     const table = w.querySelector(':scope > table'); const foot = table?.querySelector(':scope > tfoot');
     const r = w.getBoundingClientRect();
     const wide = !w.classList.contains('fits') && w.scrollWidth > w.clientWidth + 1;
-    // Docked to the bottom of the screen while the table runs past it;
-    // otherwise drawn just under the table, in the room left for it.
+    // The scrollbar is always docked to the bottom of the screen while any of
+    // the table shows; its totals come along while the real ones are below.
     const floating = r.bottom > vh;
-    const show = table && wide && (floating ? r.top < vh - 80 : r.bottom - 16 > sr.top);
+    const show = table && wide && r.top < vh - 60 && r.bottom > sr.top + 40;
     let dock = w._dock;
     if (!show) { if (dock) { dock.remove(); w._dock = null; } continue; }
     if (!dock || !dock.isConnected) {
@@ -371,9 +372,8 @@ function dockWideFooters() {
       dock.append(rows, bar); document.body.append(dock); w._dock = dock;
     }
     dock.style.left = `${r.left}px`; dock.style.width = `${r.width}px`;
-    dock.classList.toggle('inline', !floating);
-    if (floating) { dock.style.top = ''; dock.style.bottom = `${Math.max(0, window.innerHeight - vh)}px`; }
-    else { dock.style.bottom = 'auto'; dock.style.top = `${r.bottom - 18}px`; }
+    dock.classList.toggle('no-rows', !floating);
+    dock.style.bottom = `${Math.max(0, window.innerHeight - vh)}px`;
     const [rows, bar] = dock.children;
     // The scrollbar starts after the columns that don't scroll.
     const fixedCells = table.querySelector(':scope > tbody > tr')?.querySelectorAll(':scope > .sticky-col') || [];

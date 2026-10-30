@@ -90,7 +90,7 @@ export default {
     };
     const columns = [
       { key: 'item_no', label: 'Item #', sticky: true, num: true, value: (it) => it.item_no, cell: (it) => h('td', { class: 'sticky-col num muted' }, it.item_no) },
-      { key: 'name', label: 'Item', value: (it) => it.name, cell: (it) => h('td', null, it.name) },
+      { key: 'name', label: 'Item', grow: true, value: (it) => it.name, cell: (it) => h('td', null, it.name) },
       { key: 'type', label: 'Type', value: (it) => it.type, cell: (it) => h('td', null, typePill(it.type)) },
       { key: 'unit', label: 'Base unit', value: (it) => it.unit || '', cell: (it) => h('td', { class: 'muted' }, it.unit || '') },
       { key: 'receipt', label: 'Receipt', value: (it) => receiptText(it), cell: (it) => (it.type === 'Raw Material' || it.type === 'Component' ? receiptCell(it) : h('td', null, '')) },

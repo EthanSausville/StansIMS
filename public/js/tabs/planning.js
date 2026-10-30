@@ -92,7 +92,7 @@ export const safetyStocksTab = {
         onclick: (e) => { e.stopPropagation(); openNotepad(b, r.item, settings.get(r.item.item_no)?.notes, admin); } }, 'i');
       return b; };
     const columns = [
-      { key: 'name', label: 'Item', sticky: true, value: (r) => r.item.name,
+      { key: 'name', label: 'Item', sticky: true, grow: true, value: (r) => r.item.name,
         cell: (r) => h('td', { class: 'sticky-col' }, h('div', { class: 'item-note' }, h('span', null, r.item.name), noteBtn(r))) },
       { key: 'min', label: 'Min Order', num: true, value: minOf, text: (r) => withUnit(r)(minOf(r)),
         cell: (r) => numberCell(set(r, 'standard_purchase'), save(r, 'standard_purchase'),
@@ -111,7 +111,12 @@ export const safetyStocksTab = {
     const shown = filteredRows({ id: 'safety-stocks', columns, rows });
     const nFilters = activeFilterCount('safety-stocks');
     return h('div', null,
-      pageHead('Safety Stocks', `How much of each raw material and packaging item to keep in reserve, and how long it takes to arrive. Purchases tells you when to order so stock never drops below safety stock. Amounts are in the item’s unit from the Master List. Click the (i) by an item for what it comes in and to keep notes about it. Demand is what the next ${ENTRY_WEEKS} weeks on the Production tab use. Grey numbers are the defaults; type over one to change it, or clear it to go back. Lead time is ${DEFAULT_LEAD_DAYS} days unless typed in. The default safety stock is enough for ${SAFETY_LEAD_MULTIPLE}× the lead time at the average weekly use (a ${DEFAULT_LEAD_DAYS}-day lead time means ${(SAFETY_LEAD_MULTIPLE * DEFAULT_LEAD_DAYS) / 7} weeks of use). Orders are in whole boxes, bags or cases and at least the Min Order.` + (admin ? '' : ' Only admins can change these.')),
+      pageHead('Safety Stocks', [
+        `Each row is a raw material or packaging item, in its unit from the Master List. Demand is what the next ${ENTRY_WEEKS} weeks on the Production tab will use.`,
+        `Grey numbers are the defaults: a ${DEFAULT_LEAD_DAYS}-day lead time, a safety stock that covers ${SAFETY_LEAD_MULTIPLE}× the lead time of use, and a minimum order of one box, bag or case. Type over one to change it; clear it to go back.`,
+        'Click the (i) by an item to see what it comes in and to keep notes about it (supplier, who to call…).',
+        'Purchases uses these to tell you when to order and how much.' + (admin ? '' : ' Only admins can change them.'),
+      ]),
       noData(),
       h('div', { class: 'table-block wide' },
         tableActions(nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('safety-stocks'); rerender(); } }, `Clear filters (${nFilters})`) : null,
@@ -133,11 +138,16 @@ export const productionPlanTab = {
     const head = (w, i, kind) => h('th', { class: `num wk ${kind}${i === 0 ? ' first' : ''}`, title: `Week of ${longDate(w)}` },
       h('span', { class: 'wk-label' }, kind === 'plan' && i === 0 ? 'This week' : 'Week of'), h('span', { class: 'wk-date' }, shortDate(w)));
     return h('div', null,
-      pageHead('Production', `The cases made each of the last ${ACTUAL_WEEKS} weeks (from Production entries), and the cases to make each of the next ${ENTRY_WEEKS} weeks. A grey number is the average of the last ${ACTUAL_WEEKS} weeks, and is used until you type over it. This is what Purchases orders materials for.`),
+      pageHead('Production', [
+        `The grey columns on the left are the cases actually made in each of the last ${ACTUAL_WEEKS} weeks (from Inventory → Production).`,
+        `The boxes on the right are the plan for this week and the next ${ENTRY_WEEKS - 1}. A grey number in a box is the average of the last ${ACTUAL_WEEKS} weeks, and is used until you type over it.`,
+        'Type the cases you plan to make in any box; press Enter or Tab to save it. Clear a box to go back to the average.',
+        'Purchases and Safety Stocks use this plan to work out what materials to order and when.',
+      ]),
       noData(),
       h('div', { class: 'tablewrap pd-prod-wrap', 'data-scroll': 'pd-prod' }, h('table', { class: 't plain-cells pd-prod' },
         h('thead', null,
-          h('tr', { class: 'pd-bands' }, h('th', { class: 'sticky-col' }, ''), h('th', { colspan: ACTUAL_WEEKS, class: 'band-actual' }, `Made · last ${ACTUAL_WEEKS} weeks`), h('th', { colspan: ENTRY_WEEKS, class: 'band-plan' }, `Plan · next ${ENTRY_WEEKS} weeks`)),
+          h('tr', { class: 'pd-bands' }, h('th', { class: 'sticky-col' }, ''), h('th', { colspan: ACTUAL_WEEKS, class: 'band-actual' }, h('span', { class: 'band-label' }, `Made · last ${ACTUAL_WEEKS} weeks`)), h('th', { colspan: ENTRY_WEEKS, class: 'band-plan' }, h('span', { class: 'band-label' }, `Plan · next ${ENTRY_WEEKS} weeks`))),
           h('tr', null, h('th', { class: 'sticky-col' }, 'Product'), plan.actualWeeks.map((w, i) => head(w, i, 'actual')), weeks.map((w, i) => head(w, i, 'plan')))),
         h('tbody', null, plan.rows.map((r) => h('tr', null, h('td', { class: 'sticky-col pd-name' }, r.item.name),
           r.actuals.map((v, i) => h('td', { class: 'num pd-actual' + (i === 0 ? ' first' : ''), title: `${r.item.name}: made the week of ${longDate(plan.actualWeeks[i])}` }, v ? qty(v, 0) : '–')),
@@ -173,7 +183,13 @@ export const purchasingTab = {
     const dl = [{ key: 'item', label: 'Item', value: (r) => r.item.name }, { key: 'status', label: 'Status', value: (r) => STATUS[r.status][0] },
       { key: 'on', label: 'On hand', value: (r) => stock(r) }, { key: 'by', label: 'Order by', value: (r) => (r.next ? r.next.orderBy : '') }, { key: 'how', label: 'How much', value: (r) => (r.next ? orderText(r.item, r.next.qty) : '') }];
     return h('div', null,
-      pageHead('Purchases', `Every raw material and packaging item, and when to order it so it never drops below safety stock. Stock is projected day by day from what’s on hand and the plan on the Production tab; an order is due one lead time before the day it would drop below safety stock, and is enough to get back to safety stock plus one lead time of use, in whole boxes, bags or cases and at least the Min Order (Safety Stocks). Red is below safety stock now; orange needs ordering by the end of this week; yellow by the end of next week; green not until after that. Click an item to see every order it needs over the next ${PLAN_WEEKS} weeks. Place orders in QuickBooks; until the delivery is entered on New Receipts, an item still shows as needing it.`),
+      pageHead('Purchases', [
+        'Each row is a raw material or packaging item. Red: below safety stock now. Orange: order by the end of this week. Yellow: order by the end of next week. Green: nothing to order yet.',
+        'Order by is the last day to place the order so the delivery arrives before stock drops below safety stock; How much is what to order, in whole boxes, bags or cases.',
+        `Click a row to see every order it needs over the next ${PLAN_WEEKS} weeks.`,
+        'Place the order in QuickBooks. When it arrives, enter it on Inventory → New Receipts; until then the item still shows as needing it.',
+        'The plan comes from the Production tab; lead times, safety stocks and minimum orders are set on Safety Stocks.',
+      ]),
       noData(),
       h('div', { class: 'table-block wide' },
         tableActions(downloadButton('purchases', dl, rows)),

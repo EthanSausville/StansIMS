@@ -14,7 +14,7 @@ export function itemHead(items, { before = [], after = [], notes = true, firstLa
   const groups = []; for (const it of items) { const g = groups.at(-1); if (g && g.type === it.type) g.n++; else groups.push({ type: it.type, n: 1 }); }
   const pad = (n) => Array.from({ length: n }, () => h('th'));
   const rows = [
-    h('tr', { class: 'group' }, h('th', { class: 'sticky-col' }), pad(before.length), groups.map((g) => h('th', { colspan: g.n }, g.type === 'Component' ? 'Packaging' : g.type)), pad(after.length)),
+    h('tr', { class: 'group' }, h('th', { class: 'sticky-col' }), pad(before.length), groups.map((g) => h('th', { colspan: g.n }, h('span', { class: 'band-label' }, g.type === 'Component' ? 'Packaging' : g.type))), pad(after.length)),
     h('tr', null, h('th', { class: 'sticky-col' }, firstLabel), before.map((b) => h('th', { class: 'num wrap' }, b)),
       items.map((it) => h('th', { class: 'num wrap', title: `${it.name} · #${it.item_no}${it.unit ? ' · ' + it.unit : ''}` }, it.name)),
       after.map((b) => h('th', { class: 'num wrap' }, b))),

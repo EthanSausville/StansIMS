@@ -1045,15 +1045,15 @@ table.pd-status > tbody > tr > td { font-size: 13.5px; padding: 5px 10px; }
    compact, every week the same width, no lines between columns. */
 .tablewrap.pd-prod-wrap { border: 1px solid var(--line); border-radius: 10px; max-width: 100%; }
 .tablewrap.pd-prod-wrap.wide { padding-bottom: 18px; }
-table.t.pd-prod { border-collapse: separate; border-spacing: 0; width: auto; table-layout: fixed; }
+table.t.pd-prod { border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; }
 table.t.pd-prod th, table.t.pd-prod td { border-left: 0 !important; border-right: 0 !important; box-shadow: none !important; }
 table.t.pd-prod .sticky-col { position: sticky; left: 0; z-index: 2; width: 210px; min-width: 210px; }
 table.t.pd-prod thead .sticky-col { z-index: 3; }
 table.t.pd-prod tbody td.sticky-col { background: #fff; font-weight: 600; color: var(--stans-brown); white-space: nowrap; }
 table.t.pd-prod thead th { border-radius: 0 !important; background: var(--stans-brown); }
-table.t.pd-prod tr.pd-bands th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; text-align: left; padding: 6px 10px 0; font-weight: 700; color: var(--stans-yellow); }
+table.t.pd-prod tr.pd-bands th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; text-align: center; padding: 6px 10px 0; font-weight: 700; color: var(--stans-yellow); }
 table.t.pd-prod tr.pd-bands th.band-actual, table.t.pd-prod tr.pd-bands th.band-plan { background: var(--stans-brown); }
-table.t.pd-prod th.wk, table.t.pd-prod td.pd-actual, table.t.pd-prod td.pd-plan { width: 72px; min-width: 72px; max-width: 72px; }
+table.t.pd-prod th.wk, table.t.pd-prod td.pd-actual, table.t.pd-prod td.pd-plan { min-width: 0; }
 table.t.pd-prod th.wk { text-align: center; padding: 2px 4px 6px; vertical-align: bottom; }
 table.t.pd-prod th.wk .wk-label { display: block; font-size: 10px; font-weight: 500; color: var(--stans-cream); opacity: .75; line-height: 1.2; }
 table.t.pd-prod th.wk .wk-date { display: block; font-size: 13px; font-weight: 700; line-height: 1.25; }
@@ -1142,4 +1142,43 @@ table.t.pd-prod thead th.sticky-col { position: sticky; left: 0; }
 @media (max-width: 640px) {
   table.t.pd-prod .sticky-col { width: 132px; min-width: 132px; }
   table.t.pd-prod tbody td.sticky-col { white-space: normal; line-height: 1.2; font-size: 13px; }
+}
+
+/* ---------- One look for every page ----------
+   How to use the page sits above it (no (i) button); tables run the full
+   width; a group heading over several columns is centered with lines out to
+   the columns it covers; a sideways scrollbar is docked to the bottom. */
+.page-intro { max-width: 120ch; margin: 0 0 14px; padding: 10px 14px; background: var(--stans-cream); border-left: 4px solid var(--stans-yellow); border-radius: 0 8px 8px 0; color: var(--stans-brown); font-size: 13.5px; line-height: 1.5; }
+.page-intro p { margin: 0; }
+.page-intro ol { margin: 0; padding-left: 20px; }
+.page-intro li + li { margin-top: 3px; }
+.about-slot { display: none; }
+#app .content .tablewrap, #app .content .tablewrap:has(> table.t), #app .content .tablewrap:has(> table.t.natural) { width: 100% !important; max-width: 100%; }
+#app .content .tablewrap > table.t { width: 100%; }
+#app .content .tablewrap.wide { padding-bottom: 0; }
+.float-foot.no-rows .ff-rows { display: none; }
+#app .layout > .content > * { padding-bottom: 36px; }
+/* Group headings: "├──── Made · last 6 weeks ────┤" */
+.band-label { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.band-label::before, .band-label::after { content: ''; flex: 1; min-width: 10px; height: 6px; margin-top: 6px; border-top: 1.5px solid currentColor; opacity: .7; }
+.band-label::before { border-left: 1.5px solid currentColor; border-top-left-radius: 2px; }
+.band-label::after { border-right: 1.5px solid currentColor; border-top-right-radius: 2px; }
+table.t thead tr.group th[colspan] { text-align: center; }
+#app .content .tablewrap > table.t.pd-prod { min-width: 900px; }
+table.t.pd-prod td.pd-plan input { width: min(64px, 100%); }
+@media (max-width: 640px) { #app .content .tablewrap > table.t.pd-prod { min-width: 760px; } }
+.page-intro { max-width: none; }
+table.t.pd-prod .sticky-col { width: 240px; min-width: 240px; }
+table.t thead tr.group th { background: var(--stans-brown); color: var(--stans-yellow); border-bottom: 0; padding: 5px 8px 0; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+table.t thead tr.group th .band-label::before, table.t thead tr.group th .band-label::after { opacity: .8; }
+.float-head table.t thead th.sticky-col { top: 0 !important; }
+table.t.journal tr.entry td:nth-child(2) { white-space: normal; min-width: 260px; }
+#app .content table.t th.grow { width: 100%; }
+/* Long text wraps so these tables fit the page without sideways scrolling. */
+table.t.journal td:last-child { white-space: normal; min-width: 160px; }
+.tree-table td:not(.num) { white-space: normal; }
+.tree-table td .pill { white-space: nowrap; }
+@media (max-width: 640px) {
+  table.t.pd-prod .sticky-col { width: 132px; min-width: 132px; }
+  #app .content .tablewrap > table.t.pd-prod { min-width: 132px; width: calc(132px + 12 * 58px); }
 }

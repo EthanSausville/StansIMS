@@ -309,6 +309,9 @@ create table if not exists public.cycle_counts (
   updated_by uuid default auth.uid(),
   primary key (date, item_no)
 );
+-- When a count was taken: 'start' of the day (before that day's deliveries and
+-- production) or 'end' of the day (after them, so they're part of its variance).
+alter table public.cycle_counts add column if not exists timing text not null default 'start' check (timing in ('start', 'end'));
 
 create table if not exists public.sales (
   id         bigint generated always as identity primary key,
@@ -382,7 +385,7 @@ create table if not exists public.roles (
 insert into public.roles (id, name, description, permissions, builtin, sort) values
   ('admin', 'Admin', null, '{}'::jsonb, true, 0),
   ('staff', 'Accountant', null,
-   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"edit","production":"edit","lots":"view","newlots":"edit","newreceipts":"edit","receipts":"edit","newcounts":"edit","counts":"edit","inventory":"view","consumption":"view","planning":"edit","purchasing":"view","safety":"edit","costs":"edit","bom":"edit","labor":"edit","overhead":"edit","periods":"edit"}'::jsonb, true, 1)
+   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"edit","production":"edit","lots":"view","newlots":"edit","newreceipts":"edit","newcounts":"edit","inventory":"view","planning":"edit","purchasing":"view","safety":"edit","costs":"edit","bom":"edit","labor":"edit","overhead":"edit","periods":"edit"}'::jsonb, true, 1)
 on conflict (id) do nothing;
 -- The built-in staff role is called Accountant; roles no longer have descriptions.
 update public.roles set name = 'Accountant' where id = 'staff' and name = 'Staff';
@@ -393,6 +396,15 @@ update public.roles set permissions = permissions
   || jsonb_build_object('newlots', permissions->>'production')
   || jsonb_build_object('lots', case when permissions->>'production' in ('view', 'edit') then 'view' else 'none' end)
 where permissions ? 'production' and not permissions ? 'newlots';
+-- Inventory became Daily, Receive and Count: All Receipts, All Counts and
+-- Consumption are gone. A role keeps the most it had on Receive / All Receipts
+-- (and Count / All Counts).
+update public.roles set permissions = (permissions - 'receipts' - 'counts' - 'consumption')
+  || jsonb_build_object('newreceipts', case when 'edit' in (permissions->>'newreceipts', permissions->>'receipts') then 'edit'
+                                            when 'view' in (permissions->>'newreceipts', permissions->>'receipts') then 'view' else 'none' end)
+  || jsonb_build_object('newcounts', case when 'edit' in (permissions->>'newcounts', permissions->>'counts') then 'edit'
+                                          when 'view' in (permissions->>'newcounts', permissions->>'counts') then 'view' else 'none' end)
+where permissions ?| array['receipts', 'counts', 'consumption'];
 -- A profile's role is one of these (it used to be only staff or admin).
 alter table public.profiles drop constraint if exists profiles_role_check;
 do $$ begin

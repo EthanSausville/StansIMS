@@ -1,16 +1,21 @@
-import { h, pageHead, monthPicker, seg, yearSelect, qty, money, typePill, todayIso, longDate, acctParts, thisYear, itemNoCol } from '../ui.js';
+// Inventory → Daily: every item's running balance, newest day first. A day
+// with a cycle count gets two more rows: what was counted and the adjustment
+// (count − what the running inventory expected). A start-of-day count sits
+// below its day (it came before the day's deliveries and production), an
+// end-of-day count above it. Month-end shows each month's last day.
+import { h, pageHead, seg, yearSelect, qty, typePill, todayIso, dateLabel, acctParts, thisYear, itemNoCol, chip } from '../ui.js';
 import { state, derived } from '../store.js';
-import { viewGrid, view } from './grid.js';
+import { itemHead, endlessDays, dayRowClass } from './grid.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 import * as C from '../calc.js';
 
-let mode = 'daily'; // 'daily' or 'monthend' (usage moved to the Consumption tab)
+let mode = 'daily'; // 'daily' or 'monthend'
 let year = thisYear();
 let show = 'qty';
 
 export default {
   id: 'inventory',
-  label: 'Daily Inventory',
+  label: 'Daily',
   render({ rerender }) {
     const ix = derived.ix(); const inv = derived.inventory();
     const tracked = [...ix.byType('Raw Material'), ...ix.byType('Component'), ...ix.byType('Finished Good')];
@@ -18,16 +23,40 @@ export default {
     const today = todayIso();
     const negatives = tracked.filter((it) => (inv.byItem.get(it.item_no)?.get(today) ?? 0) < 0);
     const notes = [];
-    if (!inv.from) notes.push(h('div', { class: 'note info' }, 'Inventory starts from each item’s first cycle count. Enter a count on New Counts to begin.'));
+    if (!inv.from) notes.push(h('div', { class: 'note info' }, 'Inventory starts from each item’s first cycle count. Enter a count on Count to begin.'));
     if (negatives.length) notes.push(h('div', { class: 'note warn' },
-      `${negatives.length} item${negatives.length > 1 ? 's are' : ' is'} below zero today (${negatives.map((i) => i.name).join(', ')}). Usually that means deliveries haven’t been entered on New Receipts, or a count is due.`));
+      `${negatives.length} item${negatives.length > 1 ? 's are' : ' is'} below zero today (${negatives.map((i) => i.name).join(', ')}). Usually that means deliveries haven’t been entered on Receive, or a count is due.`));
 
     if (mode === 'daily') {
+      const value = (d, it) => inv.byItem.get(it.item_no)?.get(d);
+      const cell = (v, cls = '') => h('td', { class: ['num', v === undefined || v === null ? 'blank' : '', typeof v === 'number' && v < 0 ? 'neg' : '', cls].join(' ').trim() }, v === undefined || v === null ? '' : qty(v, 2));
+      // Counts by day and timing.
+      const countDays = new Map(); // date -> Set of timings
+      for (const c of state.data.cycle_counts) { if (!countDays.has(c.date)) countDays.set(c.date, new Set()); countDays.get(c.date).add(C.countTiming(c)); }
+      const countRows = (d, t) => {
+        const a = (it) => { const x = inv.adjust.get(`${it.item_no}|${d}`); return x && x.timing === t ? x : null; };
+        const label = t === 'end' ? 'end of day' : 'start of day';
+        return [
+          h('tr', { class: 'count-row', 'data-count': `${d}|${t}` }, h('td', { class: 'sticky-col' }, h('span', { class: 'row-tag' }, 'Count'), h('span', { class: 'small muted' }, ` ${label}`)),
+            tracked.map((it) => { const x = a(it); return h('td', { class: 'num' }, x ? qty(x.counted, 2) : ''); })),
+          h('tr', { class: 'adj-row', 'data-adjust': `${d}|${t}` }, h('td', { class: 'sticky-col' }, h('span', { class: 'row-tag' }, 'Adjustment'), h('span', { class: 'small muted' }, ` ${label}`)),
+            tracked.map((it) => { const x = a(it); const v = x?.adj;
+              return h('td', { class: 'num' + (v < 0 ? ' neg' : v > 0 ? ' pos' : ''), title: x && x.adj === null ? 'First count: it starts this item’s inventory' : x ? `Expected ${qty(x.expected, 2)}, counted ${qty(x.counted, 2)}` : null },
+                !x ? '' : v === null ? 'start' : `${v > 0 ? '+' : ''}${qty(v, 2)}`); })),
+        ];
+      };
+      const { list } = endlessDays({ id: 'inv-daily', tableClass: 'inv-daily', head: itemHead(tracked, { notes: true }),
+        monthCells: () => tracked.map(() => h('td')),
+        dayRows: (d) => {
+          const ts = countDays.get(d) || new Set();
+          const day = h('tr', { class: dayRowClass(d, today), 'data-day': d }, h('td', { class: 'sticky-col' }, dateLabel(d)), tracked.map((it) => cell(value(d, it))));
+          // Newest first: an end-of-day count came after the day (above it), a start-of-day count before it (below).
+          return [ts.has('end') ? countRows(d, 'end') : null, day, ts.has('start') ? countRows(d, 'start') : null];
+        } });
       return h('div', null,
-        pageHead('Daily Inventory', 'Running balance for each item: the latest cycle count, plus deliveries, minus what production used. Finished goods add cases produced and subtract cases sold.',
-          switcher, monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); })),
-        notes,
-        viewGrid({ id: 'inv-daily', items: tracked, ym: view.ym, value: (d, it) => inv.byItem.get(it.item_no)?.get(d) ?? null }));
+        pageHead('Daily', 'Running balance for each item: the latest cycle count, plus deliveries, minus what production used. Finished goods add cases produced and subtract cases sold.'),
+        h('div', { class: 'prod-top' }, h('span', { class: 'small muted' }, 'Newest day first. A count shows what was counted and the adjustment to the running inventory, below the day if it was counted at the start of the day, above it if at the end.'), switcher),
+        notes, list);
     }
 
     // Month-end (the workbook's EndingInventory$ sheet)
@@ -51,11 +80,12 @@ export default {
     const nFilters = activeFilterCount(tid);
     return h('div', null,
       pageHead('Month-end Inventory', (show === 'qty' ? 'Inventory on the last day of each month, in each item’s unit.' : 'Month-end inventory valued at standard cost for the year.')
-        + ` The totals row is in dollars at the ${year} standard cost (or the latest one entered); filter Type to total one kind of item. Month-ends after today are projections.`,
-        switcher, seg([['qty', 'Quantity'], ['value', 'Value $']], show, (s) => { show = s; rerender(); }),
+        + ` The totals row is in dollars at the ${year} standard cost (or the latest one entered); filter Type to total one kind of item. Month-ends after today are projections.`),
+      h('div', { class: 'prod-top' },
+        seg([['qty', 'Quantity'], ['value', 'Value $']], show, (s) => { show = s; rerender(); }),
         yearSelect(years, year, (y) => { year = y; rerender(); }),
-        downloadButton(`month-end-inventory-${year}-${show}`, columns, shown),
-        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null),
+        nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(tid); rerender(); } }, `Clear filters (${nFilters})`) : null,
+        downloadButton(`month-end-inventory-${year}-${show}`, columns, shown), switcher),
       notes,
       h('div', { class: 'tablewrap tall', 'data-scroll': tid },
         xtable({ id: tid, columns, allRows: rows, rows: shown, rerender, showTotals: prefTotals(tid), onToggleTotals: (on) => { setPrefTotals(tid, on); rerender(); },

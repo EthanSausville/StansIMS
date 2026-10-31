@@ -1469,3 +1469,15 @@ table.prod-table tr.month-row .closed-tag { font-weight: 400; color: var(--muted
 .to-top.show { opacity: 1; transform: none; pointer-events: auto; }
 .to-top:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .to-top { transition: none; } }
+
+/* Inventory → Daily: a count day's count and adjustment rows */
+table.inv-daily tr.count-row td, table.inv-daily tr.adj-row td { background: var(--accent-soft); font-size: 12.5px; }
+table.inv-daily tr.count-row td.sticky-col, table.inv-daily tr.adj-row td.sticky-col { background: var(--accent-soft); }
+table.inv-daily tr.count-row td { border-top: 1px solid var(--line-strong); }
+table.inv-daily tr.adj-row td { border-bottom: 1px solid var(--line-strong); }
+table.inv-daily tr.adj-row td.pos { color: var(--good); }
+table.inv-daily .row-tag { font-weight: 650; }
+table.inv-daily tbody tr.count-row:hover td, table.inv-daily tbody tr.adj-row:hover td { background: var(--accent-soft); }
+table.inv-daily tbody tr.month-row:hover th, table.inv-daily tbody tr.month-row:hover td { background: var(--stans-grey); }
+table.inv-daily tr.month-row th, table.inv-daily tr.month-row td { background: var(--stans-grey); color: var(--ink); font-weight: 600; border-top: 2px solid var(--line-strong); text-align: left; }
+.count-timing { margin-top: 4px; }

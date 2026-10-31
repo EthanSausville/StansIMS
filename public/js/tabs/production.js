@@ -7,6 +7,7 @@ import { state, derived, saveCell } from '../store.js';
 import { can, isClosed, closedNote, monthName } from '../perms.js';
 import { eachDay, isWeekend, lotCode, productionDays, toDate, COMPANY_START } from '../calc.js';
 import { downloadXlsx } from '../xlsx.js';
+import { endlessDays, dayRowClass } from './grid.js';
 import { xtable, filteredRows, activeFilterCount, clearFilters } from '../xtable.js';
 
 // Splits a product name into its three header lines: recipe, container, case.
@@ -18,23 +19,6 @@ export function nameParts(it) {
   const size = /gallon/i.test(m[2]) ? 'Gallon' : m[2].replace(/\s*oz\.?$/i, ' oz');
   return [m[1], size, m[3] || it.pack_note || 'Each'];
 }
-
-const CHUNK = 62; // days added each time the bottom of the list comes into view
-let shownDays = CHUNK;
-let topBtn = null;
-
-// Back to top: a button in the bottom right once the page has scrolled down.
-function scrollParent(el) {
-  for (let p = el?.parentElement; p; p = p.parentElement) { const o = getComputedStyle(p).overflowY; if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) return p; }
-  return document.scrollingElement;
-}
-function onAnyScroll(e) {
-  if (!topBtn?.isConnected) return;
-  const t = e.target === document ? document.scrollingElement : e.target;
-  if (!t?.contains?.(topBtn.previousElementSibling)) return;
-  topBtn.classList.toggle('show', t.scrollTop > 400);
-}
-document.addEventListener('scroll', onAnyScroll, { capture: true, passive: true });
 
 function exportExcel(fgs, allDays, values) {
   const parts = fgs.map(nameParts);
@@ -51,63 +35,23 @@ function dailyView() {
   const fgs = derived.ix().byType('Finished Good');
   const values = new Map();
   for (const r of state.data.production) values.set(`${r.date}|${r.item_no}`, (values.get(`${r.date}|${r.item_no}`) || 0) + (Number(r.cases) || 0));
-  const today = todayIso();
-  const allDays = [...eachDay(COMPANY_START, today)].reverse(); // newest first, back to the day the company was purchased
   const allowed = can('production', 'edit');
   const save = (date, item_no, v) => saveCell('production', { date, item_no }, 'cases', v);
-
-  // Month totals for the month rows.
   const monthTotal = new Map();
   for (const [k, v] of values) { const [d, no] = k.split('|'); const mk = `${d.slice(0, 7)}|${no}`; monthTotal.set(mk, (monthTotal.get(mk) || 0) + v); }
-
-  const rowsFor = (days, prev) => {
-    const out = [];
-    for (const d of days) {
-      const ym = d.slice(0, 7);
-      if (ym !== prev) {
-        prev = ym;
-        const closed = isClosed(d);
-        out.push(h('tr', { class: 'month-row' + (closed ? ' closed' : ''), 'data-month': ym },
-          h('th', { class: 'sticky-col', scope: 'rowgroup', title: closed ? closedNote(ym) : null }, monthName(ym), closed ? h('span', { class: 'closed-tag' }, ' 🔒 Closed') : null),
-          fgs.map((it) => { const t = monthTotal.get(`${ym}|${it.item_no}`); return h('td', { class: 'num' }, t ? qty(t, 2) : ''); })));
-      }
-      const closed = isClosed(d);
-      out.push(h('tr', { class: [isWeekend(d) ? 'weekend' : '', d === today ? 'today' : '', closed ? 'closed-day' : ''].join(' ').trim() || null, 'data-day': d },
-        h('td', { class: 'sticky-col' }, dateLabel(d)),
-        fgs.map((it) => numberCell(values.get(`${d}|${it.item_no}`) ?? null, (v) => save(d, it.item_no, v), {
-          disabled: !allowed || closed, digits: 2, key: `production|${d}|${it.item_no}`, title: `${it.name}, ${d}` }))));
-    }
-    return out;
-  };
 
   const head = h('thead', null, h('tr', { class: 'fg-head' }, h('th', { class: 'sticky-col' }, 'Date'),
     fgs.map((it) => { const [recipe, size, pack] = nameParts(it); return h('th', { class: 'num fg-name', title: `${it.name} · #${it.item_no}` },
       h('span', { class: 'fg-recipe' }, recipe), h('span', { class: 'fg-size' }, size), h('span', { class: 'fg-pack' }, pack)); })));
-  shownDays = Math.min(Math.max(shownDays, CHUNK), allDays.length);
-  const body = h('tbody', null, rowsFor(allDays.slice(0, shownDays), null));
-  const endNote = `That’s everything: the company was purchased on ${longDate(COMPANY_START)}.`;
-  const more = h('div', { class: 'load-more small muted' }, shownDays < allDays.length ? 'Loading earlier days…' : endNote);
-  const loadMore = () => {
-    if (shownDays >= allDays.length) return;
-    const prev = allDays[shownDays - 1].slice(0, 7);
-    const next = allDays.slice(shownDays, shownDays + CHUNK);
-    shownDays += next.length;
-    body.append(...rowsFor(next, prev));
-    if (shownDays >= allDays.length) { more.textContent = endNote; io.disconnect(); }
-  };
-  const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) loadMore(); }, { rootMargin: '600px 0px' });
-  requestAnimationFrame(() => { if (more.isConnected) io.observe(more); });
-
-  const wrap = h('div', { class: 'tablewrap tall prod-wrap', 'data-scroll': 'production' }, h('table', { class: 't prod-table' }, head, body));
-  const btn = h('button', { type: 'button', class: 'to-top', title: 'Back to today', 'aria-label': 'Back to top', onclick: () => {
-    const sc = scrollParent(wrap); sc.scrollTo({ top: 0, behavior: 'smooth' });
-  } }, '↑');
-  topBtn = btn;
+  const { allDays, list } = endlessDays({ id: 'production', tableClass: 'prod-table', head,
+    monthCells: (ym) => fgs.map((it) => { const t = monthTotal.get(`${ym}|${it.item_no}`); return h('td', { class: 'num' }, t ? qty(t, 2) : ''); }),
+    dayRows: (d) => h('tr', { class: dayRowClass(d), 'data-day': d },
+      h('td', { class: 'sticky-col' }, dateLabel(d)),
+      fgs.map((it) => numberCell(values.get(`${d}|${it.item_no}`) ?? null, (v) => save(d, it.item_no, v), {
+        disabled: !allowed || isClosed(d), digits: 2, key: `production|${d}|${it.item_no}`, title: `${it.name}, ${d}` }))) });
   const top = h('div', { class: 'prod-top' },
     h('button', { class: 'btn ghost download', title: 'Download every day’s production as an Excel workbook', onclick: () => exportExcel(fgs, allDays, values) }, '⤓ Export to Excel'));
-  const box = h('div', { class: 'prod-page' }, top, wrap, more);
-  requestAnimationFrame(() => { const sc = scrollParent(wrap); btn.classList.toggle('show', (sc?.scrollTop || 0) > 400); });
-  return h('div', null, pageHead('Production', 'Cases produced each day, newest first. Scroll down for earlier days. Typing math like 24*10 works.'), box, btn);
+  return h('div', null, pageHead('Production', 'Cases produced each day, newest first. Scroll down for earlier days. Typing math like 24*10 works.'), top, list);
 }
 
 export default {

@@ -18,9 +18,9 @@ export const SECTIONS = [
     { id: 'lots', label: 'Lots', edit: false },
     { id: 'newlots', label: 'New Batch', edit: true, note: 'Edit: enter a day’s production' }] },
   { label: 'Inventory', tabs: [
-    { id: 'newreceipts', label: 'New Receipts', edit: true, note: 'Edit: enter deliveries' }, { id: 'receipts', label: 'All Receipts', edit: true, note: 'Edit: fix past deliveries' },
-    { id: 'newcounts', label: 'New Counts', edit: true, note: 'Edit: enter counts' }, { id: 'counts', label: 'All Counts', edit: true, note: 'Edit: fix past counts' },
-    { id: 'inventory', label: 'Daily Inventory', edit: false }, { id: 'consumption', label: 'Consumption', edit: false }] },
+    { id: 'inventory', label: 'Daily', edit: false },
+    { id: 'newreceipts', label: 'Receive', edit: true, note: 'Edit: enter deliveries' },
+    { id: 'newcounts', label: 'Count', edit: true, note: 'Edit: enter counts' }] },
   { label: 'Planning', tabs: [
     { id: 'planning', label: 'Production', edit: true, note: 'Edit: the production plan' }, { id: 'purchasing', label: 'Purchases', edit: false },
     { id: 'safety', label: 'Safety Stocks', edit: true }] },

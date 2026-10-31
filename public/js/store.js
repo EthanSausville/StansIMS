@@ -113,14 +113,14 @@ async function run(promise) { const { data, error } = await promise; if (error) 
 const same = (a, b, keys) => keys.every((k) => String(a[k]) === String(b[k]));
 
 // Upserts (value) or deletes (null) one keyed cell such as production[date,item].
-export async function saveCell(table, key, field, value) {
+export async function saveCell(table, key, field, value, extra = {}) {
   const keys = Object.keys(key); const list = state.data[table];
   if (value === null) {
     let q = sb.from(table).delete(); for (const k of keys) q = q.eq(k, key[k]);
     await run(q);
     const i = list.findIndex((r) => same(r, key, keys)); if (i >= 0) list.splice(i, 1);
   } else {
-    const row = await run(sb.from(table).upsert({ ...key, [field]: value }, { onConflict: keys.join(',') }).select().single());
+    const row = await run(sb.from(table).upsert({ ...key, ...extra, [field]: value }, { onConflict: keys.join(',') }).select().single());
     const i = list.findIndex((r) => same(r, key, keys)); if (i >= 0) list[i] = row; else list.push(row);
   }
   changed();

@@ -470,16 +470,22 @@ export function consumptionByDate(data) {
 }
 
 // ---------- Daily Inventory ----------
-// Each item starts on its first cycle count. Every day after that:
-//   inventory = (that day's count, or yesterday's inventory) + receipts - consumption
-// Finished goods (not calculated in the workbook) use production in and sales out.
+// Each item starts on its first cycle count. Every day after that, the day's
+// movement is receipts - consumption (finished goods: production in, sales out):
+//   no count:            inventory = yesterday's + movement
+//   count, start of day: inventory = count + movement     (adjustment = count - yesterday's)
+//   count, end of day:   inventory = count                (adjustment = count - (yesterday's + movement))
+// result.adjust: `${item_no}|${date}` -> { counted, expected, adj, timing } for
+// every count (adj is null for an item's first count, which starts it).
+export const countTiming = (c) => (c?.timing === 'end' ? 'end' : 'start');
 export function dailyInventory(data, to) {
   const ix = index(data);
   const tracked = [...ix.byType('Raw Material'), ...ix.byType('Component'), ...ix.byType('Finished Good')];
   const key = (d, i) => `${d}|${i}`;
-  const counts = new Map(); const firstCount = new Map();
+  const counts = new Map(); const firstCount = new Map(); const timing = new Map();
   for (const c of data.cycle_counts) {
     counts.set(key(c.date, c.item_no), (counts.get(key(c.date, c.item_no)) || 0) + n(c.qty));
+    timing.set(key(c.date, c.item_no), countTiming(c));
     if (!firstCount.has(c.item_no) || c.date < firstCount.get(c.item_no)) firstCount.set(c.item_no, c.date);
   }
   const ins = new Map(); const add = (d, i, q) => ins.set(key(d, i), (ins.get(key(d, i)) || 0) + q);
@@ -489,15 +495,22 @@ export function dailyInventory(data, to) {
   const cons = consumptionByDate(data);
   const starts = [...firstCount.values()].sort();
   const from = starts[0];
-  const result = { from, to, items: tracked, byItem: new Map() };
+  const result = { from, to, items: tracked, byItem: new Map(), adjust: new Map() };
   if (!from) return result;
   for (const item of tracked) {
     const series = new Map(); const start = firstCount.get(item.item_no);
     if (!start) { result.byItem.set(item.item_no, series); continue; }
     let prev = 0;
     for (const d of eachDay(start, to)) {
-      const counted = counts.get(key(d, item.item_no));
-      const v = (counted !== undefined ? counted : prev) + (ins.get(key(d, item.item_no)) || 0) - (cons.get(d)?.get(item.item_no) || 0);
+      const k = key(d, item.item_no); const counted = counts.get(k);
+      const move = (ins.get(k) || 0) - (cons.get(d)?.get(item.item_no) || 0);
+      let v = prev + move;
+      if (counted !== undefined) {
+        const t = timing.get(k); const first = d === start;
+        const expected = first ? null : t === 'end' ? prev + move : prev;
+        v = t === 'end' ? counted : counted + move;
+        result.adjust.set(`${item.item_no}|${d}`, { counted, expected, adj: first ? null : counted - expected, timing: t });
+      }
       series.set(d, v); prev = v;
     }
     result.byItem.set(item.item_no, series);
@@ -828,11 +841,11 @@ export function journalEntries(data, year, month, inv) {
   const adjBy = { rm: 0, cp: 0, fg: 0 };
   const counted = new Map();
   for (const c of data.cycle_counts) { if (!inMonth(c.date)) continue; const k = `${c.item_no}|${c.date}`; counted.set(k, (counted.get(k) || 0) + n(c.qty)); }
-  for (const [k, q] of counted) {
-    const [itemNo, date] = k.split('|'); const it = ix.items.get(+itemNo); if (!it) continue;
-    const before = inv?.byItem.get(+itemNo)?.get(addDays(date, -1));
-    if (before === undefined) continue; // the first count of an item starts its inventory
-    adjBy[invAccount(it.type)] += (q - before) * std(+itemNo);
+  for (const k of counted.keys()) {
+    const [itemNo] = k.split('|'); const it = ix.items.get(+itemNo); if (!it) continue;
+    const a = inv?.adjust?.get(k);
+    if (!a || a.adj === null) continue; // the first count of an item starts its inventory
+    adjBy[invAccount(it.type)] += a.adj * std(+itemNo);
   }
   const adjTotal = adjBy.rm + adjBy.cp + adjBy.fg;
   entries.push({ code: 'F', title: 'Cycle Counts', lines: [signed('adj', -adjTotal, adjTotal <= 0 ? 'Counted less than expected (shrinkage)' : 'Counted more than expected'),
@@ -890,14 +903,15 @@ export function ledger(entriesList) {
 }
 
 // ---------- Cycle count sheet ----------
-// For a count date: what the running inventory expects at the start of the day
-// (the end of the day before), next to what was counted.
+// For a count date: what the running inventory expected when it was counted
+// (start of the day, or end of the day for an end-of-day count), next to what was counted.
 export const COUNT_TOLERANCE = 0.1; // differences over 10% are flagged
 export function countSheet(data, inv, date, items) {
   const counts = new Map();
   for (const c of data.cycle_counts) if (c.date === date) counts.set(c.item_no, (counts.get(c.item_no) || 0) + n(c.qty));
   return items.map((item) => {
-    const expected = inv?.byItem.get(item.item_no)?.get(addDays(date, -1));
+    const a = inv?.adjust?.get(`${item.item_no}|${date}`);
+    const expected = a && a.expected !== null ? a.expected : inv?.byItem.get(item.item_no)?.get(addDays(date, -1));
     const counted = counts.has(item.item_no) ? counts.get(item.item_no) : null;
     const diff = counted === null || expected === undefined ? null : counted - expected;
     const pct = diff === null ? null : expected ? diff / Math.abs(expected) : (diff ? 1 : 0);

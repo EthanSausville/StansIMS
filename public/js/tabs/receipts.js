@@ -1,12 +1,8 @@
-// Receipts, as two tabs:
-//   New Receipts  the simple way in: pick the day, type how many boxes / bags /
-//                 cases of each thing came in, save. The site turns them into
-//                 each item's base unit (a box of cheese = 30 lb).
-//   All Receipts  the grid of everything received each day, in base units, for
-//                 checking and fixing.
-import { h, pageHead, monthPicker, chip, qty, toast, niceError, todayIso, longDate, DOW } from '../ui.js';
+// Inventory → Receive: pick the day, type how many boxes / bags / cases of each
+// thing came in, save. The site turns them into each item's base unit (a box
+// of cheese = 30 lb). Inventory → Daily shows the running balance.
+import { h, pageHead, qty, toast, niceError, todayIso, longDate, DOW } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
-import { entryGrid, view, monthDays } from './grid.js';
 import { can, isClosed, closedNote } from '../perms.js';
 import { hasReceiving, unitWord, holdsLabel, toDate, COMPANY_START } from '../calc.js';
 
@@ -91,7 +87,8 @@ function enterView(rerender) {
     onchange: (e) => { if (e.target.value) { day = e.target.value < COMPANY_START ? COMPANY_START : e.target.value; lastSaved = null; rerender(); } } });
   refresh();
   return h('div', null,
-    pageHead('New Receipts', 'For whoever unloads the truck: pick the day it came in, type how many boxes, bags or cases of each thing arrived, and press Save delivery. The site works out the pounds, cups or each for you. If something was already entered for that day, this adds to it. All Receipts shows everything received, to check or fix past days.',
+    pageHead('Receive', 'For whoever unloads the truck: pick the day it came in, type how many boxes, bags or cases of each thing arrived, and press Save delivery. The site works out the pounds, cups or each for you. If something was already entered for that day, this adds to it.'),
+    h('div', { class: 'nb-date' },
       h('label', { class: 'field' }, 'Delivery date', dateInput),
       h('div', { class: 'dl-day' }, isToday ? 'Today' : DOW[toDate(day).getUTCDay()], ' · ', longDate(day)),
       !isToday ? h('button', { class: 'btn', onclick: () => { day = todayIso(); lastSaved = null; rerender(); } }, 'Back to today') : null),
@@ -109,26 +106,6 @@ function enterView(rerender) {
 
 export const newReceipts = {
   id: 'newreceipts',
-  label: 'New Receipts',
+  label: 'Receive',
   render({ rerender }) { return enterView(rerender); },
-};
-
-export const allReceipts = {
-  id: 'receipts',
-  label: 'All Receipts',
-  render({ rerender }) {
-    const ix = derived.ix();
-    const items = [...ix.byType('Raw Material'), ...ix.byType('Component')];
-    const days = new Set(monthDays(view.ym));
-    const month = state.data.goods_receipts.filter((r) => days.has(r.date));
-    return h('div', null,
-      pageHead('All Receipts', 'Everything received each day, in each item’s base unit (pounds, cups or each); the line under each name shows what one box, bag or case holds. To enter a delivery, use New Receipts. Fix a number here by typing over it; typing math like 30*12 works.',
-        monthPicker(view.ym, (ym) => { view.ym = ym; rerender(); }),
-        chip('Receipts', month.length),
-        chip('Delivery days', new Set(month.map((r) => r.date)).size)),
-      entryGrid({
-        table: 'goods_receipts', field: 'qty', rerender, items, ym: view.ym, rows: state.data.goods_receipts,
-        editable: { allowed: can('receipts', 'edit'), save: (date, item_no, v) => saveCell('goods_receipts', { date, item_no }, 'qty', v) },
-      }));
-  },
 };

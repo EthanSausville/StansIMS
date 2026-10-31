@@ -95,13 +95,13 @@ def shot(page, name):
 GROUPS = {
     'Dashboard': ['Dashboard'],
     'Production': ['Daily', 'Lots', 'New Batch'],
-    'Inventory': ['New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
+    'Inventory': ['Daily', 'Receive', 'Count'],
     'Planning': ['Production', 'Purchases', 'Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor', 'Overhead'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
-ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['My Account', 'Users', 'Roles', 'Periods', 'Security', 'Change history']
+ALL_TABS = [f'{g}/{t}' for g, ts in GROUPS.items() for t in ts] + ['My Account', 'Users', 'Roles', 'Periods', 'Security', 'Change history']
 
 def edit_bom(page, name):
     row = page.locator('table.tree-table tr.d0', has=page.locator('.tree-name', has_text=name)).first
@@ -253,9 +253,9 @@ with sync_playwright() as p:
     edge = page.evaluate("[Math.round(document.querySelector('.sidebar').getBoundingClientRect().right), Math.round(document.querySelector('main .tablewrap').getBoundingClientRect().left)]")
     check(edge[1] >= edge[0], f'the table and its scrolling sit to the right of the side bar ({edge})')
     page.evaluate("localStorage.removeItem('side:w250')")
-    tab(page, 'Daily')
+    tab(page, 'Production/Daily')
     side = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.scrollWidth > w.clientWidth)")
-    tab(page, 'Daily Inventory')
+    tab(page, 'Inventory/Daily')
     page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 700"); page.wait_for_timeout(200)
     fh = page.evaluate("(() => { const f = document.querySelector('.float-head'); if (!f) return null; const r = f.getBoundingClientRect(); return [Math.round(r.top), f.textContent.includes('Cheese')]; })()")
     check(fh is not None and abs(fh[0] - bar) <= 1 and fh[1], f'wide tables keep their column names under the site header too ({fh})')
@@ -289,7 +289,7 @@ with sync_playwright() as p:
     shot(page, '20-dashboard-full-year')
 
     # ---- production entry: newest day first, scrolling back ----
-    tab(page, 'Daily')
+    tab(page, 'Production/Daily')
     check(page.locator('aside.sidebar').is_hidden(), 'production has no side bar')
     heads = page.locator('table.prod-table thead th').all_inner_texts()
     check(not any(x in ' '.join(heads) for x in ('Est. loss', 'Batches', 'Oz', 'Finished Good')), f'no loss / batches / oz columns or Finished Good band ({heads[:4]})')
@@ -324,11 +324,11 @@ with sync_playwright() as p:
     shot(page, '21-production-july')
 
     # ---- inventory reacts to a delivery ----
-    tab(page, 'Daily Inventory')
+    tab(page, 'Inventory/Daily')
     before = page.evaluate("1")
-    tab(page, 'New Receipts')
-    # ---- New Receipts (the simple way) ----
-    check(page.locator('form.delivery').count() == 1 and page.locator('table.t').count() == 0, 'New Receipts is just the delivery form')
+    tab(page, 'Receive')
+    # ---- Receive (the simple way) ----
+    check(page.locator('form.delivery').count() == 1 and page.locator('table.t').count() == 0 and page.locator('aside.sidebar').is_hidden(), 'Receive is just the delivery form, with no side bar')
     lid_no = next(i['item_no'] for i in inputs['items'] if i['name'] == '7 oz Lid')
     rcpt = lambda no: sum(float(r['qty']) for r in page.evaluate("window.__MOCK_DB__.goods_receipts") if r['item_no'] == no and r['date'] == TODAY.isoformat())
     b_cheese, b_lid = rcpt(100001), rcpt(lid_no)
@@ -346,19 +346,16 @@ with sync_playwright() as p:
     shot(page, '59-delivery-saved')
     page.get_by_role('button', name='Undo this delivery').click(); page.wait_for_timeout(400)
     check(rcpt(100001) == b_cheese and rcpt(lid_no) == b_lid, 'Undo takes the delivery back out')
-    tab(page, 'All Receipts')
-    c = cell(page, 'goods_receipts|2026-07-20|100001'); c.click(); c.fill('30*100'); c.press('Enter'); page.wait_for_timeout(300)
-    stored = page.evaluate("window.__MOCK_DB__.goods_receipts.find(r => r.date==='2026-07-20' && r.item_no===100001)")
-    check(stored and stored['qty'] == 3000, 'goods receipt of 30*100 lb cheese saved as 3000')
-    tab(page, 'Daily Inventory')
-    row = page.locator('tbody tr', has=page.locator('td.sticky-col', has_text='7/20/2026'))
-    vals = row.locator('td').all_inner_texts()
-    tab(page, 'All Receipts')
-    c = cell(page, 'goods_receipts|2026-07-20|100001'); c.click(); c.fill(''); c.press('Enter'); page.wait_for_timeout(300)
-    tab(page, 'Daily Inventory')
-    vals2 = page.locator('tbody tr', has=page.locator('td.sticky-col', has_text='7/20/2026')).locator('td').all_inner_texts()
-    a = float(vals[1].replace(',', '')); b = float(vals2[1].replace(',', ''))
-    check(abs((a - b) - 3000) < 0.01, f'cheese inventory on 7/20 moves by the 3,000 lb delivery ({a} vs {b})')
+    # A delivery on a past day moves that day's inventory.
+    cheese_on = lambda: float(page.locator('tr[data-day="2026-07-10"] td').nth(1).inner_text().replace(',', '') or 0)
+    tab(page, 'Inventory/Daily'); a = cheese_on()
+    tab(page, 'Receive')
+    page.locator('input.big-date').fill('2026-07-10'); page.locator('input.big-date').dispatch_event('change'); page.wait_for_timeout(200)
+    page.locator('input[data-k="dl|100001"]').fill('100'); page.get_by_role('button', name='Save delivery').click(); page.wait_for_timeout(400)
+    tab(page, 'Inventory/Daily'); b = cheese_on()
+    check(abs((b - a) - 3000) < 0.01, f'cheese inventory on 7/10 moves by a 100-box (3,000 lb) delivery ({a} -> {b})')
+    tab(page, 'Receive'); page.get_by_role('button', name='Undo this delivery').click(); page.wait_for_timeout(400)
+    page.get_by_role('button', name='Back to today').click(); page.wait_for_timeout(200)
 
     # ---- sales ----
     tab(page, 'Sales Detail')
@@ -741,53 +738,56 @@ with sync_playwright() as p:
     tab(page, 'Dashboard')
     check(page.locator('.note.warn', has_text='Below safety stock or overdue to order').count() == 1, 'the dashboard lists what to order now')
 
-    # ---- Consumption ----
-    tab(page, 'Consumption')
-    cheese_row = page.locator('table.xtable tbody tr', has_text='Cheese').first
-    jul = cheese_row.locator('td').nth(3 + 6).inner_text()
-    check(jul not in ('', '0'), f'standard usage by month (Cheese, July {jul})')
-    page.get_by_role('button', name='Dollars').click(); page.wait_for_timeout(150)
-    check(cheese_row.locator('td').nth(3 + 6).locator('.cur').count() == 1, 'usage in dollars, accounting style')
-    page.get_by_role('button', name='Count to count').click(); page.wait_for_timeout(150)
-    n_cc = page.locator('table.xtable tbody tr').count()
-    check(n_cc > 0 and page.locator('table.xtable thead', has_text='Actual used').count() == 1, f'count-to-count actual vs standard usage ({n_cc} periods)')
-    shot(page, '53-count-to-count')
-    page.get_by_role('button', name='Daily').click(); page.wait_for_timeout(150)
-    check(page.locator('h2', has_text='Used per case produced').count() == 1, 'daily usage and per-case usage are on Consumption')
-    page.get_by_role('button', name='By month').click(); page.wait_for_timeout(100)
-    page.get_by_role('button', name='Quantity').click(); page.wait_for_timeout(100)
-
     # ---- Count sheet ----
-    tab(page, 'New Counts')
-    check(page.locator('table.count-sheet').count() == 1 and page.get_by_role('button', name='Check counts').count() == 0, 'New Counts is just the count sheet')
+    tab(page, 'Count')
+    check(page.locator('table.count-sheet').count() == 1 and page.locator('aside.sidebar').is_hidden(), 'Count is just the count sheet, with no side bar')
     cdate = sorted({c['date'] for c in inputs['cycle_counts']})[-1]
-    page.locator('.sidebar input[type=date]').fill(cdate); page.locator('.sidebar input[type=date]').dispatch_event('change'); page.wait_for_timeout(200)
+    page.locator('input.big-date').fill(cdate); page.locator('input.big-date').dispatch_event('change'); page.wait_for_timeout(200)
     check(page.locator('table.count-sheet thead', has_text='Expected').count() == 0, 'counting is blind: no expected numbers while counting')
     shot(page, '55a-count-blind')
     crow = page.locator('table.count-sheet tbody tr', has_text='Cheese').first
     got = cell(page, f'csf|{cheese_no}').input_value()
-    check(got != '', f'New Counts shows what was counted on {cdate} ({got} boxes)')
-    lj = str(next(i['item_no'] for i in inputs['items'] if i['name'] == 'Lemon Juice'))
+    check(got != '', f'Count shows what was counted on {cdate} ({got} boxes)')
     check(crow.locator('.cnt-u').first.inner_text() == 'full boxes' and 'lb loose' in crow.inner_text(), 'cheese is counted in full boxes plus loose lb')
     f_ = cell(page, f'csf|{cheese_no}'); l_ = cell(page, f'csl|{cheese_no}'); keep = (f_.input_value(), l_.input_value())
     f_.fill('12'); l_.fill('15'); l_.press('Tab'); page.wait_for_timeout(300)
     check(page.evaluate(f"window.__MOCK_DB__.cycle_counts.find(c => c.item_no === {cheese_no} && c.date === '{cdate}').qty") == 375, '12 boxes + 15 lb loose is saved as 375 lb')
     f_ = cell(page, f'csf|{cheese_no}'); l_ = cell(page, f'csl|{cheese_no}'); f_.fill(keep[0]); l_.fill(keep[1]); l_.press('Tab'); page.wait_for_timeout(300)
-    tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill('1'); tcell.press('Tab'); page.wait_for_timeout(250)
-    tab(page, 'All Counts')
-    page.get_by_role('button', name='Check a day').click(); page.wait_for_timeout(150)
-    page.locator('.sidebar select').select_option(cdate); page.wait_for_timeout(150)
-    chk = page.locator('table.count-check tbody tr', has_text='Cheese').first
-    check(chk.locator('td').nth(3).inner_text() not in ('', '—') and 'boxes' in chk.locator('td').nth(2).inner_text() and chk.locator('td').nth(0).inner_text() == '100001', f'Check a day shows counted (in boxes) next to expected ({chk.inner_text()!r})')
-    check(page.locator('table.count-check tbody tr.flagged', has_text='Lemon Juice').count() == 1, 'a count far from expected is flagged')
-    shot(page, '55-count-sheet')
-    page.get_by_role('button', name='Month', exact=True).click(); page.wait_for_timeout(150)
-    check(page.locator('table.t td.cell input').count() > 0, 'All Counts has the month grid')
-    tab(page, 'New Counts')
-    tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
+
+    # Start or end of day: where the count sits on Daily, and what its adjustment covers.
+    cday = '2026-07-06'  # a Monday with production
+    page.locator('input.big-date').fill(cday); page.locator('input.big-date').dispatch_event('change'); page.wait_for_timeout(200)
+    check(page.locator('.count-timing button[aria-pressed="true"]').inner_text() == 'Start of day', 'a new count day starts as a start-of-day count')
+    fg_no = 500003  # Original gallon: made and sold that week
+    c = cell(page, f'cs|{fg_no}'); c.fill('500'); c.press('Tab'); page.wait_for_timeout(300)
+    check(page.evaluate(f"window.__MOCK_DB__.cycle_counts.find(c => c.item_no === {fg_no} && c.date === '{cday}').timing") == 'start', 'the count is saved as start of day')
+    tab(page, 'Inventory/Daily')
+    order = page.locator(f'tr[data-day="{cday}"], tr[data-count^="{cday}"], tr[data-adjust^="{cday}"]').evaluate_all('es => es.map(e => e.dataset.day ? "day" : e.dataset.count ? "count" : "adjust")')
+    check(order == ['day', 'count', 'adjust'], f'a start-of-day count and its adjustment sit below the day ({order})')
+    col = page.locator('table.inv-daily thead tr').nth(1).locator('th').evaluate_all(f'es => es.findIndex(e => (e.title || "").includes("#{fg_no}"))')
+    num = lambda sel: float(page.locator(sel).locator('td').nth(col).inner_text().replace(',', '').replace('+', '') or 'nan')
+    made = page.evaluate(f"window.__MOCK_DB__.production.filter(r => r.date === '{cday}' && r.item_no === {fg_no}).reduce((t, r) => t + r.cases, 0)")
+    sold = page.evaluate(f"window.__MOCK_DB__.sales.filter(r => r.date === '{cday}' && r.item_no === {fg_no}).reduce((t, r) => t + Number(r.quantity), 0)")
+    prev_day = num('tr[data-day="2026-07-05"]')
+    check(num(f'tr[data-count="{cday}|start"]') == 500 and abs(num(f'tr[data-adjust="{cday}|start"]') - (500 - prev_day)) < 0.01 and abs(num(f'tr[data-day="{cday}"]') - (500 + made - sold)) < 0.01,
+          f'start of day: adjustment = count − the day before ({500 - prev_day}), and the day adds its production ({made}) and sales ({sold})')
+    shot(page, '55-count-start')
+    tab(page, 'Count')
+    page.locator('.count-timing button', has_text='End of day').click(); page.wait_for_timeout(300)
+    check(page.evaluate(f"window.__MOCK_DB__.cycle_counts.find(c => c.item_no === {fg_no} && c.date === '{cday}').timing") == 'end', 'switching to end of day changes the day’s counts')
+    tab(page, 'Inventory/Daily')
+    order = page.locator(f'tr[data-day="{cday}"], tr[data-count^="{cday}"], tr[data-adjust^="{cday}"]').evaluate_all('es => es.map(e => e.dataset.day ? "day" : e.dataset.count ? "count" : "adjust")')
+    check(order == ['count', 'adjust', 'day'], f'an end-of-day count sits above the day ({order})')
+    check(num(f'tr[data-day="{cday}"]') == 500 and abs(num(f'tr[data-adjust="{cday}|end"]') - (500 - (prev_day + made - sold))) < 0.01,
+          'end of day: the day ends at the count, and the adjustment includes the day’s production and sales')
+    shot(page, '55-count-end')
+    tab(page, 'Count')
+    c = cell(page, f'cs|{fg_no}'); c.fill(''); c.press('Tab'); page.wait_for_timeout(300)
+    page.locator('.count-timing button', has_text='Start of day').click(); page.wait_for_timeout(200)
+    page.get_by_role('button', name='Back to today').click(); page.wait_for_timeout(200)
 
     # ---- Production module: Daily, Lots, New Batch ----
-    tab(page, 'Daily')
+    tab(page, 'Production/Daily')
     wk = page.locator('table.prod-table tbody tr.weekend').first
     bgs = set(wk.locator('td').evaluate_all('es => es.map(e => getComputedStyle(e).backgroundColor)'))
     check(bgs == {'rgb(255, 255, 255)'}, f'weekend rows are white all the way across ({bgs})')
@@ -829,12 +829,12 @@ with sync_playwright() as p:
     gone = page.evaluate("!window.__MOCK_DB__.production.some(r => r.date==='2026-07-08' && (r.item_no===500001 || r.item_no===500003))")
     check(gone, 'and Undo takes them back out')
 
-    tab(page, 'Daily Inventory')
+    tab(page, 'Inventory/Daily')
     wk = page.locator('table.t tbody tr.weekend').first
     bgs = set(wk.locator('td').evaluate_all('es => es.map(e => getComputedStyle(e).backgroundColor)'))
     check(wk.count() == 1 and bgs <= {'rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)'}, f'Daily Inventory weekend rows are white too ({bgs})')
 
-    tab(page, 'Daily')
+    tab(page, 'Production/Daily')
     with page.expect_download() as dl:
         page.get_by_role('button', name='Export to Excel').click()
     path = dl.value.path()
@@ -1078,7 +1078,7 @@ with sync_playwright() as p:
     # ---- Settings → Roles and Periods ----
     ctx, page, errors = open_app(browser)
     page.goto(BASE + '/#roles'); page.wait_for_selector('table.roles-table')
-    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 29, 'Roles shows Admin and Accountant for every page (Settings pages too), grouped like the menu')
+    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 26, 'Roles shows Admin and Accountant for every page (Settings pages too), grouped like the menu')
     check(page.locator('.sidebar:not([hidden])').count() == 0, 'Roles has no side bar')
     page.get_by_role('button', name='+ New role').click(); page.wait_for_timeout(100)
     dlg = page.locator('dialog[open]'); dlg.locator('input').first.fill('Receiving'); dlg.locator('select').select_option('staff'); dlg.get_by_role('button', name='Add role').click(); page.wait_for_timeout(300)
@@ -1157,15 +1157,16 @@ with sync_playwright() as p:
     ctx, page, errors = open_app(browser, role='receiving')
     rdb = dict(mock_db(), profiles=[dict(user_id='u1', email='owner@stans.test', role='receiving', created_at='2026-10-27T12:00:00Z')],
                roles=[dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0), dict(id='staff', name='Accountant', builtin=True, permissions={}, sort=1),
-                      dict(id='receiving', name='Receiving', builtin=False, permissions=dict(newreceipts='edit', receipts='edit', newcounts='view', counts='view', inventory='view', consumption='view'), sort=2)])
+                      dict(id='receiving', name='Receiving', builtin=False, permissions=dict(newreceipts='edit', newcounts='view', inventory='view'), sort=2)])
     body = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
         f'window.__MOCK_DB__={json.dumps(rdb)};window.__MOCK_ROLE__="receiving";window.__MOCK_SIGNED_IN__=true;')
     page.route('**/config.js', lambda r: r.fulfill(status=200, content_type='text/javascript', body=body))
     page.goto(BASE + '/'); page.wait_for_selector('.groups .group')
     groups = page.locator('.groups:not(.gear-slot) .group').all_inner_texts()
     check([g.strip().upper() for g in groups] == ['INVENTORY'], f'only the areas the role can see show ({groups})')
-    check(page.locator('.tabs .tab').all_inner_texts() == ['New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'], 'and only their tabs')
-    check(page.locator('.dl-input').count() > 0 and not page.locator('.dl-input').first.is_disabled(), 'it lands on New Receipts and can enter deliveries')
+    check(page.locator('.tabs .tab').all_inner_texts() == ['Daily', 'Receive', 'Count'], 'and only their tabs')
+    page.goto(BASE + '/#newreceipts'); page.wait_for_timeout(300)
+    check(page.locator('.dl-input').count() > 0 and not page.locator('.dl-input').first.is_disabled(), 'it can enter deliveries on Receive')
     page.goto(BASE + '/#newcounts'); page.wait_for_timeout(300)
     check(page.locator('.note', has_text='can view counts but not enter them').count() == 1 and page.locator('.count-sheet input').first.is_disabled(), 'counts are view only')
     page.goto(BASE + '/#sales'); page.wait_for_timeout(300)
@@ -1279,7 +1280,7 @@ with sync_playwright() as p:
     check(page.get_by_role('tab', name='Users').count() == 0 and page.locator('.set-card', has_text='Signed in as').count() == 1, 'staff see only My Account under Settings')
     tab(page, 'Master List')
     check(cell(page, 'sc|100001|2026').is_disabled(), 'staff cannot edit standard costs')
-    tab(page, 'Daily')
+    tab(page, 'Production/Daily')
     check(not cell(page, f'production|{TODAY.isoformat()[:8]}01|500001').is_disabled(), 'staff can enter production')
     shot(page, '23-staff-production')
     page.goto(BASE + '/#users'); page.wait_for_timeout(200)
@@ -1293,12 +1294,12 @@ with sync_playwright() as p:
     overflow = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
     check(overflow <= 0, f'no sideways page scroll on a phone (overflow {overflow}px)')
     shot(page, '24-phone-dashboard')
-    tab(page, 'Daily'); shot(page, '25-phone-production')
-    for i, t in enumerate(['New Receipts', 'New Counts', 'Purchases', 'Planning/Production', 'Sales Detail']):
+    tab(page, 'Production/Daily'); shot(page, '25-phone-production')
+    for i, t in enumerate(['Receive', 'Count', 'Inventory/Daily', 'Purchases', 'Planning/Production', 'Sales Detail']):
         tab(page, t); page.wait_for_timeout(150)
         ov = page.evaluate('Math.max(document.documentElement.scrollWidth - window.innerWidth, document.querySelector("main").scrollWidth - document.querySelector("main").clientWidth)')
         check(ov <= 0, f'{t}: no sideways page scroll on a phone ({ov}px)')
-        shot(page, f'25{chr(98 + i)}-phone-{t.lower().replace(" ", "-")}')
+        shot(page, f'25{chr(98 + i)}-phone-{t.lower().replace(" ", "-").replace("/", "-")}')
     ctx.close()
 
     # ---- not configured ----

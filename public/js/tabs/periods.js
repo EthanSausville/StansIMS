@@ -121,9 +121,9 @@ export default {
     const who = (c) => (c ? `Closed ${c.closed_at ? longDate(String(c.closed_at).slice(0, 10)) : ''}${c.closed_by_email ? ` by ${c.closed_by_email}` : ''}`.trim() : null);
     const monthRow = (ym) => {
       const c = closed.get(ym); const current = ym === nowYm; const future = ym > nowYm; const yc = closedYears.has(Number(ym.slice(0, 4)));
-      return h('tr', { class: 'pr-month' + (current ? ' pr-current' : '') },
+      return h('tr', { class: 'pr-month' + (current ? ' pr-current' : '') + (future ? ' pr-future' : '') },
         h('td', { class: 'pr-name' }, monthName(ym).replace(/ \d{4}$/, '')),
-        h('td', null, h('span', { class: `user-status ${c || yc ? 'off' : current || future ? 'invited' : 'on'}`, title: who(c) }, c || yc ? '🔒 Closed' : future ? 'Future month' : current ? 'Current month' : 'Open')),
+        h('td', null, h('span', { class: `user-status ${c || yc ? 'off' : future ? 'future' : current ? 'invited' : 'on'}`, title: who(c) }, c || yc ? '🔒 Closed' : future ? 'Future month' : current ? 'Current month' : 'Open')),
         future ? cells(blankRow) : cells(figs.get(ym)),
         h('td', { class: 'user-actions' }, !live || current || future ? null
           : yc ? h('span', { class: 'small muted', title: 'Reopen the year’s Ending first' }, 'Ending closed')
@@ -157,9 +157,11 @@ export default {
     const yearGroup = (y) => {
       const yms = months.filter((ym) => ym.startsWith(`${y}-`));
       const future = y > nowYear; // next year (from October): its months are all ahead
-      const done = y < nowYear; // a finished year folds up
+      const done = y < nowYear; // a finished year starts folded up
       const key = `periods:open:${y}`;
-      const isOpen = !done || pref.get(key) === '1';
+      // Clicking a year folds it up; the current year folds up only its months still ahead.
+      const isOpen = pref.get(key) ? pref.get(key) === '1' : !done;
+      const partial = !done && !future; // the current year
       const yc = closedYears.get(y);
       const nClosed = yms.filter((ym) => closed.has(ym)).length;
       const toggle = () => { pref.set(key, isOpen ? '0' : '1'); rerender(); };
@@ -170,13 +172,14 @@ export default {
       const status = future ? (closedBeginnings.has(y) ? '🔒 Standards locked' : 'Not started')
         : yc ? '🔒 Closed' : nClosed === yms.length ? '🔒 All months closed' : done ? `${nClosed} of ${yms.length} months closed`
           : `${nClosed} closed · ${yms.filter((ym) => ym <= nowYm && !closed.has(ym)).length} open`;
-      const head = h('tr', { class: 'pr-year' + (done ? ' foldable' : ''), onclick: done ? toggle : null,
-          title: done ? (isOpen ? `Hide ${y}’s months` : `Show ${y}’s months`) : null, 'aria-expanded': done ? String(isOpen) : null },
+      const head = h('tr', { class: 'pr-year foldable', onclick: toggle, 'aria-expanded': String(isOpen),
+          title: partial ? (isOpen ? `Hide ${y}’s months still ahead` : `Show ${y}’s months still ahead`) : isOpen ? `Hide ${y}’s months` : `Show ${y}’s months` },
         h('td', { class: 'pr-name' }, String(y)),
         h('td', null, h('span', { class: `user-status ${yc || (!future && nClosed === yms.length) || (future && closedBeginnings.has(y)) ? 'off' : done ? 'on' : 'invited'}`, title: who(yc) }, status)),
         cells(future ? blankRow : total), h('td'));
       return h('tbody', { class: 'pr-group' }, head,
-        isOpen ? [endingRow(y, yms), [...yms].reverse().map(monthRow), beginningRow(y)] : null);
+        isOpen ? [endingRow(y, yms), [...yms].reverse().map(monthRow), beginningRow(y)]
+          : partial ? [endingRow(y, yms), [...yms].reverse().filter((ym) => ym <= nowYm).map(monthRow), beginningRow(y)] : null);
     };
 
     return h('div', null,

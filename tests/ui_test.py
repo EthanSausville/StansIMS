@@ -1051,6 +1051,13 @@ with sync_playwright() as p:
     check(g26.locator('tr.pr-month', has_text='Future month').count() == 5 and g26.locator('tr.pr-month', has_text='December').get_by_role('button').count() == 0
           and g26.locator('tr.pr-current').count() == 1 and 'July' in g26.locator('tr.pr-current').inner_text(), 'months still ahead say Future month, with nothing to close; the current month is greyed')
     check(page.locator('tr.pr-year').get_by_role('button').count() == 0 and 'Year not over' in rows[0], 'this year’s Ending waits for the year to end; no buttons on year rows')
+    check(g26.locator('tr.pr-future .user-status.future').count() == 5, 'Future month is grey and quiet')
+    page.locator('tr.pr-year', has_text='2026').click(); page.wait_for_timeout(200)
+    g26 = page.locator('tbody.pr-group').first
+    check(g26.locator('tr.pr-future').count() == 0 and g26.locator('tr.pr-month', has_text='July').count() == 1 and g26.locator('tr.pr-month', has_text='Ending').count() == 1, 'clicking the current year folds up only its months still ahead')
+    page.locator('tr.pr-year', has_text='2026').click(); page.wait_for_timeout(200)
+    g26 = page.locator('tbody.pr-group').first
+    check(g26.locator('tr.pr-future').count() == 5, 'and clicking again shows them')
     june = g26.locator('tr.pr-month', has_text='June')
     check(g26.locator('tr.pr-month', has_text='July').locator('text=Current month').count() == 1, 'the current month can’t be closed')
     june.get_by_role('button', name='Close').click(); page.locator('dialog[open]').get_by_role('button', name='Close').click(); page.wait_for_timeout(300)

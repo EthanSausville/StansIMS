@@ -1431,3 +1431,7 @@ table.roles-table.compact th.rp-role { min-width: 120px; }
 table.roles-table.compact td.rp-page { min-width: 160px; }
 table.t.periods-table tr.pr-edge td.pr-name { color: var(--stans-orange, #e4560f); }
 table.t.periods-table tr.pr-current td { background: #f1efec; }
+/* Periods: months still ahead are quiet */
+.user-status.future { background: #eeebe8; color: #9a918a; font-weight: 600; }
+table.t.periods-table tr.pr-future td { color: #b3aba4; }
+table.t.periods-table tr.pr-future td.pr-name { font-weight: 500; }

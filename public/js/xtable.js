@@ -131,7 +131,7 @@ function showMenu(button, anchor, { id, columns, rows, col, rerender, defaultSor
 // filtered and sorted with filteredRows), then the totals row in the footer,
 // which stays pinned to the bottom of the screen. onToggleTotals(on) adds a
 // Hide button to it, and a slim "Show totals" bar while it's hidden.
-export function xtable({ id, columns, allRows, rows, rerender, defaultSort, showTotals, onToggleTotals, totalsLabel, rowClass, onRowClick, extraCells, extraHead, emptyText = 'No rows match these filters.', className = '' }) {
+export function xtable({ id, columns, allRows, rows, rerender, defaultSort, showTotals, onToggleTotals, totalsLabel, rowClass, onRowClick, rowAfter, extraCells, extraHead, emptyText = 'No rows match these filters.', className = '' }) {
   const view = viewOf(id, defaultSort);
   const width = columns.length + (extraCells ? 1 : 0);
   const head = h('tr', null, columns.map((col) => {
@@ -162,7 +162,7 @@ export function xtable({ id, columns, allRows, rows, rerender, defaultSort, show
   }
   return h('table', { class: `t xtable ${className}`.trim() },
     h('thead', null, head),
-    h('tbody', null, rows.length ? rows.map((r) => h('tr', { class: rowClass ? rowClass(r) : null, onclick: onRowClick ? (e) => { if (!e.target.closest('input, select, button, a')) onRowClick(r); } : null }, columns.map((c) => c.cell(r)), extraCells ? extraCells(r) : null))
+    h('tbody', null, rows.length ? rows.map((r) => [h('tr', { class: rowClass ? rowClass(r) : null, onclick: onRowClick ? (e) => { if (!e.target.closest('input, select, button, a')) onRowClick(r); } : null }, columns.map((c) => c.cell(r)), extraCells ? extraCells(r) : null), rowAfter ? rowAfter(r, width) : null])
       : h('tr', null, h('td', { colspan: width, class: 'empty' }, emptyText))),
     foot ? h('tfoot', null, foot) : null);
 }

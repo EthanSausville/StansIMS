@@ -1441,7 +1441,17 @@ table.t.periods-table tr.pr-current td { background: #f1efec; }
 table.t.periods-table tr.pr-future td { color: #b3aba4; }
 table.t.periods-table tr.pr-future td.pr-name { font-weight: 500; }
 
-/* Inventory → Production (daily): newest day first, endless scroll back */
+/* Production → Daily: newest day first, endless scroll back */
+table.prod-table tbody tr.month-row:hover th, table.prod-table tbody tr.month-row:hover td { background: var(--stans-grey); }
+/* Production → Lots: a clicked lot's shipments open under it */
+table.t tr.lot-detail > td { background: var(--accent-soft); white-space: normal; padding: 10px 14px; }
+table.t tbody tr.lot-detail:hover > td { background: var(--accent-soft); }
+.lot-ships-box { position: sticky; left: 14px; max-width: min(720px, calc(100vw - 60px)); }
+.lot-ships-box table.lot-ships { margin-top: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; width: auto; min-width: 360px; }
+.lot-ships-box table.lot-ships thead th { position: static; }
+/* Production → New Batch: the date sits above the form */
+.nb-date { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; max-width: 860px; margin-bottom: 14px; }
+.nb-date .dl-day { padding-bottom: 9px; }
 .prod-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .prod-top .btn { margin-left: auto; }
 table.prod-table tr.fg-head th.fg-name { vertical-align: bottom; line-height: 1.25; }

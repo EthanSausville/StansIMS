@@ -94,7 +94,7 @@ def shot(page, name):
 
 GROUPS = {
     'Dashboard': ['Dashboard'],
-    'Production': ['Daily', 'Lots', 'New Lots'],
+    'Production': ['Daily', 'Lots', 'New Batch'],
     'Inventory': ['New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
     'Planning': ['Production', 'Purchases', 'Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
@@ -786,22 +786,27 @@ with sync_playwright() as p:
     tab(page, 'New Counts')
     tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
 
-    # ---- Production module: Daily (with each day's lots), Lots, New Lots ----
+    # ---- Production module: Daily, Lots, New Batch ----
     tab(page, 'Daily')
     wk = page.locator('table.prod-table tbody tr.weekend').first
     bgs = set(wk.locator('td').evaluate_all('es => es.map(e => getComputedStyle(e).backgroundColor)'))
     check(bgs == {'rgb(255, 255, 255)'}, f'weekend rows are white all the way across ({bgs})')
     wd = page.locator('table.prod-table tbody tr:not(.weekend):not(.month-row)').first.locator('td.cell.entry').first
     check(wd.evaluate('e => getComputedStyle(e).backgroundColor') != 'rgb(255, 255, 255)', 'weekdays keep the entry colour')
+    mr = page.locator('table.prod-table tr.month-row').first
+    before_bg = mr.locator('th').evaluate('e => getComputedStyle(e).backgroundColor'); mr.hover(); page.wait_for_timeout(100)
+    check(mr.locator('th').evaluate('e => getComputedStyle(e).backgroundColor') == before_bg and mr.locator('td').first.evaluate('e => getComputedStyle(e).backgroundColor') == before_bg, 'hovering a month row changes nothing')
     check(page.locator('table.prod-table .lot-toggle, tr.lot-detail').count() == 0 and 'shipped' not in ' '.join(page.locator('table.prod-table thead th').all_inner_texts()).lower(), 'Daily has no lots in it')
 
     tab(page, 'Lots')
+    check(page.locator('aside.sidebar').is_hidden(), 'Lots has no side bar')
     nl = page.locator('table.xtable tbody tr').count()
     want_lots = page.evaluate("new Set(window.__MOCK_DB__.production.filter(r => r.cases > 0).map(r => r.date + '|' + r.item_no)).size")
     check(nl == want_lots, f'Lots: one lot per product per production day ({nl} vs {want_lots})')
     page.locator('table.xtable tbody tr').nth(5).locator('td').first.click(); page.wait_for_timeout(150)
     code = page.locator('table.xtable tbody tr.selected td').first.inner_text()
-    check(re.match(r'^\d{6}-\d{6}$', code) and f'Lot {code}' in page.locator('.side-detail').inner_text(), f'selecting a lot shows who it shipped to ({code})')
+    det = page.locator('table.xtable tr.selected + tr.lot-detail')
+    check(re.match(r'^\d{6}-\d{6}$', code) and det.count() == 1 and f'Lot {code}' in det.inner_text(), f'clicking a lot opens who it shipped to under it ({code})')
     shot(page, '57-lots')
     with page.expect_download() as dl2:
         page.get_by_role('button', name='Export to Excel').click()
@@ -809,9 +814,10 @@ with sync_playwright() as p:
     wb2 = openpyxl.load_workbook(open(dl2.value.path(), 'rb'))
     check(wb2.sheetnames == ['Lots', 'Shipments'] and wb2['Lots'].max_row - 1 == want_lots, f'Lots exports its lots and shipments to Excel ({wb2.sheetnames}, {wb2["Lots"].max_row - 1} lots)')
 
-    tab(page, 'New Lots')
+    tab(page, 'New Batch')
+    check(page.locator('aside.sidebar').is_hidden() and page.locator('h1, .tabs .tab', has_text='New Batch').count() >= 1, 'New Batch (renamed) has no side bar')
     page.locator('input.big-date').fill('2026-07-08'); page.locator('input.big-date').dispatch_event('change'); page.wait_for_timeout(200)
-    check(page.locator('.dl-row', has_text='Lot 260708-500001').count() == 1, 'New Lots shows the lot code each product will get')
+    check(page.locator('.dl-row', has_text='Lot 260708-500001').count() == 1, 'New Batch shows the lot code each product will get')
     page.locator('input[data-k="nl|500001"]').fill('48'); page.locator('input[data-k="nl|500003"]').fill('20'); page.wait_for_timeout(100)
     tm = page.locator('.nl-time').inner_text()
     check('batch' in tm and '17' in tm, f'it shows the batches and time the day takes ({tm})')

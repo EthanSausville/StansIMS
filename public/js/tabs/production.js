@@ -1,7 +1,7 @@
 // The Production module:
 //   Daily     every day's cases, newest first, scrolling back
 //   Lots      every lot, traced to the customers it shipped to
-//   New Lots  the simple way in: pick the day, type the cases made, save
+//   New Batch the simple way in: pick the day, type the cases made, save
 import { h, pageHead, qty, numberCell, dateLabel, todayIso, chip, longDate, toast, niceError, DOW } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { can, isClosed, closedNote, monthName } from '../perms.js';
@@ -140,29 +140,30 @@ function lotsView(rerender) {
     { key: 'customers', label: 'Customers', num: true, value: (l) => new Set(l.shipments.map((x) => x.customer)).size, cell: (l) => h('td', { class: 'num' }, new Set(l.shipments.map((x) => x.customer)).size || '') },
   ];
   const shown = filteredRows({ id: 'lots', columns, rows: lots, defaultSort: { key: 'date', dir: 'desc' } });
-  const sel = lotSel ? lots.find((l) => l.code === lotSel) : null;
   const nFilters = activeFilterCount('lots');
-  const detail = sel ? h('div', { class: 'side-detail' },
-    h('strong', null, `Lot ${sel.code}`), h('div', { class: 'small muted' }, `${sel.item?.name} · made ${longDate(sel.date)} · ${qty(sel.cases)} cases`),
-    sel.shipments.length ? h('table', { class: 't side-orders' }, h('thead', null, h('tr', null, h('th', null, 'Shipped'), h('th', null, 'Customer'), h('th', { class: 'num' }, 'Cases'))),
-      h('tbody', null, sel.shipments.map((x) => h('tr', { title: x.invoice ? `Invoice ${x.invoice}` : null }, h('td', null, `${Number(x.date.slice(5, 7))}/${Number(x.date.slice(8, 10))}`), h('td', null, x.customer || '—'), h('td', { class: 'num' }, qty(x.cases))))))
-      : h('p', { class: 'small muted' }, 'Not shipped yet.'),
-    sel.left ? h('div', { class: 'small muted' }, `${qty(sel.left)} cases not shipped yet.`) : null)
-    : h('p', { class: 'small muted' }, 'Click a lot to see who it shipped to.');
+  // A clicked lot opens under its row: who it shipped to.
+  const detail = (l, width) => (l.code !== lotSel ? null : h('tr', { class: 'lot-detail' }, h('td', { colspan: width },
+    h('div', { class: 'lot-ships-box' },
+      h('strong', null, `Lot ${l.code}`), h('span', { class: 'small muted' }, ` · ${l.item?.name} · made ${longDate(l.date)} · ${qty(l.cases)} cases${l.left ? ` · ${qty(l.left)} not shipped yet` : ''}`),
+      l.shipments.length ? h('table', { class: 't lot-ships' }, h('thead', null, h('tr', null, h('th', null, 'Shipped'), h('th', null, 'Customer'), h('th', null, 'Invoice'), h('th', { class: 'num' }, 'Cases'))),
+        h('tbody', null, l.shipments.map((x) => h('tr', null, h('td', null, longDate(x.date)), h('td', null, x.customer || '—'), h('td', { class: 'mono' }, x.invoice || ''), h('td', { class: 'num' }, qty(x.cases))))))
+        : h('p', { class: 'small muted' }, 'Not shipped yet.')))));
   return h('div', null,
-    pageHead('Production Lots', 'Each day’s production of a product is a lot, coded YYMMDD-item number (260714-500001 = made July 14, 2026). Sales are matched to lots first in, first out: the oldest lot made on or before the sale date ships first. Use it to trace a lot to the customers who received it.',
-      chip('Lots', lots.length), detail,
-      unmatched.length ? h('p', { class: 'small muted' }, `${unmatched.length} sale line${unmatched.length > 1 ? 's' : ''} came from stock made before the first lot entered.`) : null,
-      h('button', { class: 'btn ghost download', title: 'Download the lots showing, and who each shipped to, as an Excel workbook', onclick: () => exportLots(shown) }, '⤓ Export to Excel'),
-      nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('lots'); rerender(); } }, `Clear filters (${nFilters})`) : null),
+    pageHead('Lots', 'Each day’s production of a product is a lot, coded YYMMDD-item number (260714-500001 = made July 14, 2026). Sales are matched to lots first in, first out: the oldest lot made on or before the sale date ships first. Use it to trace a lot to the customers who received it.'),
+    h('div', { class: 'prod-top' },
+      chip('Lots', lots.length),
+      h('span', { class: 'small muted' }, 'Click a lot to see who it shipped to.',
+        unmatched.length ? ` ${unmatched.length} sale line${unmatched.length > 1 ? 's' : ''} came from stock made before the first lot entered.` : ''),
+      nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('lots'); rerender(); } }, `Clear filters (${nFilters})`) : null,
+      h('button', { class: 'btn ghost download', title: 'Download the lots showing, and who each shipped to, as an Excel workbook', onclick: () => exportLots(shown) }, '⤓ Export to Excel')),
     lots.length ? h('div', { class: 'tablewrap', 'data-scroll': 'lots' }, xtable({ id: 'lots', columns, allRows: lots, rows: shown, rerender, defaultSort: { key: 'date', dir: 'desc' },
-      className: 'selectable', rowClass: (l) => (l.code === lotSel ? 'selected' : null), onRowClick: (l) => { lotSel = l.code === lotSel ? null : l.code; rerender(); } }))
+      className: 'selectable', rowClass: (l) => (l.code === lotSel ? 'selected' : null), rowAfter: detail, onRowClick: (l) => { lotSel = l.code === lotSel ? null : l.code; rerender(); } }))
       : h('div', { class: 'panel empty' }, 'No production entered yet.'));
 }
 
 export const lotsTab = { id: 'lots', label: 'Lots', render({ rerender }) { return lotsView(rerender); } };
 
-// ---------- New Lots ----------
+// ---------- New Batch ----------
 // Production's way in, like New Receipts: pick the day, type the cases made of
 // each product, save. Each product made that day is a lot.
 const DAY_MINUTES = 8 * 60, SETUP_MINUTES = 45, BATCH_MINUTES = 25;
@@ -237,7 +238,8 @@ function newLotsView(rerender) {
     onchange: (e) => { if (e.target.value) { nlDay = e.target.value < COMPANY_START ? COMPANY_START : e.target.value; nlSaved = null; rerender(); } } });
   refresh();
   return h('div', null,
-    pageHead('New Lots', 'For the production line: pick the day, type how many cases of each product were made, and press Save production. Each product made that day is a lot. If something was already entered for that day, this adds to it.',
+    pageHead('New Batch', 'For the production line: pick the day, type how many cases of each product were made, and press Save production. Each product made that day is a lot. If something was already entered for that day, this adds to it.'),
+    h('div', { class: 'nb-date' },
       h('label', { class: 'field' }, 'Production date', dateInput),
       h('div', { class: 'dl-day' }, isToday ? 'Today' : DOW[toDate(day).getUTCDay()], ' · ', longDate(day)),
       !isToday ? h('button', { class: 'btn', onclick: () => { nlDay = todayIso(); nlSaved = null; rerender(); } }, 'Back to today') : null),
@@ -252,6 +254,6 @@ function newLotsView(rerender) {
       groups.map(([title, items]) => h('section', { class: 'dl-group' }, h('h3', null, title), items.map(row))),
       h('div', { class: 'dl-bar' }, h('div', null, summary, time), saveBtn)));
 }
-export const newLotsTab = { id: 'newlots', label: 'New Lots', render({ rerender }) { return newLotsView(rerender); } };
+export const newLotsTab = { id: 'newlots', label: 'New Batch', render({ rerender }) { return newLotsView(rerender); } };
 
 export const stat = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'small muted' }, sub) : null);

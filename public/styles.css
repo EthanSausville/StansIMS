@@ -1595,3 +1595,18 @@ table.labor-people td.row-actions { width: 1%; }
 .labor-strip.forecast .stat .value { font-style: italic !important; }
 .labor-strip.forecast .stat.key .value { color: #d9c6ff !important; }
 @media (max-width: 700px) { .labor-strip .ls-op { display: none; } .labor-strip { gap: 10px 18px; } }
+
+/* the strip runs the full width of the page */
+#app .content .labor-strip { margin-left: calc(-1 * var(--page-x)) !important; margin-right: calc(-1 * var(--page-x)) !important; border-radius: 0 !important; padding-left: var(--page-x) !important; padding-right: var(--page-x) !important; }
+.line-sentence .inline-sel { padding: 5px 26px 5px 8px; border: 1px solid #e6d58a; border-radius: 6px; background: var(--entry) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23502b1b' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 8px center; appearance: none; -webkit-appearance: none; font: inherit; font-weight: 650; color: var(--ink); cursor: pointer; }
+.line-sentence .inline-sel:disabled { background-color: transparent; border-color: transparent; cursor: default; }
+table.oh-lines { width: 100%; }
+table.oh-lines td.unit-yr { position: relative; }
+table.oh-lines td.unit-yr input { padding-right: 30px; min-width: 120px; }
+table.oh-lines td.unit-yr::after { content: '/yr'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 11px; color: #a3913c; pointer-events: none; }
+table.oh-lines tfoot td { background: var(--bg); font-weight: 650; border-top: 2px solid var(--line-strong); }
+.labor.overhead-page { display: flex; flex-direction: column; }
+@media (min-height: 621px) and (min-width: 701px) {
+  .labor.overhead-page { min-height: calc(100dvh - 60px); }
+  .labor.overhead-page > .pinned-cards { margin-top: auto; }
+}

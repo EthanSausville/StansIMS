@@ -61,19 +61,21 @@ export default {
     yearSeg.classList.add('year-seg');
     const top = h('div', { class: 'prod-top top-actions' }, yearSeg,
       isFc ? h('span', { class: 'fc-tag big' }, F.needsReview ? 'forecast · review' : 'forecast') : null,
-      can && (own || empty) ? h('button', { class: 'btn', onclick: () => addLine() }, '+ Add overhead') : null,
-      can && empty ? h('button', { class: 'btn ghost', onclick: addCommon }, 'Add the usual kinds') : null,
       can && !own && !empty ? h('button', { class: F.needsReview ? 'btn primary' : 'btn', onclick: confirmForecast }, F.needsReview ? `Confirm ${selYear}’s overhead` : `Give ${selYear} its own overhead`) : null);
 
     const basis = O.basis;
     const change = prevRate && O.rate ? O.rate / prevRate - 1 : null;
-    const cards = h('div', { class: 'cards labor-cards' },
-      stat(`${selYear} overhead rate${isFc ? ' (forecast)' : ''}`, empty ? '—' : perMin(O.rate),
-        empty ? 'Add this year’s overhead' : `per minute · ${money(O.rate * 60)} an hour${change === null ? '' : ` · ${change >= 0 ? '+' : ''}${fmt(change * 100, 1)}% vs. ${selYear - 1}`}`, 'key' + (isFc ? ' forecast' : '')),
-      stat('Overhead a year', dollars(O.annual), `${dollars(O.monthly)} a month`),
-      stat('Minutes it’s spread over', fmt(O.minutes), basis === 'labor'
-        ? `${qty(O.lineHoursWeek, 2)} hours × ${qty(O.prodWeeks, 2)} weeks × 60 × ${qty(O.crew, 2)} people`
-        : `${qty(O.lineHoursWeek, 2)} hours a week × ${qty(O.prodWeeks, 2)} weeks × 60`));
+    // The rate, worked out, stays along the bottom of the screen (like Labor).
+    const sub = (t) => h('span', { class: 'ls-sub' }, t);
+    const cards = h('div', { class: 'labor-cards pinned-cards labor-strip' + (isFc ? ' forecast' : '') },
+      h('div', { class: 'stat key' + (isFc ? ' forecast' : '') }, h('div', { class: 'label' }, `${selYear} overhead rate${isFc ? ' · forecast' : ''}`),
+        h('div', { class: 'value' }, empty ? '—' : perMin(O.rate), empty ? null : h('span', { class: 'per' }, ' a minute')),
+        empty ? sub('Add this year’s overhead') : sub(`${money(O.rate * 60)} an hour${change === null ? '' : ` · ${change >= 0 ? '+' : ''}${fmt(change * 100, 1)}% vs. ${selYear - 1}`}`)),
+      h('div', { class: 'ls-op', 'aria-hidden': 'true' }, '='),
+      h('div', { class: 'stat' }, h('div', { class: 'label' }, 'Overhead a year'), h('div', { class: 'value' }, dollars(O.annual)), sub(`${dollars(O.monthly)} a month`)),
+      h('div', { class: 'ls-op', 'aria-hidden': 'true' }, '÷'),
+      h('div', { class: 'stat' }, h('div', { class: 'label' }, `${basis === 'labor' ? 'Labor' : 'Line'} minutes a year`), h('div', { class: 'value' }, fmt(O.minutes)),
+        sub(basis === 'labor' ? `${qty(O.lineHoursWeek, 2)} hours × ${qty(O.prodWeeks, 2)} weeks × 60 × ${qty(O.crew, 2)} people` : `${qty(O.lineHoursWeek, 2)} hours a week × ${qty(O.prodWeeks, 2)} weeks × 60`)));
 
     const notes = [
       locked ? h('div', { class: 'note closed-note' }, '🔒 ', lockedNote(selYear)) : null,
@@ -82,7 +84,7 @@ export default {
     ];
 
     // ---------- the kinds of overhead ----------
-    const list = h('section', { class: 'panel' }, h('h2', null, `${selYear} overhead`),
+    const list = h('section', { class: 'panel people-panel' },
       O.lines.length ? h('div', { class: 'tablewrap flat' }, h('table', { class: 't oh-lines' },
         h('thead', null, h('tr', null, h('th', null, 'Overhead'), h('th', { class: 'num' }, 'A year'), h('th', { class: 'num' }, 'Share'), h('th', null, 'Notes'), h('th'))),
         h('tbody', null, O.lines.map((c) => h('tr', null,
@@ -94,22 +96,25 @@ export default {
             if (await confirmDialog(`Remove ${c.name} from ${selYear}?`, 'Remove')) deleteRow('overhead_costs', 'id', c.id).catch((err) => toast(niceError(err), 'bad'));
           } }, '×') : null)))),
         h('tfoot', null, h('tr', { class: 'oh-total' }, h('td', null, 'Total'), h('td', { class: 'num strong' }, dollars(O.annual)), h('td'), h('td', { class: 'muted small' }, `${dollars(O.monthly)} a month`), h('td')))))
-        : h('p', { class: 'panel-note' }, `No overhead entered for ${selYear} yet. Add each kind of overhead (electricity, water & sewer, rent, insurance…) with what it costs a year.`));
+        : h('p', { class: 'panel-note' }, `No overhead entered for ${selYear} yet. Add each kind of overhead (electricity, water & sewer, rent, insurance…) with what it costs a year.`),
+      h('div', { class: 'people-foot' },
+        can && (own || empty) ? h('button', { class: 'btn', onclick: () => addLine() }, '+ Add overhead') : null,
+        can && empty ? h('button', { class: 'btn ghost', onclick: addCommon }, 'Add the usual kinds') : null,
+        h('span', { class: 'small muted' }, `Everything it costs to run the plant that isn’t ingredients, packaging or line labor, a year. ${item ? `${item.name} (#${OVERHEAD_ITEM})` : `Item #${OVERHEAD_ITEM}`} costs this rate on Master List and in every BOM.`)));
 
-    // ---------- the rate ----------
-    const basisSeg = seg([['line', 'Line minutes'], ['labor', 'Labor minutes']], basis, (v) => { if (can) saveRow('year_settings', { year: selYear }, { overhead_basis: v }).catch((err) => toast(niceError(err), 'bad')); });
-    if (!can) basisSeg.querySelectorAll('button').forEach((b) => { b.disabled = true; });
-    const rate = h('section', { class: 'panel' }, h('h2', null, 'The rate'),
-      h('p', { class: 'oh-formula' }, empty ? 'Add this year’s overhead to get a rate.'
-        : [h('strong', null, dollars(O.annual)), ' a year ÷ ', h('strong', null, fmt(O.minutes)), ` ${basis === 'labor' ? 'labor' : 'line'} minutes = `, h('strong', null, `${perMin(O.rate)} a minute`)]),
-      h('table', { class: 't batch-table line-table' }, h('tbody', null,
-        h('tr', null, h('td', null, 'Spread over', h('div', { class: 'small muted' }, `Line minutes: each minute the line runs. Labor minutes: each person-minute on the line (× ${qty(O.crew, 2)} people), the way BOMs count labor.`)), h('td', { class: 'seg-cell' }, basisSeg)),
-        selYear > years[0] && !own ? h('tr', null, h('td', null, `Increase from ${selYear - 1} (%)`),
-          numberCell(ys.overhead_inflation_pct ?? null, (v) => saveRow('year_settings', { year: selYear }, { overhead_inflation_pct: v }), { disabled: !can, key: `oy|${selYear}|infl`, title: 'Overhead increase %', placeholder: '0' })) : null)),
-      h('p', { class: 'panel-note' }, `Hours a week and weeks a year come from the Labor tab. ${item ? `${item.name} (#${OVERHEAD_ITEM})` : `Item #${OVERHEAD_ITEM}`} costs this rate on Master List and in every BOM.`));
+    // ---------- how it's spread: one sentence ----------
+    const basisSel = h('select', { class: 'inline-sel', disabled: !can, 'aria-label': 'Spread overhead over', 'data-k': `oy|${selYear}|basis`,
+      onchange: (e) => saveRow('year_settings', { year: selYear }, { overhead_basis: e.target.value }).catch((err) => toast(niceError(err), 'bad')) },
+      h('option', { value: 'line', selected: basis !== 'labor' }, 'line minute'), h('option', { value: 'labor', selected: basis === 'labor' }, 'labor minute'));
+    const infl = () => { const td = numberCell(ys.overhead_inflation_pct ?? null, (v) => saveRow('year_settings', { year: selYear }, { overhead_inflation_pct: v }), { disabled: !can, key: `oy|${selYear}|infl`, title: 'Overhead increase %', placeholder: '0' });
+      const i = td.querySelector('input'); i.classList.add('inline-num'); return i; };
+    const line = h('div', { class: 'line-sentence' },
+      h('span', null, 'Overhead is spread over each'), basisSel,
+      h('span', null, basis === 'labor' ? `: every person-minute on the line (× ${qty(O.crew, 2)} people), the way BOMs count labor.` : `the line runs: ${qty(O.lineHoursWeek, 2)} hours a week, ${qty(O.prodWeeks, 2)} weeks a year (from Labor).`),
+      selYear > years[0] && !own ? [h('span', { class: 'ls-gap' }, 'Overhead goes up'), infl(), h('span', null, `% from ${selYear - 1}.`)] : null);
 
     return h('div', { class: 'labor overhead overhead-page' + (isFc ? ' fc-year' : '') },
       pageHead('Overhead', 'The standard overhead cost per minute for each year: what each kind of overhead costs a year, added up and divided by the minutes the line runs. A new year starts from the year before with an increase and is a forecast until it begins; give it its own overhead to change anything else.' + (admin ? '' : ' Your role can view these but not change them.')),
-      top, notes, cards, list, rate);
+      top, line, notes, list, cards);
   },
 };

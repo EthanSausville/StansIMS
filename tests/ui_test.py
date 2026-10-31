@@ -1066,7 +1066,7 @@ with sync_playwright() as p:
     page.goto(BASE + '/#costs'); page.wait_for_selector('.groups .group'); page.wait_for_timeout(300)
     check(cell(page, 'sc|300002|2026').count() == 0, 'Overhead’s cost is no longer typed in on Master List')
     page.goto(BASE + '/#overhead'); page.wait_for_timeout(400)
-    key_rate = lambda: float(page.locator('.labor-cards .stat.key .value').inner_text().strip('$'))
+    key_rate = lambda: float(page.locator('.labor-cards .stat.key .value').inner_text().split()[0].strip('$'))
     check(page.locator('aside.sidebar').is_hidden() and abs(key_rate() - oh_cost) < 1e-4, f'Overhead (no side bar) gives the same rate as before for an old monthly line (${oh_cost:.4f})')
     check(cell(page, 'oh|1|annual_amount').input_value() == '$' + '{:,.0f}'.format(oh_month * 12) or abs(float(cell(page, 'oh|1|annual_amount').input_value().replace('$', '').replace(',', '')) - oh_month * 12) < 0.01,
           f'an old monthly line shows as its amount a year ({cell(page, "oh|1|annual_amount").input_value()})')
@@ -1080,8 +1080,10 @@ with sync_playwright() as p:
     c = cell(page, f'oh|{nid}|annual_amount'); c.fill('2400'); c.press('Tab'); page.wait_for_timeout(300)
     total = page.locator('table.oh-lines tfoot td').nth(1).inner_text()
     check(abs(float(total.replace('$', '').replace(',', '')) - (round(oh_month * 24, 2) + 2400)) < 1, f'each kind of overhead adds into the year’s total ({total})')
-    check(page.locator('.oh-formula').inner_text().count('÷') == 1, 'the rate shows how it’s worked out')
-    page.get_by_role('button', name='Labor minutes').click(); page.wait_for_timeout(300)
+    check(page.locator('.labor-strip .ls-op').all_inner_texts() == ['=', '÷'] and page.locator('.line-sentence select').count() == 1, 'the rate is worked out along the bottom; how it’s spread is one sentence')
+    sw = page.locator('.labor-strip').evaluate("e => [Math.round(e.getBoundingClientRect().left), Math.round(window.innerWidth - e.getBoundingClientRect().right)]")
+    check(sw[1] <= 1, f'the bottom bar runs the full width ({sw})')
+    page.locator('.line-sentence select').select_option('labor'); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.year_settings.find(y => y.year === 2026).overhead_basis") == 'labor', 'and spread it over labor minutes instead')
     page.goto(BASE + '/#costs'); page.wait_for_timeout(400)
     row = page.locator('tr', has_text='Overhead').filter(has=page.locator('td', has_text='300002')).first

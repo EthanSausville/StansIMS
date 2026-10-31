@@ -69,9 +69,6 @@ let selected = null; // item_no of the selected item
 export default {
   id: 'costs',
   label: 'Master List',
-  // Narrow while browsing; wider while the add / edit form is open.
-  get sideWidth() { return editing ? 300 : 170; },
-  get sideKey() { return editing ? 'costs-form' : 'costs'; },
   render({ rerender }) {
     const cm = derived.costs(); const admin = can('costs', 'edit');
     const entered = new Map(state.data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, c.cost]));
@@ -109,11 +106,15 @@ export default {
     const nFilters = activeFilterCount('costs');
     return h('div', null,
       pageHead('Master List', 'Every item, with its standard cost for each year. Update on January 1st each year; a cost left blank for a year uses the year before’s (shown in grey). Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab and overhead from the Overhead tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Your role can view these but not change them.'),
+      ),
+      // Buttons above the table; the add / edit form opens under them.
+      h('div', { class: 'prod-top top-actions' },
         admin && !editing ? h('button', { class: 'btn primary', onclick: () => { editing = 'new'; rerender(); } }, 'Add item') : null,
-        admin && editing ? itemForm(editing === 'new' ? null : items.find((it) => it.item_no === editing), (no) => { editing = null; selected = no; rerender(); }) : null,
-        admin && !editing && sel ? h('button', { class: 'btn primary', onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item') : null,
+        admin && !editing && sel ? h('button', { class: 'btn primary', title: `Edit ${sel.name}`, onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item') : null,
+        admin && !editing && !sel ? h('span', { class: 'small muted' }, 'Click an item to select it for editing.') : null,
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('costs'); rerender(); } }, `Clear filters (${nFilters})`) : null,
-        !editing ? downloadButton('master-list', columns, rows) : null),
+        downloadButton('master-list', columns, rows)),
+      admin && editing ? h('div', { class: 'top-editor' }, itemForm(editing === 'new' ? null : items.find((it) => it.item_no === editing), (no) => { editing = null; selected = no; rerender(); })) : null,
       // In December, a reminder that next year's standards start from this year's.
       thisMonth() === 12 ? h('div', { class: 'note warn missing-costs' }, `Anything without a ${thisYear() + 1} standard will be set to the ${thisYear()} standard.`) : null,
       cm.years.some(standardsLocked) ? h('div', { class: 'note closed-note' }, '🔒 ', `${cm.years.filter(standardsLocked).join(' and ')} standard costs are locked (Settings → Periods → Beginning), so they can’t be changed.`) : null,

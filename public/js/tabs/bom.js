@@ -24,9 +24,6 @@ const makes = (b, it, ix) => {
 export default {
   id: 'bom',
   label: 'BOMs',
-  // 250px like other tabs; wider while a BOM is open in the editor.
-  get sideWidth() { return editorOpen() ? 0.4 : null; },
-  sideKey: 'bom-edit',
   render({ rerender }) {
     const cm = derived.costs(); const admin = can('bom', 'edit');
     if (!cm.years.includes(year)) year = cm.years.includes(THIS_YEAR) ? THIS_YEAR : cm.years[0];
@@ -86,15 +83,19 @@ export default {
     const yearSel = yearSelect(cm.years, year, (y) => { year = y; rerender(); }, 'Year');
     if (editorOpen()) { yearSel.querySelector('select').disabled = true; yearSel.title = 'Close the editor to change the year'; }
 
+    // Always handed rerender, so New BOM / Edit can open it.
+    const editor = admin && !standardsLocked(year) ? bomEditor({ rerender }) : null;
     return h('div', null,
       pageHead('BOMs', 'Every bill of materials for the year, including recipes used inside products. Click one to select it and open the next level. Quantities and line costs are for one run of the BOM directly above (one case, one batch). BOMs are by year: a year without its own BOM for an item carries the latest earlier one. Change next year’s BOMs freely; changing the current or a past year recalculates its costs and inventory. Nothing is saved until you click Save.',
+      ),
+      // Buttons above the table; the editor opens under them.
+      h('div', { class: 'prod-top top-actions' },
         yearSel,
         admin && !editorOpen() ? h('button', { class: 'btn primary', onclick: () => openInEditor(null, year) }, 'New BOM') : null,
-        admin && !editorOpen() ? (sel
-          ? h('div', { class: 'bom-selected' }, h('div', { class: 'small muted' }, 'Selected'), h('strong', null, sel.name),
-            h('button', { class: 'btn', onclick: () => openInEditor(selected, year) }, 'Edit BOM'))
-          : h('p', { class: 'small muted' }, 'Click a BOM on the right to select it for editing.')) : null,
-        admin && !standardsLocked(year) ? bomEditor({ rerender }) : h('p', { class: 'small muted' }, admin ? lockedNote(year) : 'Your role can view BOMs but not change them.')),
+        admin && !editorOpen() && sel ? h('button', { class: 'btn', title: `Edit the ${sel.name} BOM`, onclick: () => openInEditor(selected, year) }, 'Edit BOM') : null,
+        admin && !editorOpen() ? h('span', { class: 'small muted' }, sel ? `Selected: ${sel.name}` : 'Click a BOM to select it for editing.') : null,
+        !admin ? h('span', { class: 'small muted' }, 'Your role can view BOMs but not change them.') : standardsLocked(year) ? h('span', { class: 'small muted' }, lockedNote(year)) : null),
+      editor && editorOpen() ? h('div', { class: 'top-editor wide' }, editor) : null,
       h('div', { class: 'bom-year-head' }, h('h2', null, `${year} BOMs`),
         year > THIS_YEAR ? h('span', { class: 'chip' }, 'Future year: safe to change') : year === THIS_YEAR ? h('span', { class: 'chip' }, 'Current year') : h('span', { class: 'chip' }, 'Past year'),
         carried && Number.isFinite(firstYear) && carried === tops.length && firstYear < year ? h('span', { class: 'small muted' }, `Same as ${firstYear} until changed`)

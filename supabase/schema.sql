@@ -244,6 +244,13 @@ create table if not exists public.overhead_costs (
 create index if not exists overhead_costs_year_idx on public.overhead_costs (year);
 alter table public.year_settings add column if not exists overhead_basis text check (overhead_basis in ('line', 'labor')); -- blank = line
 alter table public.year_settings add column if not exists overhead_inflation_pct numeric;
+-- Overhead is entered per year now (electricity, sewer, insurance... a year);
+-- lines from before keep their monthly amount × 12.
+alter table public.overhead_costs add column if not exists annual_amount numeric;
+update public.overhead_costs set annual_amount = monthly_amount * 12 where annual_amount is null;
+-- Labor: when the line runs more than 40 hours a week, hourly people work
+-- overtime ('overtime', the default) or another shift is added ('shift').
+alter table public.year_settings add column if not exists labor_over40 text check (labor_over40 in ('overtime', 'shift'));
 
 -- First time: one line for the earliest year, worked back from that year's
 -- overhead standard cost per minute and its line minutes, so the standard

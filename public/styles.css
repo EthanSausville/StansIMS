@@ -1498,3 +1498,26 @@ table.inv-daily tr.month-row th, table.inv-daily tr.month-row td { background: v
 table.inv-daily th.grp-start, table.inv-daily td.grp-start { border-left: 2px solid var(--line-strong); }
 table.inv-daily thead th.grp-start { border-left-color: rgba(255, 255, 255, .35); }
 table.inv-daily tbody tr.inv-day:hover td, table.inv-daily tbody tr.inv-day:hover td.sticky-col { background: var(--accent-soft); }
+
+/* Buttons above a table (no side bar), and an add / edit form opened under them */
+.prod-top.top-actions { justify-content: flex-start; }
+.prod-top.top-actions .btn { margin-left: 0; }
+.prod-top.top-actions .download { margin-left: auto; }
+.prod-top.top-actions .field { flex-direction: row; align-items: center; gap: 8px; }
+.top-editor { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; margin-bottom: 14px; max-width: 560px; }
+.top-editor.wide { max-width: 980px; }
+
+/* Standards → Labor and Overhead: one page, no side bar */
+.labor-page .panel, .overhead-page .panel { margin-bottom: 14px; }
+.labor-page .labor-cards, .overhead-page .labor-cards { margin-bottom: 14px; }
+.year-seg button { min-width: 64px; }
+table.line-table { max-width: 640px; }
+table.line-table td:last-child { width: 220px; }
+table.line-table td.seg-cell { text-align: right; }
+table.labor-people td select { border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 6px; background: var(--panel); }
+table.t.labor-people td.cell input.pos-input { text-align: left; width: 100%; min-width: 140px; border: 0; background: transparent; padding: 6px 4px; font: inherit; }
+table.whatif tr.whatif-band th.band { text-align: center; border-bottom: 2px solid var(--stans-yellow); }
+table.whatif tr.current td { font-weight: 650; background: var(--accent-soft); }
+.oh-formula { font-size: 16px; margin: 4px 0 12px; }
+table.oh-lines td .pos-input, table.oh-lines td input { width: 100%; }
+table.oh-lines tfoot td { position: static; }

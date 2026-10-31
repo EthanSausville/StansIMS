@@ -176,24 +176,40 @@ export const FIRST_YEAR = 2026;
 export const laborYears = (now = currentYear()) => Array.from({ length: Math.max(1, now + 2 - LABOR_FIRST_YEAR) }, (_, i) => LABOR_FIRST_YEAR + i);
 export const siteYears = laborYears;
 
-const laborPlant = (y = {}) => ({ paidWeeks: 52, prodWeeks: y.labor_prod_weeks ?? 52, lineHours: n(y.labor_line_hours) });
+const laborPlant = (y = {}) => ({ paidWeeks: 52, prodWeeks: y.labor_prod_weeks ?? 52, lineHours: n(y.labor_line_hours), over40: y.labor_over40 === 'shift' ? 'shift' : 'overtime' });
+export const FULL_WEEK = 40;   // hours a week before overtime
+export const OVERTIME = 1.5;   // overtime pay: time and a half
 
 // One position for the year. `lineHours` overrides the production hours a
-// week (what-ifs). Everyone who works the line is on it whenever it runs:
-// hourly people are paid for those hours; salaried people are paid their
-// salary whatever the hours.
-export function laborPosition(p, plant, lineHours) {
+// week, `over40` how hours past 40 are covered (what-ifs). The line runs H
+// hours a week:
+//   hourly, on the line: up to 40 hours a week each at straight time. Past 40,
+//     either 'overtime' (the same people, hours over 40 at time and a half) or
+//     'shift' (another shift: enough people that nobody passes 40, each with
+//     their own fringe).
+//   salaried, on the line: on it up to 40 hours a week; paid their salary
+//     whatever the hours.
+//   off the line: paid as entered; no line minutes.
+export function laborPosition(p, plant, lineHours, over40) {
   const people = n(p.headcount); const sal = p.pay_type === 'salaried';
   const onLine = p.on_line !== false;
-  const H = lineHours ?? plant.lineHours;
-  const lineWeek = onLine ? H : 0;
-  const lineHrs = people * lineWeek * plant.prodWeeks;
-  const hourlyHours = onLine ? lineHrs : people * n(p.paid_hours_week) * plant.prodWeeks;
-  const base = sal ? people * n(p.annual_salary) : hourlyHours * n(p.hourly_rate);
+  const H = lineHours ?? plant.lineHours; const weeks = plant.prodWeeks;
+  const mode = over40 || plant.over40 || 'overtime';
+  let lineWeek = 0; let paid = people; let payHoursWeek = 0;
+  if (onLine && sal) lineWeek = Math.min(H, FULL_WEEK);
+  else if (onLine) {
+    lineWeek = H;
+    if (H <= FULL_WEEK) payHoursWeek = H;
+    else if (mode === 'shift') { paid = people * Math.ceil(H / FULL_WEEK); payHoursWeek = H; }
+    else payHoursWeek = FULL_WEEK + (H - FULL_WEEK) * OVERTIME;
+  }
+  const lineHrs = people * lineWeek * weeks;
+  const base = sal ? people * n(p.annual_salary)
+    : onLine ? people * payHoursWeek * weeks * n(p.hourly_rate) : people * n(p.paid_hours_week) * weeks * n(p.hourly_rate);
   const tax = base * n(p.payroll_tax_pct) / 100;
-  const benefits = people * (sal ? n(p.annual_fixed) : n(p.monthly_fringe) * 12);
+  const benefits = paid * (sal ? n(p.annual_fixed) : n(p.monthly_fringe) * 12);
   const burdened = base + tax + benefits;
-  return { position: p, people, salaried: sal, onLine, lineWeek, lineHours: lineHrs, base, tax, benefits, burdened, minutes: lineHrs * 60 };
+  return { position: p, people, paid, salaried: sal, onLine, lineWeek, lineHours: lineHrs, base, tax, benefits, burdened, minutes: lineHrs * 60 };
 }
 
 // A year's labor setup. A year with its own people uses them; a year without
@@ -214,7 +230,7 @@ export function laborSetup(data, year, now = currentYear()) {
     out = { year, fromYear: year - 1, inflation: infl, own: false,
       positions: prev.positions.map((p) => ({ ...p, id: `f${year}-${p.sourceId ?? p.id}`, sourceId: p.sourceId ?? p.id, year, forecast: true,
         ...Object.fromEntries(PAY_FIELDS.map((k) => [k, p[k] === null || p[k] === undefined ? p[k] : Math.round(n(p[k]) * f * 10000) / 10000])) })),
-      settings: { ...ys, labor_line_hours: ys.labor_line_hours ?? prev.settings.labor_line_hours, labor_prod_weeks: ys.labor_prod_weeks ?? prev.settings.labor_prod_weeks } };
+      settings: { ...ys, labor_line_hours: ys.labor_line_hours ?? prev.settings.labor_line_hours, labor_prod_weeks: ys.labor_prod_weeks ?? prev.settings.labor_prod_weeks, labor_over40: ys.labor_over40 ?? prev.settings.labor_over40 } };
   }
   // A forecast until the year begins. A year that has begun without its own
   // people is still the forecast, and needs review.
@@ -223,11 +239,11 @@ export function laborSetup(data, year, now = currentYear()) {
   return out;
 }
 
-export function laborRate(data, { year, lineHours } = {}) {
+export function laborRate(data, { year, lineHours, over40 } = {}) {
   const setup = year === undefined ? { positions: data.labor_positions || [], settings: {} } : laborSetup(data, year);
   const plant = laborPlant(setup.settings);
   const rows = [...setup.positions].sort((a, b) => n(a.sort) - n(b.sort) || String(a.sourceId ?? a.id).localeCompare(String(b.sourceId ?? b.id), undefined, { numeric: true }))
-    .map((p) => laborPosition(p, plant, lineHours));
+    .map((p) => laborPosition(p, plant, lineHours, over40));
   const sum = (f) => rows.reduce((t, r) => t + f(r), 0);
   const burdened = sum((r) => r.burdened); const minutes = sum((r) => r.minutes);
   const rate = minutes ? burdened / minutes : 0;
@@ -237,7 +253,7 @@ export function laborRate(data, { year, lineHours } = {}) {
     return { item: r, batchOz, minutesPer, perBatch: rate * minutesPer, perOz: batchOz ? (rate * minutesPer) / batchOz : 0, batchesPerYear: minutesPer ? minutes / minutesPer : 0 };
   }) : [];
   const H = lineHours ?? plant.lineHours;
-  return { year, setup, plant, lineHoursWeek: H, crew: H ? sum((r) => r.people * r.lineWeek) / H : 0, rows, recipes, burdened, base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
+  return { year, setup, plant, lineHoursWeek: H, crew: H ? sum((r) => r.people * r.lineWeek) / H : 0, paidPeople: sum((r) => r.paid), rows, recipes, burdened, base: sum((r) => r.base), tax: sum((r) => r.tax), benefits: sum((r) => r.benefits),
     minutes, lineHours: sum((r) => r.lineHours), rate };
 }
 
@@ -245,6 +261,8 @@ export function laborRate(data, { year, lineHours } = {}) {
 // A year's overhead: its own cost lines, or else the year before's raised by
 // the year's overhead inflation %. Like labor, a forecast until the year
 // begins (and one that needs review if the year begins without its own).
+// A cost's amount for the year (entered per year; older lines were per month).
+export const overheadAnnual = (c) => (c.annual_amount !== null && c.annual_amount !== undefined ? n(c.annual_amount) : n(c.monthly_amount) * 12);
 export function overheadSetup(data, year, now = currentYear()) {
   const ys = (data.year_settings || []).find((y) => y.year === year) || {};
   const own = (data.overhead_costs || []).filter((c) => c.year === year);
@@ -254,7 +272,7 @@ export function overheadSetup(data, year, now = currentYear()) {
     const prev = overheadSetup(data, year - 1, now);
     const infl = n(ys.overhead_inflation_pct); const f = 1 + infl / 100;
     out = { year, fromYear: year - 1, inflation: infl, own: false,
-      lines: prev.lines.map((c) => ({ ...c, id: `f${year}-${c.sourceId ?? c.id}`, sourceId: c.sourceId ?? c.id, year, forecast: true, monthly_amount: Math.round(n(c.monthly_amount) * f * 100) / 100 })),
+      lines: prev.lines.map((c) => ({ ...c, id: `f${year}-${c.sourceId ?? c.id}`, sourceId: c.sourceId ?? c.id, year, forecast: true, annual_amount: Math.round(overheadAnnual(c) * f * 100) / 100 })),
       settings: { ...ys, overhead_basis: ys.overhead_basis ?? prev.settings.overhead_basis } };
   }
   out.forecast = year > now || !out.own;
@@ -268,8 +286,8 @@ export function overheadSetup(data, year, now = currentYear()) {
 export function overheadRate(data, year, { basis: forceBasis, lineHours } = {}) {
   const setup = overheadSetup(data, year);
   const lines = [...setup.lines].sort((a, b) => n(a.sort) - n(b.sort) || String(a.sourceId ?? a.id).localeCompare(String(b.sourceId ?? b.id), undefined, { numeric: true }));
-  const monthly = lines.reduce((t, c) => t + n(c.monthly_amount), 0);
-  const annual = monthly * 12;
+  const annual = lines.reduce((t, c) => t + overheadAnnual(c), 0);
+  const monthly = annual / 12;
   const L = laborRate(data, { year, lineHours });
   const lineMinutes = L.lineHoursWeek * L.plant.prodWeeks * 60;
   const basis = forceBasis || (setup.settings.overhead_basis === 'labor' ? 'labor' : 'line');

@@ -1,7 +1,7 @@
 // Overhead rate (Standards → Overhead) on made-up numbers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { overheadRate, overheadSetup, costModel, setCurrentYear, missingStandards, isTiedIndirect } from '../public/js/calc.js';
+import { overheadRate, overheadSetup, costModel, setCurrentYear, missingStandards, isTiedIndirect, laborRate } from '../public/js/calc.js';
 
 setCurrentYear(2026);
 const base = () => ({
@@ -25,7 +25,7 @@ test('the year’s overhead over line minutes, or labor minutes', () => {
 test('a year without its own overhead is last year’s plus inflation, as a forecast', () => {
   const d = base(); const s = overheadSetup(d, 2027);
   assert.equal(s.own, false); assert.equal(s.forecast, true); assert.equal(s.fromYear, 2026);
-  assert.deepEqual(s.lines.map((c) => c.monthly_amount), [880, 220]);
+  assert.deepEqual(s.lines.map((c) => c.annual_amount), [10560, 2640]);
   assert.equal(overheadRate(d, 2027).annual, 13200);
 });
 
@@ -37,4 +37,23 @@ test('Overhead’s standard cost comes from the tab once it has costs', () => {
   const before = { ...d, overhead_costs: [] };
   assert.equal(costModel(before).cost(300002, 2026), 9.99, 'until then, the typed-in cost');
   assert.ok(!isTiedIndirect(before, 300002));
+});
+
+test('overhead is entered per year (older lines per month still count)', () => {
+  const d = base();
+  d.overhead_costs = [{ id: 1, year: 2026, name: 'Electricity', annual_amount: 6000, monthly_amount: 0 }, { id: 2, year: 2026, name: 'Sewer', annual_amount: 1200 }, { id: 3, year: 2026, name: 'Old', monthly_amount: 100 }];
+  const r = overheadRate(d, 2026);
+  assert.equal(r.annual, 8400);
+  assert.ok(Math.abs(r.rate - 8400 / (20 * 52 * 60)) < 1e-12);
+});
+
+test('past 40 hours a week: overtime for the same people, or another shift', () => {
+  const d = base(); // 3 hourly people at $10, on the line
+  const at = (h, over40) => laborRate(d, { year: 2026, lineHours: h, over40 });
+  assert.equal(at(40).base, 3 * 40 * 52 * 10);
+  assert.equal(at(60, 'overtime').base, 3 * (40 + 20 * 1.5) * 52 * 10);  // time and a half past 40
+  assert.equal(at(60, 'shift').base, 3 * 60 * 52 * 10);                  // straight time…
+  assert.equal(at(60, 'shift').paidPeople, 6);                            // …with a second crew
+  assert.equal(at(60, 'overtime').minutes, at(60, 'shift').minutes);      // the same line minutes either way
+  assert.ok(at(60, 'overtime').rate > at(40).rate);                       // overtime costs more per minute
 });

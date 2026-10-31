@@ -313,7 +313,8 @@ function blockedScreen(p) {
 // doesn't stay signed in.
 const IDLE_LIMIT = IDLE_MINUTES * 60 * 1000;
 const touchActivity = () => { try { localStorage.setItem('last-active', String(Date.now())); } catch { /* fine */ } };
-const idleTooLong = () => { try { const t = Number(localStorage.getItem('last-active') || 0); return t && Date.now() - t > IDLE_LIMIT; } catch { return false; } };
+// (Not in the preview, which is always signed in as a sample admin.)
+const idleTooLong = () => { if (window.__PREVIEW__) return false; try { const t = Number(localStorage.getItem('last-active') || 0); return t && Date.now() - t > IDLE_LIMIT; } catch { return false; } };
 let lastTouch = 0;
 for (const ev of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(ev, () => { if (Date.now() - lastTouch > 60000) { lastTouch = Date.now(); touchActivity(); } }, { passive: true });
 setInterval(() => { if (started && idleTooLong()) { try { localStorage.removeItem('last-active'); } catch { /* fine */ } sb.auth.signOut(); } }, 60000);

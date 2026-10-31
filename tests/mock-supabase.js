@@ -162,7 +162,7 @@ export function createClient() {
       async getUser() { return { data: { user: session?.user || null } }; },
       onAuthStateChange(f) { subs.push(f); return { data: { subscription: { unsubscribe() {} } } }; },
       async signInWithPassword({ email, password }) {
-        if (password !== 'correct-horse') return { error: { message: 'Invalid login credentials' } };
+        if (password !== 'correct-horse' && !window.__PREVIEW__) return { error: { message: 'Invalid login credentials' } }; // the preview takes any password
         session = { user: { id: 'u1', email } }; setTimeout(() => emit('SIGNED_IN')); return { data: { session }, error: null };
       },
       async signOut() { session = null; setTimeout(() => emit('SIGNED_OUT')); return { error: null }; },

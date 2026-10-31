@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node tools/migrate.mjs",
     "deploy": "wrangler deploy",
-    "test": "node --test tests/calc.test.mjs tests/worker.test.mjs",
+    "test": "node --test tests/calc.test.mjs tests/overhead.test.mjs tests/worker.test.mjs",
     "migrate": "node tools/migrate.mjs"
   }
 }

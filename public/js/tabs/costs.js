@@ -1,11 +1,11 @@
 import { h, pageHead, numberCell, typePill, toast, niceError, confirmDialog, acctText, acctCell, thisYear, thisMonth } from '../ui.js';
 import { state, derived, saveCell, isAdmin, insertRow, updateRow, deleteRow } from '../store.js';
-import { TYPES, isLaborItem, nextItemNo, itemNoProblem, hasReceiving, receiptText, parseReceipt } from '../calc.js';
+import { TYPES, isLaborItem, isTiedIndirect, nextItemNo, itemNoProblem, hasReceiving, receiptText, parseReceipt } from '../calc.js';
 
 import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 
 // Costs typed in: raw materials, packaging, and indirect costs other than direct labor (overhead, marketing, ...).
-const enterable = (it) => it.type === 'Raw Material' || it.type === 'Component' || (it.type === 'Indirect Cost' && !isLaborItem(it.item_no));
+const enterable = (it) => it.type === 'Raw Material' || it.type === 'Component' || (it.type === 'Indirect Cost' && !isTiedIndirect(state.data, it.item_no));
 
 // The add / edit item form, shown in the side bar.
 let editing = null; // null, 'new', or the item_no being edited
@@ -101,13 +101,13 @@ export default {
             { disabled: !admin, digits: 7, key: `sc|${it.item_no}|${y}`, display: acctText, cls: 'acct-cell' + (cm.carriedFrom(it.item_no, y) ? ' carried' : ''),
               placeholder: cm.carriedFrom(it.item_no, y) ? acctText(cm.cost(it.item_no, y)) : ' ',
               title: cm.carriedFrom(it.item_no, y) ? `${it.name} ${y} cost per ${it.unit || 'unit'}: none entered, so the ${cm.carriedFrom(it.item_no, y)} standard is used` : `${it.name} ${y} cost per ${it.unit || 'unit'}` })
-          : acctCell(cm.cost(it.item_no, y), { class: 'calc', title: isLaborItem(it.item_no) ? 'From the Labor tab' : 'Calculated' })) })),
+          : acctCell(cm.cost(it.item_no, y), { class: 'calc', title: isLaborItem(it.item_no) ? 'From the Labor tab' : isTiedIndirect(state.data, it.item_no) ? 'From the Overhead tab' : 'Calculated' })) })),
     ];
     const rows = filteredRows({ id: 'costs', columns, rows: items });
     const sel = selected ? items.find((it) => it.item_no === selected) : null;
     const nFilters = activeFilterCount('costs');
     return h('div', null,
-      pageHead('Master List', 'Every item, with its standard cost for each year. Update on January 1st each year; a cost left blank for a year uses the year before’s (shown in grey). Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Only admins can change these.'),
+      pageHead('Master List', 'Every item, with its standard cost for each year. Update on January 1st each year; a cost left blank for a year uses the year before’s (shown in grey). Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab and overhead from the Overhead tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Only admins can change these.'),
         admin && !editing ? h('button', { class: 'btn primary', onclick: () => { editing = 'new'; rerender(); } }, 'Add item') : null,
         admin && editing ? itemForm(editing === 'new' ? null : items.find((it) => it.item_no === editing), (no) => { editing = null; selected = no; rerender(); }) : null,
         admin && !editing && sel ? h('button', { class: 'btn primary', onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item') : null,

@@ -89,7 +89,7 @@ GROUPS = {
     'Inventory': ['Production', 'New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
     'Planning': ['Production', 'Purchases', 'Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
-    'Standards': ['Master List', 'BOMs', 'Labor'],
+    'Standards': ['Master List', 'BOMs', 'Labor', 'Overhead'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
 ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['My Account', 'Users', 'Security', 'Change history']
@@ -973,6 +973,30 @@ with sync_playwright() as p:
     check(page.locator('.note.warn', has_text='SUPABASE_SERVICE_ROLE_KEY').count() == 1 and page.locator('form.user-add').count() == 0 and page.locator('table.users-table tbody tr').count() == 2, 'without the key, Users explains the setup and still lists everyone')
     page.locator('table.users-table tbody tr', has_text='staff@stans.test').get_by_role('button', name='Turn off').click(); page.locator('dialog[open]').get_by_role('button', name='Turn off').click(); page.wait_for_timeout(400)
     check(page.evaluate("window.__MOCK_DB__.profiles.find(p => p.email === 'staff@stans.test').disabled") is True, 'and can still turn an account off')
+    ctx.close()
+
+    # ---- Standards → Overhead: Overhead (300002) costs what this tab says ----
+    oh_cost = next(c['cost'] for c in inputs['standard_costs'] if c['item_no'] == 300002 and c['year'] == 2026)
+    oh_month = round(oh_cost * 16 * 52 * 60 / 12, 2)
+    ctx, page, errors = open_app(browser)
+    body = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
+        f'window.__MOCK_DB__={json.dumps(dict(mock_db(), overhead_costs=[dict(id=1, year=2026, name="Overhead", monthly_amount=oh_month, notes=None, sort=1)]))};window.__MOCK_ROLE__="admin";window.__MOCK_SIGNED_IN__=true;')
+    page.route('**/config.js', lambda r: r.fulfill(status=200, content_type='text/javascript', body=body))
+    page.goto(BASE + '/#costs'); page.wait_for_selector('.groups .group'); page.wait_for_timeout(300)
+    check(cell(page, 'sc|300002|2026').count() == 0, 'Overhead’s cost is no longer typed in on Master List')
+    page.goto(BASE + '/#overhead'); page.wait_for_timeout(400)
+    check(page.locator('.year-head', has_text=f'${oh_cost:.4f} per minute').count() == 1, f'Overhead tab gives the same rate as before (${oh_cost:.4f})')
+    shot(page, '42-overhead')
+    cell(page, 'oh|1|monthly_amount').fill(str(oh_month * 2)); cell(page, 'oh|1|monthly_amount').press('Enter'); page.wait_for_timeout(400)
+    check(page.locator('.year-head', has_text=f'${oh_cost * 2:.4f} per minute').count() == 1, 'changing the costs changes the rate')
+    page.get_by_role('button', name='+ Add cost').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.overhead_costs.length") == 2, 'admins can add an overhead cost')
+    page.get_by_role('button', name='Labor minutes').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.year_settings.find(y => y.year === 2026).overhead_basis") == 'labor', 'and spread it over labor minutes instead')
+    page.goto(BASE + '/#costs'); page.wait_for_timeout(400)
+    row = page.locator('tr', has_text='Overhead').filter(has=page.locator('td', has_text='300002')).first
+    check(row.count() == 1 and row.locator('td.calc[title="From the Overhead tab"]').count() >= 1, 'Master List shows Overhead as coming from the Overhead tab')
+    check(not errors, 'no browser errors on Overhead' + (f': {errors[:3]}' if errors else ''))
     ctx.close()
 
     # ---- security questions: required before using the site ----

@@ -6,7 +6,7 @@ import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton }
 
 let rows = null; let loading = false; let failed = false;
 const TABLES = { items: 'Item', standard_costs: 'Standard cost', standard_prices: 'Standard price', boms: 'BOM', bom_lines: 'BOM line', settings: 'Settings',
-  year_settings: 'Year settings', purchase_settings: 'Purchase settings', labor_positions: 'Labor position', production_plan: 'Production plan',
+  year_settings: 'Year settings', purchase_settings: 'Purchase settings', labor_positions: 'Labor position', overhead_costs: 'Overhead cost', production_plan: 'Production plan',
   profiles: 'User', users: 'User' };
 const ACTIONS = { insert: 'Added', update: 'Changed', delete: 'Removed', invite: 'Invited', create: 'Added', disable: 'Turned off', enable: 'Turned on',
   'password reset email': 'Sent a password reset to', 'set password': 'Set the password for', 'resend invite': 'Re-sent the invitation to' };
@@ -20,7 +20,7 @@ function subject(r) {
   const parts = [];
   if (row.item_no) parts.push(name(row.item_no));
   if (row.parent_item_no) parts.push(`${name(row.parent_item_no)} ← ${name(row.item_no)}`);
-  if (r.table_name === 'labor_positions' && row.name) parts.push(row.name);
+  if ((r.table_name === 'labor_positions' || r.table_name === 'overhead_costs') && row.name) parts.push(row.name);
   if ((r.table_name === 'profiles' || r.table_name === 'users') && row.email) parts.push(row.email);
   if (row.year) parts.push(String(row.year));
   if (row.week) parts.push(`week of ${row.week}`);

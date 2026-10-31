@@ -10,6 +10,14 @@ export const ITEM_PREFIX = { 'Raw Material': 1, Component: 2, 'Indirect Cost': 3
 export const LABOR_ITEM = 300001; // "Direct Labor": its cost per minute comes from the Labor tab
 const LEGACY_LABOR_ITEM = 10019;  // the workbook's number for it
 export const isLaborItem = (itemNo) => itemNo === LABOR_ITEM || itemNo === LEGACY_LABOR_ITEM;
+export const OVERHEAD_ITEM = 300002; // "Overhead": its cost per minute comes from the Overhead tab
+const LEGACY_OVERHEAD_ITEM = 10020;
+export const isOverheadItem = (itemNo) => itemNo === OVERHEAD_ITEM || itemNo === LEGACY_OVERHEAD_ITEM;
+// Overhead's cost comes from the Overhead tab once that has anything in it
+// (until the database has the table, it's typed in on Master List as before).
+export const overheadTied = (data) => (data.overhead_costs || []).length > 0;
+// Items whose standard cost is calculated rather than typed in.
+export const isTiedIndirect = (data, itemNo) => isLaborItem(itemNo) || (isOverheadItem(itemNo) && overheadTied(data));
 // The next free number for a type (e.g. 100010 after raw material 100009).
 export function nextItemNo(items, type) {
   const p = ITEM_PREFIX[type] || 1;
@@ -231,6 +239,48 @@ export function laborRate(data, { year, lineHours } = {}) {
     minutes, lineHours: sum((r) => r.lineHours), rate };
 }
 
+// ---------- Overhead rate ----------
+// A year's overhead: its own cost lines, or else the year before's raised by
+// the year's overhead inflation %. Like labor, a forecast until the year
+// begins (and one that needs review if the year begins without its own).
+export function overheadSetup(data, year, now = currentYear()) {
+  const ys = (data.year_settings || []).find((y) => y.year === year) || {};
+  const own = (data.overhead_costs || []).filter((c) => c.year === year);
+  let out;
+  if (own.length || year <= LABOR_FIRST_YEAR) out = { year, lines: own, settings: ys, fromYear: null, inflation: 0, own: own.length > 0 };
+  else {
+    const prev = overheadSetup(data, year - 1, now);
+    const infl = n(ys.overhead_inflation_pct); const f = 1 + infl / 100;
+    out = { year, fromYear: year - 1, inflation: infl, own: false,
+      lines: prev.lines.map((c) => ({ ...c, id: `f${year}-${c.sourceId ?? c.id}`, sourceId: c.sourceId ?? c.id, year, forecast: true, monthly_amount: Math.round(n(c.monthly_amount) * f * 100) / 100 })),
+      settings: { ...ys, overhead_basis: ys.overhead_basis ?? prev.settings.overhead_basis } };
+  }
+  out.forecast = year > now || !out.own;
+  out.needsReview = year <= now && !out.own && out.lines.length > 0;
+  return out;
+}
+// The overhead cost per minute for a year: the year's overhead divided by the
+// year's production minutes, either line minutes (the line's hours a week x
+// weeks it runs, from the Labor tab) or labor minutes (the same times everyone
+// on the line, as BOM labor minutes count).
+export function overheadRate(data, year, { basis: forceBasis, lineHours } = {}) {
+  const setup = overheadSetup(data, year);
+  const lines = [...setup.lines].sort((a, b) => n(a.sort) - n(b.sort) || String(a.sourceId ?? a.id).localeCompare(String(b.sourceId ?? b.id), undefined, { numeric: true }));
+  const monthly = lines.reduce((t, c) => t + n(c.monthly_amount), 0);
+  const annual = monthly * 12;
+  const L = laborRate(data, { year, lineHours });
+  const lineMinutes = L.lineHoursWeek * L.plant.prodWeeks * 60;
+  const basis = forceBasis || (setup.settings.overhead_basis === 'labor' ? 'labor' : 'line');
+  const minutes = basis === 'labor' ? L.minutes : lineMinutes;
+  return { year, setup, lines, monthly, annual, basis, lineMinutes, laborMinutes: L.minutes, minutes, lineHoursWeek: L.lineHoursWeek, prodWeeks: L.plant.prodWeeks, crew: L.crew,
+    rate: minutes ? annual / minutes : 0 };
+}
+export function overheadModel(data) {
+  const cache = new Map(); const last = laborYears().at(-1);
+  const forYear = (year) => { if (!cache.has(year)) cache.set(year, overheadRate(data, year)); return cache.get(year); };
+  return { forYear, rateFor: (year) => (year <= last ? forYear(year).rate : 0) };
+}
+
 // The workbook's Labor Scenarios sheet: scenario k = k days a week for everyone,
 // all pay spread over line hours. Used until labor positions are set up, and
 // by the tests against Excel.
@@ -278,6 +328,7 @@ export function costModel(data) {
   const ixFor = indexByYear(data); const ix = ixFor(currentYear());
   const entered = new Map(data.standard_costs.filter((c) => c.cost !== null && c.cost !== undefined && c.cost !== '').map((c) => [`${c.item_no}|${c.year}`, n(c.cost)]));
   const labor = laborModel(data);
+  const overhead = overheadTied(data) ? overheadModel(data) : null;
   const years = siteYears();
   const memo = new Map();
   // A typed-in cost with no standard for a year uses the latest earlier year's standard.
@@ -300,6 +351,8 @@ export function costModel(data) {
       v = yx.children(itemNo).reduce((s, l) => s + cost(l.item_no, year) * yx.lineQty(l), 0) / yx.yieldOf(itemNo);
     } else if (isLaborItem(itemNo)) {
       v = labor.rateFor(year);
+    } else if (overhead && isOverheadItem(itemNo)) {
+      v = overhead.rateFor(year);
     } else v = entered.get(key) ?? carried(itemNo, year);
     memo.set(key, v);
     return v;
@@ -312,7 +365,7 @@ export function costModel(data) {
     const ys = years.filter((y) => cost(itemNo, y)).sort((a, b) => Math.abs(a - year) - Math.abs(b - year) || a - b);
     return ys.length ? cost(itemNo, ys[0]) : 0;
   };
-  return { years, cost, latest, nearest, carried, carriedFrom, labor, ix, ixFor };
+  return { years, cost, latest, nearest, carried, carriedFrom, labor, overhead, ix, ixFor };
 }
 
 // Price per case, with the same nearest-year fallback.
@@ -843,7 +896,7 @@ export function missingStandards(data, year) {
   const ix = index(data, year);
   const has = (list, field) => new Set(list.filter((r) => r.year === year && r[field] !== null && r[field] !== undefined && r[field] !== '').map((r) => r.item_no));
   const costs = has(data.standard_costs, 'cost'); const prices = has(data.standard_prices, 'price');
-  const typed = data.items.filter((i) => i.type === 'Raw Material' || i.type === 'Component' || (i.type === 'Indirect Cost' && !isLaborItem(i.item_no)));
+  const typed = data.items.filter((i) => i.type === 'Raw Material' || i.type === 'Component' || (i.type === 'Indirect Cost' && !isTiedIndirect(data, i.item_no)));
   return { costs: typed.filter((i) => !costs.has(i.item_no)), prices: ix.byType('Finished Good').filter((i) => !prices.has(i.item_no)) };
 }
 

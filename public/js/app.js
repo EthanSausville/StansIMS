@@ -14,6 +14,7 @@ import bom from './tabs/bom.js';
 import taccounts from './tabs/taccounts.js';
 import prices from './tabs/prices.js';
 import labor from './tabs/labor.js';
+import overhead from './tabs/overhead.js';
 import journals from './tabs/journals.js';
 import users from './tabs/users.js';
 import history from './tabs/history.js';
@@ -28,7 +29,7 @@ const GROUPS = [
   { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
   { id: 'inventory', label: 'Inventory', tabs: [production, newReceipts, allReceipts, newCounts, allCounts, inventory, consumption] },
   { id: 'planning', label: 'Planning', tabs: [productionPlanTab, purchasingTab, safetyStocksTab] },
-  { id: 'costing', label: 'Standards', tabs: [costs, bom, labor] },
+  { id: 'costing', label: 'Standards', tabs: [costs, bom, labor, overhead] },
   { id: 'settings', label: 'Settings', gear: true, tabs: [account, users, security, history] },
 ];
 const TABS = GROUPS.flatMap((g) => g.tabs);

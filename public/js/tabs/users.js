@@ -27,7 +27,7 @@ function load(rerender) {
       if (configured) users = r.users;
       else users = (await listProfiles()).map((p) => ({ id: p.user_id, email: p.email, name: p.name || null, role: p.role, disabled: !!p.disabled, created_at: p.created_at, last_sign_in_at: null, confirmed: true }));
     })
-    .catch((e) => { loadError = niceError(e); users = users || []; })
+    .catch((e) => { loadError = e?.message || niceError(e); users = users || []; })
     .finally(() => { loading = false; rerender(); });
 }
 const reload = (rerender) => { users = null; load(rerender); rerender(); };

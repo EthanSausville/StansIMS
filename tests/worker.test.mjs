@@ -136,6 +136,16 @@ test('new secret keys go only in the apikey header; the old service_role JWT als
   assert.ok(db2.calls.filter((c) => c.hdr.apikey === 'eyJlegacy').every((c) => c.hdr.Authorization === 'Bearer eyJlegacy'));
 });
 
+test('a wrong key says which key it is', async () => {
+  fakeSupabase();
+  for (const [key, re] of [['sb_publishable_zz', /publishable key/], ['sbp_abc', /access token/], ['hello', /doesn’t look like/]]) {
+    const r = await call(env({ SUPABASE_SERVICE_ROLE_KEY: key }), { method: 'GET' });
+    assert.equal(r.status, 500); assert.match((await r.json()).error, re);
+  }
+  const r = await call(env({ SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_wrong' }), { method: 'GET' });
+  assert.match((await r.json()).error, /didn’t accept/);
+});
+
 test('too many requests are slowed down', async () => {
   fakeSupabase();
   let last;

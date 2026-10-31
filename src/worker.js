@@ -50,7 +50,7 @@ class Fail extends Error { constructor(status, message) { super(message); this.s
 function supa(env) {
   const url = (env.SUPABASE_URL || '').replace(/\/$/, '');
   const anon = env.SUPABASE_ANON_KEY || env.SUPABASE_PUBLISHABLE_KEY || '';
-  const secret = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '';
+  const secret = String(env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '').trim().replace(/^["']|["']$/g, '');
   // Supabase's new secret keys (sb_secret_...) go only in the apikey header;
   // they aren't JWTs, so sending one as a Bearer token is refused. The older
   // service_role key is a JWT and is also sent as the Bearer token.
@@ -80,7 +80,9 @@ async function caller(request, s, { admin = true } = {}) {
   try { user = await s.call('/auth/v1/user', { headers: { apikey: s.anon, Authorization: `Bearer ${token}` } }); }
   catch { throw new Fail(401, 'Your session has ended. Sign in again.'); }
   if (!user?.id) throw new Fail(401, 'Sign in again.');
-  const rows = await s.call(`/rest/v1/profiles?user_id=eq.${user.id}&select=role,disabled,email`);
+  let rows;
+  try { rows = await s.call(`/rest/v1/profiles?user_id=eq.${user.id}&select=role,disabled,email`); }
+  catch (e) { throw new Fail(500, `Supabase didn’t accept the SUPABASE_SERVICE_ROLE_KEY secret (it said: ${e.message}). It must be the Secret key from Supabase → Project Settings → API Keys (starts with sb_secret_).`); }
   const p = rows?.[0];
   if (!p || p.disabled) throw new Fail(403, 'This account is turned off.');
   if (admin && p.role !== 'admin') throw new Fail(403, 'Only admins can manage users.');
@@ -136,10 +138,19 @@ async function listUsers(s) {
   });
 }
 
+// A common mix-up: a different Supabase key or token pasted as the secret key.
+function keyProblem(secret) {
+  if (secret.startsWith('sb_publishable_')) return 'SUPABASE_SERVICE_ROLE_KEY holds the publishable key. It must be the Secret key (starts with sb_secret_) from Supabase → Project Settings → API Keys.';
+  if (secret.startsWith('sbp_')) return 'SUPABASE_SERVICE_ROLE_KEY holds an account access token (sbp_…). It must be the Secret key (starts with sb_secret_) from Supabase → Project Settings → API Keys.';
+  if (!secret.startsWith('sb_secret_') && !secret.startsWith('eyJ')) return 'SUPABASE_SERVICE_ROLE_KEY doesn’t look like a Supabase secret key. It must be the Secret key (starts with sb_secret_) from Supabase → Project Settings → API Keys, with no spaces or quotes around it.';
+  return '';
+}
+
 async function handleAdmin(request, env, url) {
   const s = supa(env);
   if (!s.url || !s.anon) throw new Fail(500, 'The site isn’t connected to Supabase.');
   if (!s.secret) return json(200, { configured: false, users: null });
+  if (keyProblem(s.secret)) throw new Fail(500, keyProblem(s.secret));
   // Only this site's own pages may call this.
   const origin = request.headers.get('origin');
   if (request.method !== 'GET' && origin !== url.origin) throw new Fail(403, 'Not allowed.');
@@ -238,7 +249,7 @@ async function handlePassword(request, env, url) {
   if (!s.url || !s.anon) throw new Fail(500, 'The site isn’t connected to Supabase.');
   if (request.method !== 'POST') throw new Fail(405, 'Not allowed.');
   if (request.headers.get('origin') !== url.origin) throw new Fail(403, 'Not allowed.');
-  if (!s.secret) return json(200, { configured: false });
+  if (!s.secret || keyProblem(s.secret)) return json(200, { configured: false });
   const who = await caller(request, s, { admin: false });
   if (tooMany(`pw:${who.id}`, 10)) throw new Fail(429, 'Too many requests. Wait a minute and try again.');
   const raw = await request.text();

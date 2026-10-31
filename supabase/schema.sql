@@ -380,10 +380,13 @@ create table if not exists public.roles (
   sort        int not null default 0
 );
 insert into public.roles (id, name, description, permissions, builtin, sort) values
-  ('admin', 'Admin', 'Everything, including users, roles, periods and security.', '{}'::jsonb, true, 0),
-  ('staff', 'Staff', 'Enters production, deliveries, counts and sales; views the rest.',
+  ('admin', 'Admin', null, '{}'::jsonb, true, 0),
+  ('staff', 'Accountant', null,
    '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"view","production":"edit","newreceipts":"edit","receipts":"edit","newcounts":"edit","counts":"edit","inventory":"view","consumption":"view","planning":"view","purchasing":"view","safety":"view","costs":"view","bom":"view","labor":"view","overhead":"view"}'::jsonb, true, 1)
 on conflict (id) do nothing;
+-- The built-in staff role is called Accountant; roles no longer have descriptions.
+update public.roles set name = 'Accountant' where id = 'staff' and name = 'Staff';
+update public.roles set description = null where description is not null;
 -- A profile's role is one of these (it used to be only staff or admin).
 alter table public.profiles drop constraint if exists profiles_role_check;
 do $$ begin
@@ -614,7 +617,8 @@ begin
       ('production_plan', '{planning}'), ('purchase_settings', '{safety}'),
       ('items', '{costs}'), ('standard_costs', '{costs}'), ('boms', '{bom}'), ('bom_lines', '{bom}'),
       ('labor_positions', '{labor}'), ('overhead_costs', '{overhead}'), ('year_settings', '{costs,labor,overhead}'),
-      ('settings', null), ('recipes', null), ('recipe_lines', null), ('fg_lines', null), ('roles', null), ('closed_periods', null), ('closed_years', null), ('closed_beginnings', null)) as x(t, a) loop
+      ('roles', '{roles}'), ('closed_periods', '{periods}'), ('closed_years', '{periods}'), ('closed_beginnings', '{periods}'),
+      ('settings', null), ('recipes', null), ('recipe_lines', null), ('fg_lines', null)) as x(t, a) loop
     rd := case when t in ('sales', 'sales_imports', 'qb_name_map', 'standard_prices') then 'public.can_see_sales()' else 'public.is_member()' end;
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "read" on public.%I', t);
@@ -631,10 +635,11 @@ end $$;
 alter table public.profiles enable row level security;
 drop policy if exists "see self or admin" on public.profiles;
 drop policy if exists "admins change roles" on public.profiles;
+-- Settings → Users and Roles are pages a role can be given (Settings → Roles).
 create policy "see self or admin" on public.profiles for select to authenticated
-  using (user_id = auth.uid() or public.is_admin());
+  using (user_id = auth.uid() or public.can_any(array['users', 'roles', 'security']));
 create policy "admins change roles" on public.profiles for update to authenticated
-  using (public.is_admin()) with check (public.is_admin());
+  using (public.can('users', 'edit')) with check (public.can('users', 'edit'));
 -- Profiles are created by the sign-up trigger only, and admins can change
 -- only the name, role and enabled switch (never who a profile belongs to).
 revoke insert, delete, update on public.profiles from authenticated;
@@ -644,6 +649,15 @@ grant update (name, role, roles, disabled) on public.profiles to authenticated;
 create or replace function public.keep_an_admin() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
+  -- Someone who can edit Users but isn't an admin can't touch an admin's
+  -- account or hand out the Admin role.
+  if auth.uid() is not null and not public.is_admin()
+     and ('admin' = any(old.roles) or old.role = 'admin' or 'admin' = any(new.roles) or new.role = 'admin') then
+    raise exception 'Only an admin can change an admin’s account or give the Admin role.';
+  end if;
+  if auth.uid() is not null and not public.is_admin() and new.user_id = auth.uid() and new.roles is distinct from old.roles then
+    raise exception 'You can’t change your own roles.';
+  end if;
   if old.role = 'admin' and not old.disabled and (new.role <> 'admin' or new.disabled)
      and not exists (select 1 from public.profiles where role = 'admin' and not disabled and user_id <> old.user_id) then
     raise exception 'There must be at least one admin.';
@@ -793,7 +807,7 @@ end $$;
 
 alter table public.audit_log enable row level security;
 drop policy if exists "admins read" on public.audit_log;
-create policy "admins read" on public.audit_log for select to authenticated using (public.is_admin());
+create policy "admins read" on public.audit_log for select to authenticated using (public.can('history'));
 grant select on public.audit_log to authenticated;
 revoke insert, update, delete on public.audit_log from authenticated;
 
@@ -816,7 +830,7 @@ create table if not exists public.security_answers (
 alter table public.security_answers enable row level security;
 drop policy if exists "see own or admin" on public.security_answers;
 create policy "see own or admin" on public.security_answers for select to authenticated
-  using (user_id = auth.uid() or public.is_admin());
+  using (user_id = auth.uid() or public.can_any(array['users', 'security']));
 revoke all on public.security_answers from anon, authenticated;
 -- Which questions someone picked, never the answers.
 grant select (user_id, slot, question, updated_at) on public.security_answers to authenticated;
@@ -911,7 +925,10 @@ create or replace function public.reset_security_answers(p_user uuid) returns vo
 language plpgsql security definer set search_path = '' as $$
 declare em text; them text;
 begin
-  if not public.is_admin() then raise exception 'Only admins can do that.'; end if;
+  if not public.can('users', 'edit') then raise exception 'Only admins can do that.'; end if;
+  if not public.is_admin() and exists (select 1 from public.profiles p where p.user_id = p_user and (p.role = 'admin' or 'admin' = any(p.roles))) then
+    raise exception 'Only an admin can change an admin’s account.';
+  end if;
   select p.email into em from public.profiles p where p.user_id = auth.uid();
   select p.email into them from public.profiles p where p.user_id = p_user;
   delete from public.security_answers s where s.user_id = p_user;

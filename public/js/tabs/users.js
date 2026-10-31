@@ -10,7 +10,7 @@ import { h, pageHead, toast, niceError, longDate, confirmDialog, passwordProblem
 import { sb, state, adminApi, listProfiles } from '../store.js';
 import { xtable, filteredRows } from '../xtable.js';
 import { questionsByUser, resetAnswers } from '../security.js';
-import { roleList, roleName, rolesOf, viewAs } from '../perms.js';
+import { roleList, roleName, rolesOf, viewAs, can } from '../perms.js';
 
 let users = null;      // rows shown
 let configured = null; // does the Worker have the secret key?
@@ -87,15 +87,19 @@ const when = (iso) => (iso ? longDate(iso.slice(0, 10)) : '');
 export default {
   id: 'users',
   label: 'Users',
-  adminOnly: true,
   render({ rerender }) {
     if (users === null && !loading) load(rerender);
     const me = state.user?.id;
+    // Who can change what: a role that can edit Users (Settings → Roles) changes
+    // anyone but an admin and their own roles; only admins give the Admin role.
+    const canEdit = can('users', 'edit'); const amAdmin = state.profile?.role === 'admin';
+    const mayChange = (u) => canEdit && (amAdmin || !rolesOf(u).includes('admin'));
+    const grantable = () => roleList().filter((r) => amAdmin || r.id !== 'admin');
 
     // ---- add a user ----
     const email = h('input', { type: 'email', autocomplete: 'off', placeholder: 'name@company.com', 'aria-label': 'Email' });
     const name = h('input', { type: 'text', autocomplete: 'off', maxlength: 80, placeholder: 'First Last', 'aria-label': 'Name' });
-    const role = h('select', { 'aria-label': 'Role' }, roleList().map((r) => h('option', { value: r.id, selected: r.id === 'staff' }, r.name)));
+    const role = h('select', { 'aria-label': 'Role' }, grantable().map((r) => h('option', { value: r.id, selected: r.id === 'staff' }, r.name)));
     const pass = h('input', { type: 'password', autocomplete: 'new-password', minlength: MIN_PASSWORD, maxlength: 72, 'aria-label': 'Password' });
     const add = async (e) => {
       e.preventDefault();
@@ -118,6 +122,7 @@ export default {
     const columns = [
       { key: 'email', label: 'Email', value: (u) => u.email || '', cell: (u) => h('td', null, u.email, u.id === me ? h('span', { class: 'muted' }, ' (you)') : null) },
       { key: 'name', label: 'Name', value: (u) => u.name || '', cell: (u) => {
+        if (!mayChange(u)) return h('td', null, u.name || '');
         const input = h('input', { type: 'text', value: u.name || '', maxlength: 80, 'aria-label': `Name for ${u.email}`, 'data-k': `un|${u.id}`,
           onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
           onchange: (e) => act({ action: 'update', id: u.id, name: e.target.value }, rerender) });
@@ -125,13 +130,14 @@ export default {
       // Several roles each: they get the most access any of them gives (Settings → Roles).
       { key: 'role', label: 'Roles', value: (u) => rolesOf(u).map(roleName).join(', '), cell: (u) => {
         const list = rolesOf(u); const self = u.id === me;
+        if (!mayChange(u) || (self && !amAdmin)) return h('td', { class: 'user-roles' }, h('div', { class: 'role-chips' }, list.map((id) => h('span', { class: 'role-chip solo' + (id === 'admin' ? ' admin' : '') }, roleName(id)))));
         const setRoles = (next) => act({ action: 'update', id: u.id, roles: next }, rerender);
         const chips = list.map((id) => {
           const locked = list.length === 1 || (self && id === 'admin');
           return h('span', { class: 'role-chip' + (id === 'admin' ? ' admin' : '') + (locked ? ' solo' : '') }, roleName(id),
             locked ? null : h('button', { type: 'button', title: `Remove ${roleName(id)}`, 'aria-label': `Remove ${roleName(id)} from ${u.email}`, onclick: () => setRoles(list.filter((x) => x !== id)) }, '×'));
         });
-        const others = roleList().filter((r) => !list.includes(r.id));
+        const others = grantable().filter((r) => !list.includes(r.id));
         const add = others.length ? h('select', { class: 'role-add-sel', 'aria-label': `Add a role to ${u.email}`, onchange: (e) => { if (e.target.value) setRoles([...list, e.target.value]); } },
           h('option', { value: '' }, '+ Add role'), others.map((r) => h('option', { value: r.id }, r.name))) : null;
         return h('td', { class: 'user-roles' }, h('div', { class: 'role-chips' }, chips, add));
@@ -143,6 +149,7 @@ export default {
       { key: 'added', label: 'Added', value: (u) => u.created_at || '', text: (u) => when(u.created_at), cell: (u) => h('td', { class: 'muted' }, when(u.created_at)) },
       { key: 'do', label: '', filter: false, value: () => '', cell: (u) => {
         const self = u.id === me;
+        if (!mayChange(u)) return h('td', { class: 'user-actions' }, amAdmin && !self ? h('button', { type: 'button', class: 'btn small', onclick: () => viewAs(rolesOf(u), `${u.name || u.email} (${rolesOf(u).map(roleName).join(' + ')})`) }, 'View as') : null);
         const b = (label, fn, cls = '', title) => h('button', { type: 'button', class: `btn small ${cls}`.trim(), title, onclick: fn }, label);
         return h('td', { class: 'user-actions' },
           configured && !u.confirmed && !u.disabled ? b('Resend invite', () => act({ action: 'resend', id: u.id }, rerender)) : null,
@@ -155,7 +162,7 @@ export default {
             if (!(await confirmDialog(`Clear ${u.email}’s security questions? They’ll have to pick new ones the next time they sign in.`, 'Clear'))) return;
             try { await resetAnswers(u.id); toast('Security questions cleared.'); reload(rerender); } catch (e) { toast(niceError(e), 'bad'); }
           }, '', 'For someone who forgot their answers') : null,
-          !self ? b('View as', () => viewAs(rolesOf(u), `${u.name || u.email} (${rolesOf(u).map(roleName).join(' + ')})`), '', 'See the site the way this person sees it') : null,
+          !self && amAdmin ? b('View as', () => viewAs(rolesOf(u), `${u.name || u.email} (${rolesOf(u).map(roleName).join(' + ')})`), '', 'See the site the way this person sees it') : null,
           self ? null : u.disabled
             ? b('Turn on', () => act({ action: 'enable', id: u.id }, rerender))
             : b('Turn off', async () => { if (await confirmDialog(`Turn off ${u.email}? They’ll be signed out and can’t sign in until you turn them back on. What they entered stays.`, 'Turn off')) act({ action: 'disable', id: u.id }, rerender); }, 'warn'),
@@ -165,7 +172,7 @@ export default {
     const rows = users || [];
     const admins = rows.filter((u) => u.role === 'admin' && !u.disabled).length;
     return h('div', null,
-      pageHead('Users', 'Everyone who can use the site. Staff enter production, deliveries, counts and sales; admins can also change standards, planning settings and users. Turning someone off signs them out and keeps them out, without losing anything they entered. Every change here is recorded in Change history.'),
+      pageHead('Users', 'Everyone who can use the site. Accountants enter production, deliveries, counts and sales; admins can also change standards, planning settings and users. Turning someone off signs them out and keeps them out, without losing anything they entered. Every change here is recorded in Change history.'),
       loadError ? h('div', { class: 'note bad' }, h('strong', null, 'Couldn’t load the users: '), loadError, ' ', h('button', { class: 'btn small', onclick: () => reload(rerender) }, 'Try again')) : null,
       configured === false ? h('div', { class: 'note warn' },
         h('strong', null, 'Adding, deleting, emails and passwords need one more setup step. '),
@@ -176,7 +183,7 @@ export default {
         h('em', null, 'Set a password now'), ' and give them the password in person; if someone forgets theirs, use ', h('em', null, 'Set password'), ' here. ',
         'To turn email on: sign up with an email-sending service (Resend, Brevo, Postmark…), then in Supabase open Authentication → Emails → SMTP Settings, turn on Enable Custom SMTP and enter its details. Supabase’s built-in email only reaches members of your Supabase team, about 2 emails an hour.'),
       admins === 1 && rows.length > 1 ? h('div', { class: 'note info' }, 'There’s only one admin. A second one means you can never be locked out.') : null,
-      configured ? addCard : null,
+      configured && canEdit ? addCard : null,
       users === null ? h('div', { class: 'empty' }, 'Loading…') : h('div', { class: 'tablewrap' },
         xtable({ id: 'users', columns, allRows: rows, rows: filteredRows({ id: 'users', columns, rows }), rerender, className: 'users-table', rowClass: (u) => (u.disabled ? 'user-off' : null) })));
   },

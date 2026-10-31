@@ -50,7 +50,7 @@ def mock_db():
                       dict(user_id='u2', email='staff@stans.test', role='staff', created_at='2026-10-27T12:00:00Z')]
     # u1 has set their security questions (answers kept as 'plain:<normalized>' by the mock).
     db['roles'] = [dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0),
-                   dict(id='staff', name='Staff', builtin=True, sort=1, permissions={k: ('edit' if k in ('sales', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts') else 'view') for k in
+                   dict(id='staff', name='Accountant', builtin=True, sort=1, permissions={k: ('edit' if k in ('sales', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts') else 'view') for k in
                         ['dashboard', 'journals', 'taccounts', 'sales', 'sales-customers', 'sales-products', 'prices', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts',
                          'inventory', 'consumption', 'planning', 'purchasing', 'safety', 'costs', 'bom', 'labor', 'overhead']})]
     db['closed_periods'] = []
@@ -1012,14 +1012,16 @@ with sync_playwright() as p:
     # ---- Settings → Roles and Periods ----
     ctx, page, errors = open_app(browser)
     page.goto(BASE + '/#roles'); page.wait_for_selector('table.roles-table')
-    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 23, 'Roles shows Admin and Staff for every page, grouped like the menu')
+    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 27, 'Roles shows Admin and Accountant for every page (Settings pages too), grouped like the menu')
     check(page.locator('.sidebar:not([hidden])').count() == 0, 'Roles has no side bar')
     page.get_by_role('button', name='+ New role').click(); page.wait_for_timeout(100)
-    dlg = page.locator('dialog[open]'); dlg.locator('input').first.fill('Receiving'); dlg.locator('input').nth(1).fill('Whoever unloads deliveries'); dlg.get_by_role('button', name='Add role').click(); page.wait_for_timeout(300)
-    check(page.evaluate("window.__MOCK_DB__.roles.some(r => r.id === 'receiving' && r.permissions.newreceipts === 'edit')"), 'admins can add a role (starting from Staff’s access)')
+    dlg = page.locator('dialog[open]'); dlg.locator('input').first.fill('Receiving'); dlg.locator('select').select_option('staff'); dlg.get_by_role('button', name='Add role').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.roles.some(r => r.id === 'receiving' && r.permissions.newreceipts === 'edit')"), 'admins can add a role (here starting from Accountant’s access)')
     page.locator('[data-k="role|receiving|production|none"]').click(); page.wait_for_timeout(250)
     check(page.evaluate("window.__MOCK_DB__.roles.find(r => r.id === 'receiving').permissions.production") == 'none', 'and choose, page by page, what it can see and change')
     for k in ('sales', 'sales-customers', 'sales-products', 'prices'): page.locator(f'[data-k="role|receiving|{k}|none"]').click(); page.wait_for_timeout(150)
+    check(page.locator('th.rp-role.rp-dark').count() == 2 and page.locator('th.rp-role.rp-light').count() == 1, 'role columns alternate dark and light')
+    check(page.locator('[data-k="role|receiving|users|edit"]').count() == 1 and page.locator('.rp-desc').count() == 0, 'Settings pages can be given to a role; no descriptions')
     check(page.locator('[data-k="role|receiving|dashboard|edit"]').is_disabled() and page.locator('.rp-quick').count() == 0, 'report pages grey out Edit; no section shortcuts')
     page.set_viewport_size({'width': 560, 'height': 900}); page.wait_for_timeout(400)
     check(page.locator('.tablewrap > table.roles-table.compact').count() == 1 and page.evaluate("document.querySelector('[data-k=\"role|receiving|production|view\"]').innerText.trim()") == 'V', 'a narrow window shows H / V / E')
@@ -1090,7 +1092,7 @@ with sync_playwright() as p:
     # ---- someone with a limited role sees and changes only their areas ----
     ctx, page, errors = open_app(browser, role='receiving')
     rdb = dict(mock_db(), profiles=[dict(user_id='u1', email='owner@stans.test', role='receiving', created_at='2026-10-27T12:00:00Z')],
-               roles=[dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0), dict(id='staff', name='Staff', builtin=True, permissions={}, sort=1),
+               roles=[dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0), dict(id='staff', name='Accountant', builtin=True, permissions={}, sort=1),
                       dict(id='receiving', name='Receiving', builtin=False, permissions=dict(newreceipts='edit', receipts='edit', newcounts='view', counts='view', inventory='view', consumption='view'), sort=2)])
     body = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
         f'window.__MOCK_DB__={json.dumps(rdb)};window.__MOCK_ROLE__="receiving";window.__MOCK_SIGNED_IN__=true;')
@@ -1107,6 +1109,27 @@ with sync_playwright() as p:
     page.locator('.gear-group').click(); page.wait_for_timeout(100)
     check(page.locator('.set-card', has_text='Signed in as').count() == 1 and page.get_by_role('tab', name='Roles').count() == 0, 'Settings shows only My Account')
     check(not errors, 'no browser errors for a limited role' + (f': {errors[:3]}' if errors else ''))
+    ctx.close()
+
+    # ---- a role that can edit Users, but isn't an admin ----
+    ctx, page, errors = open_app(browser, role='office')
+    odb = dict(mock_db(), profiles=[dict(user_id='u1', email='owner@stans.test', role='office', roles=['office'], created_at='2026-10-27T12:00:00Z'),
+                                    dict(user_id='u2', email='staff@stans.test', role='staff', created_at='2026-10-27T12:00:00Z'),
+                                    dict(user_id='u3', email='boss@stans.test', role='admin', created_at='2026-10-27T12:00:00Z')])
+    odb['roles'] = odb['roles'] + [dict(id='office', name='Office', builtin=False, permissions=dict(users='edit', periods='view', dashboard='view'), sort=2)]
+    body = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
+        f'window.__MOCK_DB__={json.dumps(odb)};window.__MOCK_ROLE__="office";window.__MOCK_SIGNED_IN__=true;')
+    page.route('**/config.js', lambda r: r.fulfill(status=200, content_type='text/javascript', body=body))
+    page.goto(BASE + '/#users'); page.wait_for_selector('table.users-table')
+    page.wait_for_timeout(400)
+    st = page.locator('.tabs .tab').all_inner_texts()
+    check(st == ['My Account', 'Users', 'Periods'], f'Settings shows the pages the role was given ({st})')
+    boss = page.locator('table.users-table tbody tr', has_text='boss@stans.test'); staff = page.locator('table.users-table tbody tr', has_text='staff@stans.test')
+    check(boss.get_by_role('button').count() == 0 and staff.get_by_role('button', name='Turn off').count() == 1, 'it can manage people, but not an admin')
+    check('Admin' not in staff.locator('select.role-add-sel').inner_text() and page.locator('table.users-table tbody tr', has_text='owner@stans.test').locator('select').count() == 0, 'and can’t hand out Admin or change its own roles')
+    page.goto(BASE + '/#periods'); page.wait_for_timeout(400)
+    check(page.locator('table.periods-table').get_by_role('button', name='Close').count() == 0, 'Periods view only: nothing to close')
+    check(not errors, 'no browser errors for a Users-editing role' + (f': {errors[:3]}' if errors else ''))
     ctx.close()
 
     # ---- security questions: required before using the site ----

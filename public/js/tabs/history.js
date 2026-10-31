@@ -41,7 +41,6 @@ function changes(r) {
 export default {
   id: 'history',
   label: 'Change history',
-  adminOnly: true,
   render({ rerender }) {
     if (!rows && !loading && !failed) {
       loading = true;

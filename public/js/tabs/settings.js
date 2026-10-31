@@ -3,6 +3,7 @@
 import { h, pageHead, toast, niceError, longDate, MIN_PASSWORD, IDLE_MINUTES } from '../ui.js';
 import { sb, state, listAudit, adminApi, listProfiles } from '../store.js';
 import { accountSecurityCards, questionsByUser } from '../security.js';
+import { rolesOf, roleName } from '../perms.js';
 
 const refresh = () => window.dispatchEvent(new Event('stans:refresh'));
 
@@ -13,10 +14,10 @@ export const account = {
   render({ rerender }) {
     const p = state.profile || {};
     return h('div', null,
-      pageHead('My Account', 'Who you’re signed in as, your password and your security questions. Staff can enter production, deliveries, counts and sales; admins can also change costs, prices, BOMs, planning settings and users.'),
+      pageHead('My Account', 'Who you’re signed in as, your password and your security questions. What you can see and change comes from your roles (Settings → Roles).'),
       h('div', { class: 'set-grid' },
         h('section', { class: 'set-card' }, h('h2', null, 'Signed in as'),
-          h('dl', { class: 'kv' }, h('dt', null, 'Email'), h('dd', null, p.email || state.user?.email || ''), h('dt', null, 'Role'), h('dd', null, h('span', { class: 'role' }, p.role || 'staff'))),
+          h('dl', { class: 'kv' }, h('dt', null, 'Email'), h('dd', null, p.email || state.user?.email || ''), h('dt', null, rolesOf(p).length > 1 ? 'Roles' : 'Role'), h('dd', null, rolesOf(p).map((id) => h('span', { class: 'role' }, roleName(id))))),
           h('div', { class: 'set-actions' },
             h('button', { class: 'btn', onclick: () => refresh() }, 'Refresh data'),
             h('button', { class: 'btn', onclick: () => sb.auth.signOut() }, 'Sign out'),
@@ -61,7 +62,6 @@ const ACTION_WORDS = { invite: 'Invited', create: 'Added', update: 'Changed', di
 export const security = {
   id: 'security',
   label: 'Security',
-  adminOnly: true,
   render({ rerender }) {
     if (!checked) runChecks(rerender);
     const c = checked || {};

@@ -70,9 +70,11 @@ function supa(env) {
   return { url, anon, secret, call };
 }
 
-// The person asking: their session must be valid, and they must be an enabled
-// admin (or, with { admin: false }, any enabled account).
-async function caller(request, s, { admin = true } = {}) {
+// The person asking: their session must be valid and their account enabled.
+// With `users`, their roles must let them view ('view') or change ('edit')
+// Settings → Users (admins always can; see Settings → Roles).
+const RANK = { none: 0, view: 1, edit: 2 };
+async function caller(request, s, { users = null } = {}) {
   const auth = request.headers.get('authorization') || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   if (!token || token.length > 4096) throw new Fail(401, 'Sign in again.');
@@ -81,12 +83,21 @@ async function caller(request, s, { admin = true } = {}) {
   catch { throw new Fail(401, 'Your session has ended. Sign in again.'); }
   if (!user?.id) throw new Fail(401, 'Sign in again.');
   let rows;
-  try { rows = await s.call(`/rest/v1/profiles?user_id=eq.${user.id}&select=role,disabled,email`); }
+  try { rows = await s.call(`/rest/v1/profiles?user_id=eq.${user.id}&select=role,roles,disabled,email`); }
   catch (e) { throw new Fail(500, `Supabase didn’t accept the SUPABASE_SERVICE_ROLE_KEY secret (it said: ${e.message}). It must be the Secret key from Supabase → Project Settings → API Keys (starts with sb_secret_).`); }
   const p = rows?.[0];
   if (!p || p.disabled) throw new Fail(403, 'This account is turned off.');
-  if (admin && p.role !== 'admin') throw new Fail(403, 'Only admins can manage users.');
-  return { id: user.id, email: p.email || user.email, token };
+  const roles = p.roles?.length ? p.roles : [p.role];
+  const isAdmin = p.role === 'admin' || roles.includes('admin');
+  if (users && !isAdmin) {
+    let level = 'none';
+    try {
+      const rs = await s.call(`/rest/v1/roles?id=in.(${roles.map(encodeURIComponent).join(',')})&select=permissions`);
+      for (const r of rs || []) { const l = r.permissions?.users || 'none'; if (RANK[l] > RANK[level]) level = l; }
+    } catch { level = 'none'; }
+    if (RANK[level] < RANK[users]) throw new Fail(403, users === 'edit' ? 'Your role can’t change users.' : 'Your role can’t see users.');
+  }
+  return { id: user.id, email: p.email || user.email, token, admin: isAdmin };
 }
 
 async function audit(s, who, action, row) {
@@ -162,7 +173,7 @@ async function handleAdmin(request, env, url) {
   // Only this site's own pages may call this.
   const origin = request.headers.get('origin');
   if (request.method !== 'GET' && origin !== url.origin) throw new Fail(403, 'Not allowed.');
-  const who = await caller(request, s);
+  const who = await caller(request, s, { users: request.method === 'GET' ? 'view' : 'edit' });
   if (tooMany(who.id)) throw new Fail(429, 'Too many requests. Wait a minute and try again.');
 
   if (request.method === 'GET') return json(200, { configured: true, users: await listUsers(s), me: who.id });
@@ -171,6 +182,19 @@ async function handleAdmin(request, env, url) {
   if (raw.length > 10_000) throw new Fail(413, 'Too much.');
   let b; try { b = JSON.parse(raw); } catch { throw new Fail(400, 'Bad request.'); }
   const redirectTo = `${url.origin}/`;
+  // Someone who can change Users but isn't an admin: never an admin's account,
+  // never the Admin role, never their own roles.
+  const guard = async (id, roles) => {
+    if (who.admin) return;
+    if ((roles || []).includes('admin')) throw new Fail(403, 'Only an admin can give the Admin role.');
+    if (id) {
+      const t = (await s.call(`/rest/v1/profiles?user_id=eq.${id}&select=role,roles`))?.[0];
+      if (t && (t.role === 'admin' || (t.roles || []).includes('admin'))) throw new Fail(403, 'Only an admin can change an admin’s account.');
+      if (id === who.id && roles) throw new Fail(403, 'You can’t change your own roles.');
+    }
+  };
+  if (b.action !== 'invite' && b.action !== 'create') await guard(b.id && UUID.test(String(b.id)) ? b.id : null, 'roles' in b ? b.roles : 'role' in b ? [b.role] : null);
+  else await guard(null, [b.role || 'staff']);
 
   switch (b.action) {
     case 'invite': {
@@ -266,7 +290,7 @@ async function handlePassword(request, env, url) {
   if (request.method !== 'POST') throw new Fail(405, 'Not allowed.');
   if (request.headers.get('origin') !== url.origin) throw new Fail(403, 'Not allowed.');
   if (!s.secret || keyProblem(s.secret)) return json(200, { configured: false });
-  const who = await caller(request, s, { admin: false });
+  const who = await caller(request, s);
   if (tooMany(`pw:${who.id}`, 10)) throw new Fail(429, 'Too many requests. Wait a minute and try again.');
   const raw = await request.text();
   if (raw.length > 5_000) throw new Fail(413, 'Too much.');

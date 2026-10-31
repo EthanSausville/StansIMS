@@ -24,6 +24,13 @@ export const SECTIONS = [
   { label: 'Standards', tabs: [
     { id: 'costs', label: 'Master List', edit: true, note: 'Edit: items and standard costs' }, { id: 'bom', label: 'BOMs', edit: true },
     { id: 'labor', label: 'Labor', edit: true }, { id: 'overhead', label: 'Overhead', edit: true }] },
+  // Settings pages (My Account is everyone's). Only an admin can give the Admin
+  // role or change an admin's account, whoever else can edit Users.
+  { label: 'Settings', settings: true, tabs: [
+    { id: 'users', label: 'Users', edit: true, note: 'Edit: add people, change their roles, turn accounts off and on (never an admin’s)' },
+    { id: 'roles', label: 'Roles', edit: true, note: 'Edit: change what each role can see and do' },
+    { id: 'periods', label: 'Periods', edit: true, note: 'Edit: close and reopen months, Beginnings and Endings' },
+    { id: 'security', label: 'Security', edit: false }, { id: 'history', label: 'Change history', edit: false }] },
 ];
 export const PAGES = SECTIONS.flatMap((s) => s.tabs);
 export const LEVELS = [['none', 'Hidden'], ['view', 'View'], ['edit', 'Edit']];
@@ -31,10 +38,10 @@ export const LEVELS = [['none', 'Hidden'], ['view', 'View'], ['edit', 'Edit']];
 // Staff, until the database has roles (and as the built-in starting point):
 // enters production, deliveries, counts and sales; views everything else.
 const STAFF_EDITS = new Set(['sales', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts']);
-export const STAFF_DEFAULT = Object.fromEntries(PAGES.map((t) => [t.id, STAFF_EDITS.has(t.id) ? 'edit' : 'view']));
+export const STAFF_DEFAULT = Object.fromEntries(SECTIONS.filter((s) => !s.settings).flatMap((s) => s.tabs).map((t) => [t.id, STAFF_EDITS.has(t.id) ? 'edit' : 'view']));
 export const FALLBACK_ROLES = [
   { id: 'admin', name: 'Admin', builtin: true, permissions: {}, sort: 0 },
-  { id: 'staff', name: 'Staff', builtin: true, permissions: STAFF_DEFAULT, sort: 1 },
+  { id: 'staff', name: 'Accountant', builtin: true, permissions: STAFF_DEFAULT, sort: 1 },
 ];
 
 export const roleList = () => {

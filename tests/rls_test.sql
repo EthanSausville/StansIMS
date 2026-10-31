@@ -260,3 +260,29 @@ delete from public.closed_beginnings;
 delete from public.closed_periods;
 update public.standard_costs set cost = cost where item_no = 100001 and year = 2026;
 reset role;
+
+\echo '--- Settings pages given to a role ---'
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+select name from public.roles where id = 'staff';
+insert into public.roles (id, name, permissions) values ('office', 'Office', '{"users":"edit","periods":"edit","history":"view"}');
+update public.profiles set roles = array['office'] where email = 'staff@stans.test';
+reset role;
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+select count(*) as office_sees_profiles from public.profiles;
+select count(*) > 0 as office_reads_history from public.audit_log;
+update public.profiles set name = 'Stranger' where email = 'stranger@stans.test';
+insert into public.closed_periods (month) values ('2026-02-01');
+delete from public.closed_periods where month = '2026-02-01';
+\set ON_ERROR_STOP off
+\echo 'office giving itself Admin (should fail):'
+update public.profiles set roles = array['office', 'admin'] where email = 'staff@stans.test';
+\echo 'office turning off the admin (should fail):'
+update public.profiles set disabled = true where email = 'owner@stans.test';
+\echo 'office changing a role (should change 0 rows):'
+update public.roles set permissions = '{"roles":"edit"}' where id = 'office';
+\set ON_ERROR_STOP on
+reset role;
+select permissions ->> 'roles' as office_roles_still from public.roles where id = 'office';
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+update public.profiles set roles = array['staff'] where email = 'staff@stans.test';
+reset role;

@@ -13,7 +13,7 @@
 // Each month shows its key figures, so you can check them before closing.
 import { h, pageHead, toast, niceError, confirmDialog, todayIso, longDate, money, fmt } from '../ui.js';
 import { state, derived, insertRow, deleteRow } from '../store.js';
-import { monthName } from '../perms.js';
+import { monthName, can } from '../perms.js';
 import { monthEnd, rolloverLines } from '../calc.js';
 
 // Every month from January 2026 through December of this year; from October,
@@ -65,11 +65,10 @@ function monthFigures(d, months, today) {
 export default {
   id: 'periods',
   label: 'Periods',
-  adminOnly: true,
   render({ rerender }) {
     const d = state.data;
-    const live = !d.missingTables?.has('closed_periods');
-    const yearsLive = !d.missingTables?.has('closed_years');
+    const live = !d.missingTables?.has('closed_periods') && can('periods', 'edit'); // can close and reopen
+    const yearsLive = live && !d.missingTables?.has('closed_years');
     const closed = new Map((d.closed_periods || []).map((c) => [ymOf(c.month), c]));
     const closedYears = new Map((d.closed_years || []).map((c) => [Number(c.year), c]));
     const today = todayIso(); const nowYm = ymOf(today); const nowYear = Number(nowYm.slice(0, 4));
@@ -89,7 +88,7 @@ export default {
       try { await deleteRow('closed_periods', 'month', closed.get(ym).month); toast(`${monthName(ym)} reopened.`); } catch (err) { toast(niceError(err), 'bad'); }
     };
     const closedBeginnings = new Map((d.closed_beginnings || []).map((c) => [Number(c.year), c]));
-    const beginLive = !d.missingTables?.has('closed_beginnings');
+    const beginLive = live && !d.missingTables?.has('closed_beginnings');
     const closeBeginning = async (y) => {
       if (!(await confirmDialog(`Close ${y} Beginning? ${y}’s standards (costs, prices, BOMs, labor and overhead) are locked and can’t be changed until it’s reopened here.`, 'Close'))) return;
       try { await insertRow('closed_beginnings', { year: y }); toast(`${y}’s standards are locked.`); } catch (err) { toast(niceError(err), 'bad'); }
@@ -191,7 +190,7 @@ export default {
         h('li', null, h('strong', null, 'Ending: '), 'once the year is over, closing it closes every month in the year and rolls the standards over to next year’s, revaluing Dec 31 inventory (journal entry H in January). Next year’s Beginning has to be closed first. Reopening an Ending leaves the months closed.'),
         h('li', null, h('strong', null, 'Figures: '), 'inventory and purchases are at standard cost; Std margin is sales less cases sold at standard cost; working hours are the labor hours production took (each batch’s BOM labor minutes).'),
         h('li', null, h('strong', null, 'Years: '), 'click a year to fold it up; this year folds up its Ending and the months still ahead.')),
-      !live ? h('div', { class: 'note warn' }, 'Closing months starts working after the next deploy to main.') : null,
+      d.missingTables?.has('closed_periods') ? h('div', { class: 'note warn' }, 'Closing months starts working after the next deploy to main.') : null,
       h('div', { class: 'tablewrap' }, h('table', { class: 't periods-table' },
         h('thead', null, h('tr', null, h('th', null, 'Month'), h('th', null, 'Status'), h('th', { class: 'num' }, 'Ending inventory'), h('th', { class: 'num' }, 'Sales'), h('th', { class: 'num' }, 'Std margin'),
           h('th', { class: 'num' }, 'Purchases'), h('th', { class: 'num' }, 'Production (oz)'), h('th', { class: 'num' }, 'Cycle counts'), h('th', { class: 'num' }, 'Working hours'), h('th'))),

@@ -38,7 +38,11 @@ function fakeSupabase() {
       if (method === 'PATCH') { rows.forEach((p) => Object.assign(p, body)); return ok(rows); }
       return ok(rows);
     }
-    if (path === '/rest/v1/roles') { const id = (url.searchParams.get('id') || '').replace('eq.', ''); return ok(['staff', 'admin', 'receiving'].includes(id) ? [{ id }] : []); }
+    if (path === '/rest/v1/roles') {
+      const q = url.searchParams.get('id') || '';
+      if (q.startsWith('in.(')) { const ids = q.slice(4, -1).split(','); return ok(ids.map((id) => db.rolePerms?.[id]).filter(Boolean).map((permissions) => ({ permissions }))); }
+      const id = q.replace('eq.', ''); return ok(['staff', 'admin', 'receiving', 'office'].includes(id) ? [{ id }] : []);
+    }
     if (path === '/rest/v1/audit_log') { db.audit.push(body); return new Response('', { status: 201 }); }
     if (path === '/auth/v1/admin/users' && method === 'GET') return ok({ users: db.users });
     if ((path === '/auth/v1/admin/users' && method === 'POST') || path === '/auth/v1/invite') {
@@ -154,6 +158,23 @@ test('a wrong key says which key it is', async () => {
   }
   const r = await call(env({ SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_wrong' }), { method: 'GET' });
   assert.match((await r.json()).error, /didn’t accept/);
+});
+
+test('a role that can change Users can, but never touches admins', async () => {
+  const db = fakeSupabase();
+  db.rolePerms = { office: { users: 'edit' } };
+  db.profiles[1].roles = ['office']; db.profiles[1].role = 'office';
+  const NEW = '33333333-3333-3333-3333-333333333339';
+  db.profiles.push({ user_id: NEW, email: 'new@x.com', role: 'staff', roles: ['staff'], disabled: false });
+  const as = (body, method = 'POST') => call(env(), { token: 'tok-staff', method, body });
+  assert.equal((await as(null, 'GET')).status, 200, 'office can see users');
+  assert.equal((await as({ action: 'disable', id: NEW })).status, 200, 'and turn off a non-admin');
+  assert.equal((await as({ action: 'disable', id: ADMIN })).status, 403, 'but not an admin');
+  assert.equal((await as({ action: 'update', id: NEW, roles: ['staff', 'admin'] })).status, 403, 'nor give the Admin role');
+  assert.equal((await as({ action: 'update', id: STAFF, roles: ['office', 'staff'] })).status, 403, 'nor change their own roles');
+  assert.equal((await as({ action: 'invite', email: 'boss@x.com', role: 'admin' })).status, 403, 'nor invite an admin');
+  db.rolePerms = { office: { users: 'view' } };
+  assert.equal((await as({ action: 'disable', id: NEW })).status, 403, 'view only can’t change anything');
 });
 
 test('too many requests are slowed down', async () => {

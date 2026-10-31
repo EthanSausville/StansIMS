@@ -5,7 +5,7 @@
 // hours a week and weeks come from the Labor tab's line assumptions.
 import { h, pageHead, numberCell, money, qty, fmt, toast, niceError, confirmDialog, thisYear } from '../ui.js';
 import { state, saveRow, insertRow, updateRow, deleteRow } from '../store.js';
-import { can as canArea } from '../perms.js';
+import { can as canArea, standardsLocked, lockedNote } from '../perms.js';
 import { overheadRate, laborYears, OVERHEAD_ITEM } from '../calc.js';
 
 const n = (v) => Number(v) || 0;
@@ -24,7 +24,8 @@ export default {
   render({ rerender }) {
     const d = state.data; const admin = canArea('overhead', 'edit');
     const live = !d.missingTables?.has('overhead_costs'); // false until the database has the overhead table
-    const can = admin && live;
+    const locked = standardsLocked(selYear); // the year's Beginning is closed (Settings → Periods)
+    const can = admin && live && !locked;
     const years = laborYears();
     if (!years.includes(selYear)) selYear = years.includes(thisYear()) ? thisYear() : years.at(-1);
     const byYear = new Map(years.map((y) => [y, overheadRate(d, y)]));
@@ -120,6 +121,7 @@ export default {
     return h('div', { class: 'labor overhead' + (isFc ? ' fc-year' : '') },
       pageHead('Overhead Rate', `The standard overhead cost per minute for each year, which ${item ? `${item.name} (#${OVERHEAD_ITEM})` : `item #${OVERHEAD_ITEM}`} uses on Master List and in every BOM: the year’s overhead costs, divided by the year’s production minutes. The line’s hours a week and weeks come from the Labor tab. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own overhead to change anything else. Click a year in the table to change it on the left.` + (admin ? '' : ' Your role can view these but not change them.'),
         h('div', { class: 'labor-side' + (isFc ? ' fc-year' : '') }, yearHead, emptyNote || forecastNote, costsPanel, spread),
+        locked ? h('div', { class: 'note closed-note' }, '🔒 ', lockedNote(selYear)) : null,
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the overhead rate yet, so Master List uses the overhead cost typed in there and this can’t be edited. It becomes editable after the next deploy to main.') : null),
       h('section', { class: 'panel years-panel' }, h('div', { class: 'tablewrap flat' }, yearTable)),
       summary);

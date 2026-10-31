@@ -6,7 +6,7 @@
 // Click a BOM to select it; Edit BOM (left) opens it in the editor.
 import { h, pageHead, qty, money, fmt, yearSelect, typePill, thisYear, itemNoTh } from '../ui.js';
 import { state, derived } from '../store.js';
-import { can } from '../perms.js';
+import { can, standardsLocked, lockedNote } from '../perms.js';
 import { openInEditor, bomEditor, editorOpen } from './createbom.js';
 
 const THIS_YEAR = thisYear();
@@ -94,7 +94,7 @@ export default {
           ? h('div', { class: 'bom-selected' }, h('div', { class: 'small muted' }, 'Selected'), h('strong', null, sel.name),
             h('button', { class: 'btn', onclick: () => openInEditor(selected, year) }, 'Edit BOM'))
           : h('p', { class: 'small muted' }, 'Click a BOM on the right to select it for editing.')) : null,
-        admin ? bomEditor({ rerender }) : h('p', { class: 'small muted' }, 'Your role can view BOMs but not change them.')),
+        admin && !standardsLocked(year) ? bomEditor({ rerender }) : h('p', { class: 'small muted' }, admin ? lockedNote(year) : 'Your role can view BOMs but not change them.')),
       h('div', { class: 'bom-year-head' }, h('h2', null, `${year} BOMs`),
         year > THIS_YEAR ? h('span', { class: 'chip' }, 'Future year: safe to change') : year === THIS_YEAR ? h('span', { class: 'chip' }, 'Current year') : h('span', { class: 'chip' }, 'Past year'),
         carried && Number.isFinite(firstYear) && carried === tops.length && firstYear < year ? h('span', { class: 'small muted' }, `Same as ${firstYear} until changed`)

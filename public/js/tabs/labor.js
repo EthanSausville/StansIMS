@@ -6,7 +6,7 @@
 //   by productive line minutes.
 import { h, pageHead, numberCell, money, qty, fmt, pct, toast, niceError, confirmDialog, thisYear } from '../ui.js';
 import { state, saveRow, insertRow, updateRow, deleteRow } from '../store.js';
-import { can as canArea } from '../perms.js';
+import { can as canArea, standardsLocked, lockedNote } from '../perms.js';
 import { laborRate, laborPosition, laborYears, evalEntry } from '../calc.js';
 
 const n = (v) => Number(v) || 0;
@@ -90,7 +90,8 @@ export default {
   render({ rerender }) {
     const d = state.data; const admin = canArea('labor', 'edit');
     const live = !d.missingTables?.has('labor_positions'); // false until the database has the labor table
-    const can = admin && live;
+    const locked = standardsLocked(selYear); // the year's Beginning is closed (Settings → Periods)
+    const can = admin && live && !locked;
     const years = laborYears();
     if (!years.includes(selYear)) selYear = years.includes(thisYear()) ? thisYear() : years.at(-1);
     const byYear = new Map(years.map((y) => [y, laborRate(d, { year: y })]));
@@ -226,6 +227,7 @@ export default {
     return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') },
       pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate. Click a year in the table to change it on the left.' + (admin ? '' : ' Your role can view these but not change them.'),
         h('div', { class: 'labor-side' + (isFc ? ' fc-year' : '') }, yearHead, people, peoplePanel, details, plant),
+        locked ? h('div', { class: 'note closed-note' }, '🔒 ', lockedNote(selYear)) : null,
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Master List uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
       h('section', { class: 'panel years-panel' }, h('div', { class: 'tablewrap flat' }, yearTable)),
       summary, whatPanel);

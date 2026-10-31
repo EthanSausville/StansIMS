@@ -55,6 +55,7 @@ def mock_db():
                          'inventory', 'consumption', 'planning', 'purchasing', 'safety', 'costs', 'bom', 'labor', 'overhead']})]
     db['closed_periods'] = []
     db['closed_years'] = []
+    db['closed_beginnings'] = []
     db['security_answers'] = [dict(user_id='u1', slot=1, question='pet', answer_hash='plain:rexthebeagle'),
                               dict(user_id='u1', slot=2, question='car', answer_hash='plain:hondacivic98'),
                               dict(user_id='u1', slot=3, question='city', answer_hash='plain:detroitmi')]
@@ -1042,13 +1043,16 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Stop viewing as').click(); page.wait_for_timeout(400)
     check(page.locator('.sim-bar').count() == 0 and page.get_by_role('tab', name='Roles').count() == 1 and page.evaluate("window.__MOCK_DB__.sales.length") > 0, 'and stop, back to the admin view')
     page.goto(BASE + '/#periods'); page.wait_for_selector('table.periods-table')
-    check(page.locator('.sidebar:not([hidden])').count() == 0 and page.locator('tr.pr-year').count() == 2, 'Periods has no side bar, and groups months under years')
-    check(page.locator('tr.pr-month', has_text='December').count() == 0 and page.locator('tr.pr-year', has_text='2025').get_by_role('button', name='Close year').count() == 1
-          and page.locator('tr.pr-year', has_text='2026').get_by_role('button').count() == 0, 'a finished year folds up, with Close year; no other multi-month buttons')
+    check(page.locator('.sidebar:not([hidden])').count() == 0 and page.locator('tr.pr-year').count() == 3, 'Periods has no side bar, and groups months under years (next year too)')
+    g27, g26, g25 = (page.locator('tbody.pr-group').nth(i) for i in range(3))
+    check(g27.locator('tr.pr-month').all_inner_texts()[0].startswith('Beginning') and g27.locator('tr.pr-month').count() == 1, 'next year shows only its Beginning')
+    check(g26.locator('tr.pr-month').first.inner_text().startswith('Ending') and g26.locator('tr.pr-month').last.inner_text().startswith('Beginning') and 'Year not over' in g26.locator('tr.pr-month').first.inner_text(), 'each year has an Ending and a Beginning; this year’s Ending waits for the year to end')
+    check(page.locator('tr.pr-year').get_by_role('button').count() == 0 and g25.locator('tr.pr-month').count() == 0, 'a finished year folds up; no buttons on year rows')
     page.locator('tr.pr-year', has_text='2025').click(); page.wait_for_timeout(150)
-    check(page.locator('tbody.pr-group').nth(1).locator('tr.pr-month').count() == 12, 'and opens to show its months')
-    june = page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='June')
-    check(page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='July').locator('text=Current month').count() == 1, 'the current month can’t be closed')
+    g25 = page.locator('tbody.pr-group').nth(2)
+    check(g25.locator('tr.pr-month').count() == 14, 'and opens to show its Ending, months and Beginning')
+    june = g26.locator('tr.pr-month', has_text='June')
+    check(g26.locator('tr.pr-month', has_text='July').locator('text=Current month').count() == 1, 'the current month can’t be closed')
     june.get_by_role('button', name='Close').click(); page.locator('dialog[open]').get_by_role('button', name='Close').click(); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.closed_periods.map(c => c.month).join()") == '2026-06-01', 'admins can close a month')
     shot(page, '44-periods')
@@ -1058,15 +1062,27 @@ with sync_playwright() as p:
     jcell = page.locator('input[data-k^="production|2026-06-"]').first
     check(jcell.count() == 1 and jcell.is_disabled() and page.locator('.closed-note', has_text='June 2026 is closed').count() == 1, 'a closed month’s production can’t be typed in')
     page.goto(BASE + '/#periods'); page.wait_for_timeout(300)
-    page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='June').get_by_role('button', name='Reopen').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen').click(); page.wait_for_timeout(300)
+    page.locator('tbody.pr-group').nth(1).locator('tr.pr-month', has_text='June').get_by_role('button', name='Reopen').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen').click(); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.closed_periods.length") == 0, 'and reopen it')
     check(page.locator('table.periods-table thead th').all_inner_texts()[2:8] == ['Ending inventory', 'Sales', 'Purchases', 'Production (oz)', 'Cycle counts', 'Working days'], 'each month shows its key figures')
-    jul = page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='July').locator('td')
+    jul = page.locator('tbody.pr-group').nth(1).locator('tr.pr-month', has_text='July').locator('td')
     check(jul.nth(2).inner_text().startswith('$') and jul.nth(3).inner_text().startswith('$'), f'with ending inventory and sales in dollars ({jul.nth(2).inner_text()}, {jul.nth(3).inner_text()})')
-    page.locator('tr.pr-year', has_text='2025').get_by_role('button', name='Close year').click(); page.locator('dialog[open]').get_by_role('button', name='Close year').click(); page.wait_for_timeout(600)
-    check(page.evaluate("window.__MOCK_DB__.closed_years.map(y => y.year).join()") == '2025' and page.evaluate("window.__MOCK_DB__.closed_periods.length") == 12, 'Close year closes the year and all its months')
-    page.locator('tr.pr-year', has_text='2025').get_by_role('button', name='Reopen year').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen year').click(); page.wait_for_timeout(400)
-    check(page.evaluate("window.__MOCK_DB__.closed_years.length") == 0 and page.evaluate("window.__MOCK_DB__.closed_periods.length") == 12, 'Reopen year leaves its months closed')
+    g25 = page.locator('tbody.pr-group').nth(2); g26 = page.locator('tbody.pr-group').nth(1)
+    g25.locator('tr.pr-month', has_text='Ending').get_by_role('button', name='Close').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.closed_years.length") == 0 and page.locator('.toast', has_text='Close 2026 Beginning first').count() >= 1, 'an Ending waits for next year’s Beginning (its standards) to be closed')
+    g26.locator('tr.pr-month', has_text='Beginning').get_by_role('button', name='Close').click(); page.locator('dialog[open]').get_by_role('button', name='Close').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.closed_beginnings.map(y => y.year).join()") == '2026', 'closing a Beginning locks that year’s standards')
+    g25.locator('tr.pr-month', has_text='Ending').get_by_role('button', name='Close').click(); page.locator('dialog[open]').get_by_role('button', name='Close').click(); page.wait_for_timeout(600)
+    check(page.evaluate("window.__MOCK_DB__.closed_years.map(y => y.year).join()") == '2025' and page.evaluate("window.__MOCK_DB__.closed_periods.length") == 12
+          and page.evaluate("!!window.__MOCK_DB__.closed_years[0].rollover"), 'closing an Ending closes the year and stores the roll-over entry')
+    check(page.locator('tbody.pr-group').nth(1).locator('tr.pr-month', has_text='Beginning').locator('text=2025 Ending closed').count() == 1, 'and next year’s Beginning can’t be reopened while it is')
+    page.locator('tbody.pr-group').nth(2).locator('tr.pr-month', has_text='Ending').get_by_role('button', name='Reopen').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.closed_years.length") == 0 and page.evaluate("window.__MOCK_DB__.closed_periods.length") == 12, 'reopening an Ending leaves its months closed')
+    shot(page, '46-periods-edges')
+    page.goto(BASE + '/#costs'); page.wait_for_timeout(400)
+    check(cell(page, 'sc|100001|2026').is_disabled() and page.locator('.closed-note', has_text='2026 standard costs are locked').count() == 1, 'with 2026 Beginning closed, 2026 standard costs can’t change')
+    page.goto(BASE + '/#labor'); page.wait_for_timeout(400)
+    check(page.locator('.closed-note', has_text='standards are locked').count() >= 1, 'nor 2026 labor')
     shot(page, '45-periods-figures')
     check(not errors, 'no browser errors on Roles and Periods' + (f': {errors[:3]}' if errors else ''))
     ctx.close()

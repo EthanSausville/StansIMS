@@ -214,7 +214,12 @@ reset role;
 \echo '--- closing a year ---'
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
 insert into public.closed_periods (month) values ('2026-05-01');
+\set ON_ERROR_STOP off
+\echo 'closing 2026 Ending before 2027 Beginning (should fail):'
 insert into public.closed_years (year) values (2026);
+\set ON_ERROR_STOP on
+insert into public.closed_beginnings (year) values (2027);
+insert into public.closed_years (year, rollover) values (2026, '{"lines":[]}');
 \set ON_ERROR_STOP off
 \echo 'an open month in a closed year is locked too (should fail):'
 insert into public.production (date, item_no, cases) values ('2026-04-15', 500005, 1);
@@ -222,9 +227,36 @@ insert into public.production (date, item_no, cases) values ('2026-04-15', 50000
 delete from public.closed_periods where month = '2026-05-01';
 \set ON_ERROR_STOP on
 delete from public.closed_years where year = 2026;
-\echo 'reopening the year leaves its months closed:'
+\echo 'reopening the Ending leaves its months closed:'
 select month from public.closed_periods;
 insert into public.production (date, item_no, cases) values ('2026-04-15', 500005, 1);
 delete from public.production where date = '2026-04-15' and item_no = 500005;
 delete from public.closed_periods where month = '2026-05-01';
+reset role;
+
+\echo '--- Beginning: a year''s standards locked ---'
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+insert into public.closed_beginnings (year) values (2026);
+\set ON_ERROR_STOP off
+\echo 'changing a 2026 standard cost, price, BOM line or labor (4 failures):'
+update public.standard_costs set cost = cost + 1 where item_no = 100001 and year = 2026;
+update public.standard_prices set price = price + 1 where year = 2026;
+delete from public.bom_lines where year = 2026;
+insert into public.labor_positions (year, name) values (2026, 'Temp');
+\set ON_ERROR_STOP on
+\echo '2028 standards are open:'
+insert into public.standard_costs (item_no, year, cost) values (100001, 2028, 2);
+delete from public.standard_costs where year = 2028;
+\echo 'reopening 2027 Beginning while... 2026 Ending is open again, so it works:'
+delete from public.closed_beginnings where year = 2027;
+insert into public.closed_beginnings (year) values (2027);
+insert into public.closed_years (year, rollover) values (2026, '{"lines":[]}');
+\set ON_ERROR_STOP off
+\echo 'reopening 2027 Beginning while 2026 Ending is closed (should fail):'
+delete from public.closed_beginnings where year = 2027;
+\set ON_ERROR_STOP on
+delete from public.closed_years where year = 2026;
+delete from public.closed_beginnings;
+delete from public.closed_periods;
+update public.standard_costs set cost = cost where item_no = 100001 and year = 2026;
 reset role;

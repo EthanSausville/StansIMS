@@ -841,23 +841,38 @@ export function journalEntries(data, year, month, inv) {
   for (const r of salesRows(data)) { if (!inMonth(r.date)) continue; revenue += n(r.amount); cogs += r.stdCost; }
   entries.push({ code: 'G', title: 'Sale of Goods', lines: [L('cash', revenue, 0, 'Invoiced amounts'), L('revenue', 0, revenue, 'Invoiced amounts'), L('cogs', cogs, 0, 'Cases sold at standard cost'), L('fg', 0, cogs, 'Cases sold at standard cost')] });
 
-  // H recosting (January)
-  if (month === 1 && inv) {
-    const old = { rm: 0, cp: 0, fg: 0 }; const neu = { rm: 0, cp: 0, fg: 0 };
-    const dec31 = `${year - 1}-12-31`;
-    for (const it of inv.items) {
-      const q = inv.byItem.get(it.item_no)?.get(dec31); if (!q) continue;
-      const a = invAccount(it.type); old[a] += q * (cm.cost(it.item_no, year - 1) || 0); neu[a] += q * (cm.cost(it.item_no, year) || 0);
-    }
-    const lines = [];
-    for (const a of ['rm', 'cp', 'fg']) { if (old[a] || neu[a]) lines.push(signed(a, neu[a] - old[a], `Dec 31 inventory: ${year} standard − ${year - 1} standard`)); }
-    const net = ['rm', 'cp', 'fg'].reduce((s, a) => s + neu[a] - old[a], 0);
-    lines.push(signed('adj', -net, 'Revaluation'));
-    entries.push({ code: 'H', title: 'Updating Standards at Year Beginning', lines });
-  } else entries.push({ code: 'H', title: 'Updating Standards at Year Beginning', note: 'Posted in January only.', lines: [] });
+  // H recosting (January): posted when the year before's Ending is closed
+  // (Settings → Periods), from the entry stored then. Until the database has
+  // Endings, it's worked out from the standards as they are now.
+  const H = 'Updating Standards at Year Beginning';
+  if (month === 1 && Array.isArray(data.closed_years) && !data.missingTables?.has('closed_years')) {
+    const ending = data.closed_years.find((y) => Number(y.year) === year - 1);
+    if (ending?.rollover?.lines) entries.push({ code: 'H', title: H, lines: ending.rollover.lines.map((l) => ({ ...l, account: ACCOUNTS[l.key] || l.account })) });
+    else entries.push({ code: 'H', title: H, note: `Posted when ${year - 1} Ending is closed (Settings → Periods).`, lines: [] });
+  } else if (month === 1 && inv) entries.push({ code: 'H', title: H, lines: rolloverLines(data, year, inv, cm) });
+  else entries.push({ code: 'H', title: H, note: 'Posted in January only.', lines: [] });
 
   for (const e of entries) { e.lines = e.lines.filter((l) => Math.abs(l.dr) > 0.004 || Math.abs(l.cr) > 0.004); e.dr = e.lines.reduce((s, l) => s + l.dr, 0); e.cr = e.lines.reduce((s, l) => s + l.cr, 0); }
   return entries;
+}
+
+// Rolling standards over to a new year: Dec 31 inventory revalued from the
+// year before's standard to the new year's (journal entry H in January).
+export function rolloverLines(data, year, inv, cm = costModel(data)) {
+  const L = (account, dr, cr, basis) => ({ account: ACCOUNTS[account], key: account, dr: dr || 0, cr: cr || 0, basis });
+  const signed = (account, v, basis) => (v >= 0 ? L(account, v, 0, basis) : L(account, 0, -v, basis));
+  const ix = cm.ixFor(year);
+  const old = { rm: 0, cp: 0, fg: 0 }; const neu = { rm: 0, cp: 0, fg: 0 };
+  const dec31 = `${year - 1}-12-31`;
+  for (const it of inv.items) {
+    const q = inv.byItem.get(it.item_no)?.get(dec31); if (!q) continue;
+    const a = invAccount(ix.items.get(it.item_no)?.type || it.type); old[a] += q * (cm.cost(it.item_no, year - 1) || 0); neu[a] += q * (cm.cost(it.item_no, year) || 0);
+  }
+  const lines = [];
+  for (const a of ['rm', 'cp', 'fg']) { if (old[a] || neu[a]) lines.push(signed(a, neu[a] - old[a], `Dec 31 inventory: ${year} standard − ${year - 1} standard`)); }
+  const net = ['rm', 'cp', 'fg'].reduce((s, a) => s + neu[a] - old[a], 0);
+  lines.push(signed('adj', -net, 'Revaluation'));
+  return lines.filter((l) => Math.abs(l.dr) > 0.004 || Math.abs(l.cr) > 0.004);
 }
 
 // Debits and credits by account for a set of months' entries.

@@ -1,14 +1,20 @@
 // Settings → Periods (admins): close a month once its books are final, so
 // nobody can add, change or remove its production, deliveries, counts or sales.
 // The database enforces it (public.period_guard), for admins too, until the
-// month is reopened. A finished year can be closed as a whole: its months are
-// closed with it and can't be reopened one by one until the year is; reopening
-// the year leaves its months closed. All of it is recorded in Change history.
+// month is reopened. Each year also has a Beginning and an Ending:
+//   Beginning closed  that year's standards (costs, prices, BOMs, labor,
+//                     overhead) can't change.
+//   Ending closed     the finished year closes (its months with it, and they
+//                     can't be reopened one by one until the Ending is), and its
+//                     standards roll over to next year's: Dec 31 inventory is
+//                     revalued to the new standards, as journal entry H in
+//                     January. Next year's Beginning must be closed first.
+// All of it is recorded in Change history.
 // Each month shows its key figures, so you can check them before closing.
 import { h, pageHead, toast, niceError, confirmDialog, todayIso, longDate, money, fmt } from '../ui.js';
 import { state, derived, insertRow, deleteRow } from '../store.js';
 import { monthName } from '../perms.js';
-import { monthEnd } from '../calc.js';
+import { monthEnd, rolloverLines } from '../calc.js';
 
 // TEMPORARY: show 2025 too (no data), to see how a finished year looks. Remove
 // this line (or set it to null) to start at the first month with entries again.
@@ -21,6 +27,13 @@ const num = (v) => Number(v) || 0;
 
 // Each month's figures: ending inventory $, sales $, purchases $ (deliveries
 // at standard cost), production oz, cycle count lines, working (production) days.
+function inventoryValue(date, year) {
+  const cm = derived.costs(); const inv = derived.inventory();
+  if (!inv.from || date < inv.from) return null;
+  let v = 0; let seen = false;
+  for (const item of inv.items) { const q = inv.byItem.get(item.item_no)?.get(date); if (q === undefined) continue; seen = true; v += q * (cm.cost(item.item_no, year) || cm.latest(item.item_no)); }
+  return seen ? v : null;
+}
 function monthFigures(d, months, today) {
   const cm = derived.costs(); const inv = derived.inventory(); const days = derived.production();
   const std = (itemNo, y) => cm.cost(itemNo, y) || cm.latest(itemNo);
@@ -57,7 +70,7 @@ export default {
     const dataMonths = [...d.production, ...d.goods_receipts, ...d.cycle_counts, ...d.sales].map((r) => ymOf(r.date));
     const first = [...dataMonths, ...closed.keys(), ...(SHOW_FROM ? [SHOW_FROM] : [])].sort()[0] || nowYm;
     const months = []; for (let ym = first; ym <= nowYm; ym = nextYm(ym)) months.push(ym);
-    const years = [...new Set(months.map((ym) => Number(ym.slice(0, 4))))].sort((a, b) => b - a);
+    const years = [...new Set([...months.map((ym) => Number(ym.slice(0, 4))), nowYear + 1])].sort((a, b) => b - a);
     const figs = monthFigures(d, months, today);
 
     const closeMonth = async (ym) => {
@@ -68,17 +81,31 @@ export default {
       if (!(await confirmDialog(`Reopen ${monthName(ym)}? Its entries can be changed again until it’s closed.`, 'Reopen'))) return;
       try { await deleteRow('closed_periods', 'month', closed.get(ym).month); toast(`${monthName(ym)} reopened.`); } catch (err) { toast(niceError(err), 'bad'); }
     };
-    const closeYear = async (y, yms) => {
-      if (!(await confirmDialog(`Close ${y}? Every month in it is closed, and none can be reopened until the year is reopened here.`, 'Close year'))) return;
+    const closedBeginnings = new Map((d.closed_beginnings || []).map((c) => [Number(c.year), c]));
+    const beginLive = !d.missingTables?.has('closed_beginnings');
+    const closeBeginning = async (y) => {
+      if (!(await confirmDialog(`Close ${y} Beginning? ${y}’s standards (costs, prices, BOMs, labor and overhead) are locked and can’t be changed until it’s reopened here.`, 'Close'))) return;
+      try { await insertRow('closed_beginnings', { year: y }); toast(`${y}’s standards are locked.`); } catch (err) { toast(niceError(err), 'bad'); }
+    };
+    const reopenBeginning = async (y) => {
+      if (!(await confirmDialog(`Reopen ${y} Beginning? ${y}’s standards can be changed again.`, 'Reopen'))) return;
+      try { await deleteRow('closed_beginnings', 'year', closedBeginnings.get(y).year); toast(`${y}’s standards are open again.`); } catch (err) { toast(niceError(err), 'bad'); }
+    };
+    const closeEnding = async (y, yms) => {
+      if (!closedBeginnings.has(y + 1)) { toast(`Close ${y + 1} Beginning first, so the standards ${y} rolls over to are final.`, 'bad'); return; }
+      const lines = rolloverLines(d, y + 1, derived.inventory());
+      const net = lines.filter((l) => l.key !== 'adj').reduce((t, l) => t + l.dr - l.cr, 0);
+      const what = lines.length ? `Inventory on hand at Dec 31 is revalued from ${y} to ${y + 1} standards (journal entry H in January ${y + 1}: ${net >= 0 ? 'up' : 'down'} ${money(Math.abs(net), 2)}).` : `There’s no inventory at Dec 31 to revalue.`;
+      if (!(await confirmDialog(`Close ${y} Ending? Every month in ${y} closes and stays closed until the Ending is reopened. ${what}`, 'Close'))) return;
       try {
         for (const ym of yms) if (!closed.has(ym)) await insertRow('closed_periods', { month: `${ym}-01` });
-        if (yearsLive) await insertRow('closed_years', { year: y });
-        toast(`${y} closed.`);
+        await insertRow('closed_years', { year: y, rollover: { lines, net, to: y + 1, at: new Date().toISOString() } });
+        toast(`${y} closed; standards rolled over to ${y + 1}.`);
       } catch (err) { toast(niceError(err), 'bad'); }
     };
-    const reopenYear = async (y) => {
-      if (!(await confirmDialog(`Reopen ${y} as a year? Its months stay closed; you can then reopen any of them on its own.`, 'Reopen year'))) return;
-      try { await deleteRow('closed_years', 'year', closedYears.get(y).year); toast(`${y} reopened. Its months are still closed.`); } catch (err) { toast(niceError(err), 'bad'); }
+    const reopenEnding = async (y) => {
+      if (!(await confirmDialog(`Reopen ${y} Ending? The roll-over to ${y + 1} standards (journal entry H) is taken back out. ${y}’s months stay closed; you can then reopen any of them on its own.`, 'Reopen'))) return;
+      try { await deleteRow('closed_years', 'year', closedYears.get(y).year); toast(`${y} Ending reopened. Its months are still closed.`); } catch (err) { toast(niceError(err), 'bad'); }
     };
 
     const dash = (v, f) => (v ? f(v) : '—');
@@ -98,13 +125,38 @@ export default {
         h('td', null, h('span', { class: `user-status ${c || yc ? 'off' : current ? 'invited' : 'on'}`, title: who(c) }, c || yc ? '🔒 Closed' : current ? 'Current month' : 'Open')),
         cells(figs.get(ym)),
         h('td', { class: 'user-actions' }, !live || current ? null
-          : yc ? h('span', { class: 'small muted', title: 'Reopen the year first' }, 'Year closed')
+          : yc ? h('span', { class: 'small muted', title: 'Reopen the year’s Ending first' }, 'Ending closed')
             : c ? h('button', { class: 'btn small', onclick: () => reopenMonth(ym) }, 'Reopen')
               : h('button', { class: 'btn small primary', onclick: () => closeMonth(ym) }, 'Close')));
     };
+    const blankRow = { inventory: null, sales: 0, purchases: 0, oz: 0, counts: 0, days: 0 };
+    // Beginning: Jan 1 inventory at the year's standards; closing it locks them.
+    const beginningRow = (y) => {
+      const c = closedBeginnings.get(y); const prevEnding = closedYears.has(y - 1);
+      return h('tr', { class: 'pr-month pr-edge' },
+        h('td', { class: 'pr-name' }, 'Beginning'),
+        h('td', null, h('span', { class: `user-status ${c ? 'off' : 'on'}`, title: who(c) }, c ? '🔒 Standards locked' : 'Standards open')),
+        cells({ ...blankRow, inventory: inventoryValue(`${y - 1}-12-31`, y) }),
+        h('td', { class: 'user-actions' }, !beginLive ? null
+          : c ? (prevEnding ? h('span', { class: 'small muted', title: `${y - 1} Ending rolled over to these standards` }, `${y - 1} Ending closed`) : h('button', { class: 'btn small', onclick: () => reopenBeginning(y) }, 'Reopen'))
+            : h('button', { class: 'btn small primary', onclick: () => closeBeginning(y) }, 'Close')));
+    };
+    // Ending: Dec 31 inventory; closing it closes the year and rolls standards over.
+    const endingRow = (y, yms) => {
+      const c = closedYears.get(y); const done = y < nowYear;
+      const tip = c ? [who(c), c.rollover ? `Rolled over to ${y + 1} standards: inventory ${c.rollover.net >= 0 ? 'up' : 'down'} ${money(Math.abs(c.rollover.net || 0), 2)}` : null].filter(Boolean).join('\n') : null;
+      return h('tr', { class: 'pr-month pr-edge' },
+        h('td', { class: 'pr-name' }, 'Ending'),
+        h('td', null, h('span', { class: `user-status ${c ? 'off' : done ? 'on' : 'invited'}`, title: tip }, c ? '🔒 Closed' : done ? 'Open' : 'Year not over')),
+        cells({ ...blankRow, inventory: done ? inventoryValue(`${y}-12-31`, y) : null }),
+        h('td', { class: 'user-actions' }, !yearsLive || !done ? null
+          : c ? h('button', { class: 'btn small', onclick: () => reopenEnding(y) }, 'Reopen')
+            : h('button', { class: 'btn small primary', title: closedBeginnings.has(y + 1) ? null : `Close ${y + 1} Beginning first`, onclick: () => closeEnding(y, yms) }, 'Close')));
+    };
     const yearGroup = (y) => {
       const yms = months.filter((ym) => ym.startsWith(`${y}-`));
-      const done = y < nowYear; // a finished year folds up, and can be closed as a whole
+      const future = y > nowYear; // next year: only its Beginning, to lock its standards ahead of time
+      const done = y < nowYear; // a finished year folds up
       const key = `periods:open:${y}`;
       const isOpen = !done || pref.get(key) === '1';
       const yc = closedYears.get(y);
@@ -114,21 +166,20 @@ export default {
       const sum = (k) => fs.reduce((t, f) => t + f[k], 0);
       const lastInv = [...fs].reverse().find((f) => f.inventory !== null)?.inventory ?? null;
       const total = { inventory: lastInv, sales: sum('sales'), purchases: sum('purchases'), oz: sum('oz'), counts: sum('counts'), days: sum('days') };
-      const status = yc ? '🔒 Year closed' : nClosed === yms.length ? '🔒 All months closed' : done ? `${nClosed} of ${yms.length} months closed` : `${nClosed} closed · ${yms.length - nClosed} open`;
+      const status = future ? (closedBeginnings.has(y) ? '🔒 Standards locked' : 'Not started')
+        : yc ? '🔒 Closed' : nClosed === yms.length ? '🔒 All months closed' : done ? `${nClosed} of ${yms.length} months closed` : `${nClosed} closed · ${yms.length - nClosed} open`;
       const head = h('tr', { class: 'pr-year' + (done ? ' foldable' : ''), onclick: done ? toggle : null,
           title: done ? (isOpen ? `Hide ${y}’s months` : `Show ${y}’s months`) : null, 'aria-expanded': done ? String(isOpen) : null },
         h('td', { class: 'pr-name' }, String(y)),
-        h('td', null, h('span', { class: `user-status ${yc || nClosed === yms.length ? 'off' : done ? 'on' : 'invited'}`, title: who(yc) }, status)),
-        cells(total),
-        h('td', { class: 'user-actions' }, !live || !done ? null
-          : yc ? h('button', { class: 'btn small', onclick: (e) => { e.stopPropagation(); reopenYear(y); } }, 'Reopen year')
-            : h('button', { class: 'btn small primary', onclick: (e) => { e.stopPropagation(); closeYear(y, yms); } }, 'Close year')));
-      return h('tbody', { class: 'pr-group' }, head, isOpen ? [...yms].reverse().map(monthRow) : null);
+        h('td', null, h('span', { class: `user-status ${yc || (!future && nClosed === yms.length) || (future && closedBeginnings.has(y)) ? 'off' : done ? 'on' : 'invited'}`, title: who(yc) }, status)),
+        cells(future ? blankRow : total), h('td'));
+      return h('tbody', { class: 'pr-group' }, head,
+        isOpen ? [future ? null : endingRow(y, yms), [...yms].reverse().map(monthRow), beginningRow(y)] : null);
     };
 
     return h('div', null,
       pageHead('Periods', 'Close a month once its books are final.'),
-      h('p', { class: 'small muted pr-intro' }, 'Closing a month locks its production, deliveries, counts and sales for everyone, admins included, until it’s reopened here. Closing a finished year closes all its months and keeps them closed until the year is reopened; reopening the year leaves the months closed. Standards, prices and the plan aren’t locked. Ending inventory and purchases are at standard cost; working days are days with production.'),
+      h('p', { class: 'small muted pr-intro' }, 'Closing a month locks its production, deliveries, counts and sales for everyone, admins included, until it’s reopened here. Closing a year’s Beginning locks its standards (costs, prices, BOMs, labor, overhead). Closing a finished year’s Ending closes all its months and rolls its standards over to the next year’s, revaluing Dec 31 inventory (journal entry H in January); the next year’s Beginning has to be closed first. Reopening an Ending leaves its months closed. Inventory and purchases are at standard cost; working days are days with production.'),
       !live ? h('div', { class: 'note warn' }, 'Closing months starts working after the next deploy to main.') : null,
       h('div', { class: 'tablewrap' }, h('table', { class: 't periods-table' },
         h('thead', null, h('tr', null, h('th', null, 'Month'), h('th', null, 'Status'), h('th', { class: 'num' }, 'Ending inventory'), h('th', { class: 'num' }, 'Sales'),

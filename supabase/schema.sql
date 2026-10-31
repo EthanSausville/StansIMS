@@ -500,12 +500,69 @@ create or replace function public.month_in_closed_year() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
   if exists (select 1 from public.closed_years y where y.year = extract(year from old.month)::int) then
-    raise exception '% is closed as a year. Reopen the year first, then the month.', extract(year from old.month)::int;
+    raise exception '% Ending is closed. Reopen it first, then the month.', extract(year from old.month)::int;
   end if;
   return old;
 end $$;
 drop trigger if exists month_in_closed_year on public.closed_periods;
 create trigger month_in_closed_year before delete on public.closed_periods for each row execute function public.month_in_closed_year();
+
+-- Each year also has a Beginning and an Ending (Settings → Periods).
+-- Beginning closed: that year's standards (costs, prices, BOMs, labor,
+-- overhead and year settings) can't change. Ending closed (closed_years): the
+-- year is closed and its standards roll over to the next year's, with the
+-- revaluation journal entry stored in closed_years.rollover. The next year's
+-- Beginning must be closed first, so the standards rolled over to are final.
+create table if not exists public.closed_beginnings (
+  year            int primary key,
+  closed_at       timestamptz not null default now(),
+  closed_by       uuid default auth.uid(),
+  closed_by_email text
+);
+drop trigger if exists closed_beginnings_who on public.closed_beginnings;
+create trigger closed_beginnings_who before insert on public.closed_beginnings for each row execute function public.closed_periods_who();
+alter table public.closed_years add column if not exists rollover jsonb;
+
+create or replace function public.standards_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare y int;
+begin
+  if auth.uid() is null then return coalesce(new, old); end if; -- database updates on deploy
+  foreach y in array array[case when tg_op <> 'INSERT' then old.year end, case when tg_op <> 'DELETE' then new.year end] loop
+    if y is not null and exists (select 1 from public.closed_beginnings b where b.year = y) then
+      raise exception '%’s standards are locked, so they can’t be changed. An admin can reopen % Beginning in Settings → Periods.', y, y;
+    end if;
+  end loop;
+  return coalesce(new, old);
+end $$;
+do $$
+declare t text;
+begin
+  foreach t in array array['standard_costs', 'standard_prices', 'boms', 'bom_lines', 'labor_positions', 'overhead_costs', 'year_settings'] loop
+    execute format('drop trigger if exists standards_guard on public.%I', t);
+    execute format('create trigger standards_guard before insert or update or delete on public.%I for each row execute function public.standards_guard()', t);
+  end loop;
+end $$;
+
+-- The order things close in: next year's Beginning before this year's Ending;
+-- this year's Ending reopened before next year's Beginning.
+create or replace function public.year_order_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_table_name = 'closed_years' and tg_op = 'INSERT'
+     and not exists (select 1 from public.closed_beginnings b where b.year = new.year + 1) then
+    raise exception 'Close % Beginning first, so the standards % rolls over to are final.', new.year + 1, new.year;
+  end if;
+  if tg_table_name = 'closed_beginnings' and tg_op = 'DELETE'
+     and exists (select 1 from public.closed_years y where y.year = old.year - 1) then
+    raise exception '% Ending rolled over to these standards. Reopen % Ending first.', old.year - 1, old.year - 1;
+  end if;
+  return coalesce(new, old);
+end $$;
+drop trigger if exists year_order_guard on public.closed_years;
+create trigger year_order_guard before insert on public.closed_years for each row execute function public.year_order_guard();
+drop trigger if exists year_order_guard on public.closed_beginnings;
+create trigger year_order_guard before delete on public.closed_beginnings for each row execute function public.year_order_guard();
 
 create or replace function public.period_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -542,7 +599,9 @@ grant insert (id, name, description, permissions, sort), update (name, descripti
 revoke insert, update on public.closed_periods from authenticated;
 grant insert (month, note), update (note) on public.closed_periods to authenticated;
 revoke insert, update on public.closed_years from authenticated;
-grant insert (year) on public.closed_years to authenticated;
+grant insert (year, rollover) on public.closed_years to authenticated;
+revoke insert, update on public.closed_beginnings from authenticated;
+grant insert (year) on public.closed_beginnings to authenticated;
 grant execute on function public.can(text, text) to authenticated;
 grant execute on function public.can_see_sales() to authenticated;
 grant execute on function public.can_any(text[], text) to authenticated;
@@ -559,7 +618,7 @@ begin
       ('production_plan', '{planning}'), ('purchase_settings', '{safety}'),
       ('items', '{costs}'), ('standard_costs', '{costs}'), ('boms', '{bom}'), ('bom_lines', '{bom}'),
       ('labor_positions', '{labor}'), ('overhead_costs', '{overhead}'), ('year_settings', '{costs,labor,overhead}'),
-      ('settings', null), ('recipes', null), ('recipe_lines', null), ('fg_lines', null), ('roles', null), ('closed_periods', null), ('closed_years', null)) as x(t, a) loop
+      ('settings', null), ('recipes', null), ('recipe_lines', null), ('fg_lines', null), ('roles', null), ('closed_periods', null), ('closed_years', null), ('closed_beginnings', null)) as x(t, a) loop
     rd := case when t in ('sales', 'sales_imports', 'qb_name_map', 'standard_prices') then 'public.can_see_sales()' else 'public.is_member()' end;
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "read" on public.%I', t);
@@ -730,7 +789,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['items', 'standard_costs', 'standard_prices', 'boms', 'bom_lines', 'settings', 'year_settings',
-                           'purchase_settings', 'labor_positions', 'overhead_costs', 'production_plan', 'profiles', 'roles', 'closed_periods', 'closed_years'] loop
+                           'purchase_settings', 'labor_positions', 'overhead_costs', 'production_plan', 'profiles', 'roles', 'closed_periods', 'closed_years', 'closed_beginnings'] loop
     execute format('drop trigger if exists audit on public.%I', t);
     execute format('create trigger audit after insert or update or delete on public.%I for each row execute function public.audit_change()', t);
   end loop;

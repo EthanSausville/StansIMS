@@ -80,6 +80,9 @@ export const stopViewingAs = () => window.dispatchEvent(new CustomEvent('stans:s
 
 // Closed months (Settings → Periods): 'YYYY-MM' of every closed month.
 export function closedMonths() { return new Set((state.data?.closed_periods || []).map((c) => String(c.month).slice(0, 7))); }
+// A year's Beginning closed: its standards can't change (Settings → Periods).
+export const standardsLocked = (year) => (state.data?.closed_beginnings || []).some((y) => Number(y.year) === Number(year));
+export const lockedNote = (year) => `${year}’s standards are locked (Settings → Periods → ${year} Beginning), so they can’t be changed.`;
 export const yearClosed = (year) => (state.data?.closed_years || []).some((y) => Number(y.year) === Number(year));
 export const isClosed = (date) => !!date && (closedMonths().has(String(date).slice(0, 7)) || yearClosed(String(date).slice(0, 4)));
 export const monthName = (ym) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });

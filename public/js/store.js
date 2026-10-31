@@ -18,13 +18,13 @@ function changed() { state.version++; derivedCache.clear(); for (const fn of lis
 const TABLES = {
   items: 'sort', standard_costs: 'year', standard_prices: 'year', boms: 'item_no', bom_lines: 'sort', year_settings: 'year', purchase_settings: 'item_no', production: 'date',
   sales_imports: 'created_at', qb_name_map: 'kind',
-  labor_positions: 'sort', overhead_costs: 'sort', production_plan: 'week', roles: 'sort', closed_periods: 'month', closed_years: 'year',
+  labor_positions: 'sort', overhead_costs: 'sort', production_plan: 'week', roles: 'sort', closed_periods: 'month', closed_years: 'year', closed_beginnings: 'year',
   goods_receipts: 'date', cycle_counts: 'date', sales: 'date',
 };
 
 // Tables added after the first release: until the database has been updated
 // (schema.sql), they load as empty instead of stopping the whole site.
-const OPTIONAL = new Set(['labor_positions', 'overhead_costs', 'production_plan', 'roles', 'closed_periods', 'closed_years']);
+const OPTIONAL = new Set(['labor_positions', 'overhead_costs', 'production_plan', 'roles', 'closed_periods', 'closed_years', 'closed_beginnings']);
 const missingTable = (e) => /does not exist|could not find the table|schema cache/i.test(e?.message || '') || e?.code === '42P01' || e?.code === 'PGRST205';
 
 const missing = new Set();

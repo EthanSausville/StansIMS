@@ -1,6 +1,6 @@
 import { h, pageHead, numberCell, typePill, toast, niceError, confirmDialog, acctText, acctCell, thisYear, thisMonth } from '../ui.js';
 import { state, derived, saveCell, insertRow, updateRow, deleteRow } from '../store.js';
-import { can } from '../perms.js';
+import { can, standardsLocked } from '../perms.js';
 import { TYPES, isLaborItem, isTiedIndirect, nextItemNo, itemNoProblem, hasReceiving, receiptText, parseReceipt } from '../calc.js';
 
 import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
@@ -99,7 +99,7 @@ export default {
         value: (it) => costOf(it, y), text: (it) => (costOf(it, y) ? '$' + acctText(costOf(it, y)) : ''),
         cell: (it) => (enterable(it)
           ? numberCell(entered.get(`${it.item_no}|${y}`) ?? null, (v) => saveCell('standard_costs', { item_no: it.item_no, year: y }, 'cost', v),
-            { disabled: !admin, digits: 7, key: `sc|${it.item_no}|${y}`, display: acctText, cls: 'acct-cell' + (cm.carriedFrom(it.item_no, y) ? ' carried' : ''),
+            { disabled: !admin || standardsLocked(y), digits: 7, key: `sc|${it.item_no}|${y}`, display: acctText, cls: 'acct-cell' + (cm.carriedFrom(it.item_no, y) ? ' carried' : ''),
               placeholder: cm.carriedFrom(it.item_no, y) ? acctText(cm.cost(it.item_no, y)) : ' ',
               title: cm.carriedFrom(it.item_no, y) ? `${it.name} ${y} cost per ${it.unit || 'unit'}: none entered, so the ${cm.carriedFrom(it.item_no, y)} standard is used` : `${it.name} ${y} cost per ${it.unit || 'unit'}` })
           : acctCell(cm.cost(it.item_no, y), { class: 'calc', title: isLaborItem(it.item_no) ? 'From the Labor tab' : isTiedIndirect(state.data, it.item_no) ? 'From the Overhead tab' : 'Calculated' })) })),
@@ -116,6 +116,7 @@ export default {
         !editing ? downloadButton('master-list', columns, rows) : null),
       // In December, a reminder that next year's standards start from this year's.
       thisMonth() === 12 ? h('div', { class: 'note warn missing-costs' }, `Anything without a ${thisYear() + 1} standard will be set to the ${thisYear()} standard.`) : null,
+      cm.years.some(standardsLocked) ? h('div', { class: 'note closed-note' }, '🔒 ', `${cm.years.filter(standardsLocked).join(' and ')} standard costs are locked (Settings → Periods → Beginning), so they can’t be changed.`) : null,
       h('div', { class: 'tablewrap tall', 'data-scroll': 'costs' },
         xtable({ id: 'costs', columns, allRows: items, rows, rerender, className: 'natural plain-cells' + (admin ? ' selectable' : ''),
           rowClass: (it) => (it.item_no === selected ? 'selected' : null),

@@ -87,7 +87,7 @@ GROUPS = {
     'Standards': ['Master List', 'BOMs', 'Labor'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
-ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['My Account', 'Site', 'Site Health', 'Users', 'Change history', 'Data']
+ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['My Account', 'Users', 'Security', 'Change history']
 
 def edit_bom(page, name):
     row = page.locator('table.tree-table tr.d0', has=page.locator('.tree-name', has_text=name)).first
@@ -96,7 +96,7 @@ def edit_bom(page, name):
 
 
 def tab(page, label):
-    if label in ('Users', 'Change history', 'My Account', 'Site', 'Site Health', 'Data'):
+    if label in ('Users', 'Change history', 'My Account', 'Security'):
         page.locator('.gear-group').click(); page.wait_for_timeout(80)
         if page.get_by_role('tab', name=label, exact=True).count(): page.get_by_role('tab', name=label, exact=True).click()
     else:
@@ -154,22 +154,16 @@ with sync_playwright() as p:
     check(sub == GROUPS['Accounting'], f'Accounting group shows Journals and T-Accounts ({sub})')
     page.locator('.gear-group').click(); page.wait_for_timeout(120)
     st = page.locator('.tabs .tab').all_inner_texts()
-    check(st == ['My Account', 'Site', 'Site Health', 'Users', 'Change history', 'Data'], f'the gear opens Settings, with its pages in the yellow bar ({st})')
+    check(st == ['My Account', 'Users', 'Security', 'Change history'], f'the gear opens Settings, with its pages in the yellow bar ({st})')
     gx = page.evaluate("[Math.round(document.querySelector('.gear-group').getBoundingClientRect().right), innerWidth]")
     check(gx[1] - gx[0] < 40, f'the gear is at the far right ({gx})')
-    page.get_by_role('tab', name='Site Health', exact=True).click(); page.wait_for_timeout(500)
-    check(page.locator('table.health-table tbody tr').count() >= 8 and page.locator('.health-summary').count() == 1, f'Site Health lists its checks ({page.locator("table.health-table tbody tr").count()})')
-    check(page.locator('table.health-table tr', has_text='pinned to').count() == 1, 'Site Health notes the pinned date')
-    page.wait_for_timeout(300)
-    check(page.locator('table.health-table tr.hc-ok', has_text='Only admins can add people').count() == 1 and page.locator('table.health-table tr.hc-ok', has_text='User management is set up').count() == 1, 'Site Health checks sign-ups and user management')
-    page.get_by_role('tab', name='Data', exact=True).click(); page.wait_for_timeout(150)
-    with page.expect_download() as dlb: page.get_by_role('button', name='Download a backup').click()
-    bk = json.loads(open(dlb.value.path()).read())
-    check(len(bk['items']) == len(inputs['items']) and 'goods_receipts' in bk, 'Data downloads a backup of every table')
+    page.get_by_role('tab', name='Security', exact=True).click(); page.wait_for_timeout(600)
+    check(page.locator('table.security-table tbody tr').count() >= 5 and page.locator('.health-summary').count() == 1, f'Security lists its checks ({page.locator("table.security-table tbody tr").count()})')
+    check(page.locator('table.security-table tr.hc-ok', has_text='Only admins can add people').count() == 1 and page.locator('table.security-table tr.hc-ok', has_text='User management is set up').count() == 1, 'Security checks sign-ups and user management')
+    check(page.locator('.set-card', has_text='What protects the site').get_by_text('After 1 hour without use').count() == 1, 'Security lists the protections, with the 1-hour sign-out')
     page.get_by_role('tab', name='My Account', exact=True).click(); page.wait_for_timeout(150)
-    check(page.get_by_role('button', name='Sign out').count() == 1 and page.get_by_role('button', name='Change password').count() == 1, 'My Account has sign out and change password')
-    page.get_by_role('tab', name='Site', exact=True).click(); page.wait_for_timeout(150)
-    check(page.locator('.set-card', has_text='Today’s date').count() == 1, 'Site shows the site date')
+    check(page.get_by_role('button', name='Sign out', exact=True).count() == 1 and page.get_by_role('button', name='Change password').count() == 1, 'My Account has sign out and change password')
+    check(page.get_by_role('button', name='Sign out everywhere').count() == 1, 'My Account can sign out everywhere')
     # ---- Settings → Users: full control ----
     page.get_by_role('tab', name='Users', exact=True).click(); page.wait_for_timeout(300)
     check(page.locator('table.users-table tbody tr').count() == 2 and page.locator('form.user-add').count() == 1, 'Users lists everyone, with Add a user')
@@ -182,6 +176,8 @@ with sync_playwright() as p:
     page.locator('form.user-add').get_by_role('button', name='Add user').click(); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.profiles.some(p => p.email === 'pw.person@stans.test')") is False, 'a weak password is refused')
     page.locator('form.user-add input[type=password]').fill('stansims2026'); page.locator('form.user-add').get_by_role('button', name='Add user').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.profiles.some(p => p.email === 'pw.person@stans.test')") is False, 'a password without a symbol is refused')
+    page.locator('form.user-add input[type=password]').fill('stansims#2026'); page.locator('form.user-add').get_by_role('button', name='Add user').click(); page.wait_for_timeout(400)
     check(page.evaluate("window.__MOCK_DB__.profiles.some(p => p.email === 'pw.person@stans.test')"), 'admin can add a user with a password')
     row = page.locator('table.users-table tbody tr', has_text='staff@stans.test')
     row.locator('select').select_option('admin'); page.wait_for_timeout(400)
@@ -948,7 +944,7 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Month', exact=True).click()
 
     # ---- sign out ----
-    tab(page, 'My Account'); page.get_by_role('button', name='Sign out').click(); page.wait_for_selector('form input[type=email]')
+    tab(page, 'My Account'); page.get_by_role('button', name='Sign out', exact=True).click(); page.wait_for_selector('form input[type=email]')
     check(True, 'sign out returns to sign-in')
     ctx.close()
 

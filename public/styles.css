@@ -1329,3 +1329,9 @@ td.user-actions .btn { margin-left: 4px; }
 .btn.small { padding: 3px 9px; font-size: 12.5px; }
 .btn.warn { border-color: #e8b26a; color: #8a4500; }
 .btn.danger { border-color: #e7a19c; color: #8f1d17; }
+
+/* Settings → Security */
+.sec-grid { margin-top: 24px; }
+.set-card .kv.sec-list { gap: 8px 18px; align-items: start; font-size: 13.5px; }
+.set-card .kv.sec-list dt { font-weight: 600; color: var(--stans-brown); white-space: nowrap; }
+.set-card .kv.sec-list dd { color: var(--text, inherit); }

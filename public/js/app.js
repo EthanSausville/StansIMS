@@ -1,4 +1,4 @@
-import { h, toast, niceError, passwordProblem, MIN_PASSWORD } from './ui.js';
+import { h, toast, niceError, passwordProblem, MIN_PASSWORD, PASSWORD_RULE, IDLE_MINUTES } from './ui.js';
 import { sb, configured, state, loadAll, loadProfile, isAdmin, onChange } from './store.js';
 import dashboard from './tabs/dashboard.js';
 import production from './tabs/production.js';
@@ -17,7 +17,7 @@ import labor from './tabs/labor.js';
 import journals from './tabs/journals.js';
 import users from './tabs/users.js';
 import history from './tabs/history.js';
-import { account, site, health, data as dataTab } from './tabs/settings.js';
+import { account, security } from './tabs/settings.js';
 
 // Groups across the top; the open group's tabs show in the row beneath.
 // Settings is the gear at the far right; staff see only My Account there.
@@ -28,7 +28,7 @@ const GROUPS = [
   { id: 'inventory', label: 'Inventory', tabs: [production, newReceipts, allReceipts, newCounts, allCounts, inventory, consumption] },
   { id: 'planning', label: 'Planning', tabs: [productionPlanTab, purchasingTab, safetyStocksTab] },
   { id: 'costing', label: 'Standards', tabs: [costs, bom, labor] },
-  { id: 'settings', label: 'Settings', gear: true, tabs: [account, site, health, users, history, dataTab] },
+  { id: 'settings', label: 'Settings', gear: true, tabs: [account, users, security, history] },
 ];
 const TABS = GROUPS.flatMap((g) => g.tabs);
 const visibleTabs = (g) => g.tabs.filter((t) => !t.adminOnly || isAdmin());
@@ -86,7 +86,7 @@ function setPasswordScreen(kind) {
     } },
     h('h1', null, kind === 'invite' ? 'Welcome to Stan’s ' : 'New password for Stan’s ', h('span', null, 'IMS')),
     h('p', null, kind === 'invite' ? 'Choose a password to finish setting up your account.' : 'Choose a new password.'),
-    h('label', { class: 'field' }, `New password (${MIN_PASSWORD}+ characters, with a number)`, p1),
+    h('label', { class: 'field' }, `New password (${PASSWORD_RULE})`, p1),
     h('label', { class: 'field' }, 'Type it again', p2),
     btn, msg)));
 }
@@ -257,11 +257,11 @@ function blockedScreen(p) {
 
 // Signs out after a long time with no activity, so an unattended screen
 // doesn't stay signed in.
-const IDLE_LIMIT = 12 * 60 * 60 * 1000;
+const IDLE_LIMIT = IDLE_MINUTES * 60 * 1000;
 const touchActivity = () => { try { localStorage.setItem('last-active', String(Date.now())); } catch { /* fine */ } };
 const idleTooLong = () => { try { const t = Number(localStorage.getItem('last-active') || 0); return t && Date.now() - t > IDLE_LIMIT; } catch { return false; } };
 let lastTouch = 0;
-for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => { if (Date.now() - lastTouch > 60000) { lastTouch = Date.now(); touchActivity(); } }, { passive: true });
+for (const ev of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(ev, () => { if (Date.now() - lastTouch > 60000) { lastTouch = Date.now(); touchActivity(); } }, { passive: true });
 setInterval(() => { if (started && idleTooLong()) { try { localStorage.removeItem('last-active'); } catch { /* fine */ } sb.auth.signOut(); } }, 60000);
 
 async function start() {

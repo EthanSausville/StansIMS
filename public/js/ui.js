@@ -202,11 +202,15 @@ export const itemNoTd = (it) => h('td', { class: 'sticky-col itemno' }, it?.item
 
 // Password rules for the whole site (the Worker and Supabase check them too).
 export const MIN_PASSWORD = 10;
+export const PASSWORD_RULE = `${MIN_PASSWORD}+ characters, with a letter, a number and a symbol`;
 export function passwordProblem(p) {
   if (!p || p.length < MIN_PASSWORD) return `Use at least ${MIN_PASSWORD} characters.`;
   if (p.length > 72) return 'Use 72 characters or fewer.';
   if (!/[a-z]/i.test(p) || !/[0-9]/.test(p)) return 'Use letters and at least one number.';
+  if (!/[^a-z0-9]/i.test(p)) return 'Use at least one symbol, like ! # $ or %.';
   return '';
 }
+// Signed out after this long without using the site.
+export const IDLE_MINUTES = 60;
 
 export const shortName = (name) => name.replace(/\s*\(Case of 24\)/, ' (24)').replace(/\.\s/, ' ');

@@ -111,6 +111,7 @@ const clean = {
     if (p.length < MIN_PASSWORD) throw new Fail(400, `Passwords need at least ${MIN_PASSWORD} characters.`);
     if (p.length > 72) throw new Fail(400, 'Passwords can be up to 72 characters.');
     if (!/[a-z]/i.test(p) || !/[0-9]/.test(p)) throw new Fail(400, 'Use letters and at least one number.');
+    if (!/[^a-z0-9]/i.test(p)) throw new Fail(400, 'Use at least one symbol, like ! # $ or %.');
     return p;
   },
 };

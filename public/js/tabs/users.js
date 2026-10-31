@@ -6,7 +6,7 @@
 // Adding, emails, passwords and deleting go through the site's Worker
 // (/api/admin/users), which holds the Supabase secret key; until that key is
 // set up, this page can still change names, roles and turn accounts off/on.
-import { h, pageHead, toast, niceError, longDate, confirmDialog, passwordProblem, MIN_PASSWORD } from '../ui.js';
+import { h, pageHead, toast, niceError, longDate, confirmDialog, passwordProblem, MIN_PASSWORD, PASSWORD_RULE } from '../ui.js';
 import { sb, state, adminApi, listProfiles } from '../store.js';
 import { xtable, filteredRows } from '../xtable.js';
 
@@ -69,7 +69,7 @@ function askPassword(u) {
         const bad = passwordProblem(p.value); if (bad) { e.preventDefault(); msg.textContent = bad; }
       } },
       h('p', { style: { margin: 0 } }, h('strong', null, `New password for ${u.email}`)),
-      h('label', { class: 'field' }, `${MIN_PASSWORD}+ characters, with a number`, p), msg,
+      h('label', { class: 'field' }, PASSWORD_RULE, p), msg,
       h('div', { class: 'actions' }, h('button', { class: 'btn', value: 'cancel' }, 'Cancel'), h('button', { class: 'btn primary', value: 'ok' }, 'Set password'))));
     dlg.addEventListener('close', () => { resolve(dlg.returnValue === 'ok' ? p.value : null); dlg.remove(); });
     document.body.append(dlg); dlg.showModal(); p.focus();
@@ -105,7 +105,7 @@ export default {
         h('button', { type: 'button', 'aria-pressed': String(mode === 'password'), onclick: () => { mode = 'password'; rerender(); } }, 'Set a password now')),
       h('div', { class: 'user-add-fields' },
         h('label', { class: 'field' }, 'Email', email), h('label', { class: 'field' }, 'Name', name), h('label', { class: 'field' }, 'Role', role),
-        mode === 'password' ? h('label', { class: 'field' }, `Password (${MIN_PASSWORD}+, with a number)`, pass) : null,
+        mode === 'password' ? h('label', { class: 'field' }, `Password (${PASSWORD_RULE})`, pass) : null,
         h('button', { class: 'btn primary', type: 'submit' }, mode === 'invite' ? 'Send invitation' : 'Add user')),
       h('p', { class: 'small muted' }, mode === 'invite' ? 'They get an email with a link to choose their own password.' : 'They can sign in right away; give them the password privately. They can change it under Settings → My Account.'));
 

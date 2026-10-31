@@ -87,7 +87,8 @@ test('invite, add, change, turn off and on, delete', async () => {
   assert.equal(db.audit.at(-1).action, 'invite');
   assert.equal((await call(env(), { body: { action: 'invite', email: 'not-an-email' } })).status, 400);
   assert.equal((await call(env(), { body: { action: 'create', email: 'p@x.com', password: 'short' } })).status, 400, 'weak passwords are refused');
-  r = await call(env(), { body: { action: 'create', email: 'p@x.com', password: 'longenough12', role: 'admin' } });
+  assert.equal((await call(env(), { body: { action: 'create', email: 'p@x.com', password: 'longenough12' } })).status, 400, 'passwords need a symbol');
+  r = await call(env(), { body: { action: 'create', email: 'p@x.com', password: 'longenough12!', role: 'admin' } });
   assert.equal(r.status, 200); assert.equal(db.profiles.find((x) => x.email === 'p@x.com').role, 'admin');
   assert.equal((await call(env(), { body: { action: 'update', id: STAFF, role: 'boss' } })).status, 400);
   assert.equal((await call(env(), { body: { action: 'update', id: STAFF, role: 'admin', name: 'Sam' } })).status, 200);
@@ -98,7 +99,7 @@ test('invite, add, change, turn off and on, delete', async () => {
   await call(env(), { body: { action: 'enable', id: STAFF } });
   assert.equal(db.profiles[1].disabled, false);
   assert.ok(db.calls.some((c) => c.body?.ban_duration === 'none'));
-  assert.equal((await call(env(), { body: { action: 'password', id: STAFF, password: 'newpassword9' } })).status, 200);
+  assert.equal((await call(env(), { body: { action: 'password', id: STAFF, password: 'newpassword9$' } })).status, 200);
   assert.equal((await call(env(), { body: { action: 'reset', id: STAFF } })).status, 200);
   assert.equal((await call(env(), { body: { action: 'delete', id: STAFF } })).status, 200);
   assert.ok(!db.users.some((x) => x.id === STAFF));

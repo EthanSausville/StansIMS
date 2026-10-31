@@ -22,7 +22,7 @@ export default {
   sideWidth: 0.35,
   sideKey: 'labor', // same side bar width as Labor
   render({ rerender }) {
-    const d = state.data; const admin = canArea('standards', 'edit');
+    const d = state.data; const admin = canArea('overhead', 'edit');
     const live = !d.missingTables?.has('overhead_costs'); // false until the database has the overhead table
     const can = admin && live;
     const years = laborYears();

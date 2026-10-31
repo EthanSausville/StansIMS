@@ -42,7 +42,7 @@ export const safetyStocksTab = {
   id: 'safety',
   label: 'Safety Stocks',
   render({ rerender }) {
-    const rows = derived.materials().rows; const admin = can('planning', 'edit');
+    const rows = derived.materials().rows; const admin = can('safety', 'edit');
     const settings = new Map(state.data.purchase_settings.map((s) => [s.item_no, s]));
     const unit = (r) => r.item.unit || 'each';
     const n0 = (v) => qty(v, 0);

@@ -28,7 +28,7 @@ export default {
   get sideWidth() { return editorOpen() ? 0.4 : null; },
   sideKey: 'bom-edit',
   render({ rerender }) {
-    const cm = derived.costs(); const admin = can('standards', 'edit');
+    const cm = derived.costs(); const admin = can('bom', 'edit');
     if (!cm.years.includes(year)) year = cm.years.includes(THIS_YEAR) ? THIS_YEAR : cm.years[0];
     const ix = cm.ixFor(year);
     const typeOrder = { 'Finished Good': 0, Recipe: 1 };

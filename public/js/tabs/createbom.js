@@ -90,7 +90,7 @@ function problems() {
 // The editor, laid out for the side bar. `year` is the cost year shown.
 export function bomEditor({ rerender }) {
   rerenderRef = rerender;
-  if (!can('standards', 'edit') || !draft) return [];
+  if (!can('bom', 'edit') || !draft) return [];
   const { year } = draft;
   const ix = index(state.data, year); const cmNow = derived.costs();
   const touch = () => { draft.dirty = true; rerender(); };

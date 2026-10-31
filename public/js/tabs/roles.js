@@ -1,13 +1,32 @@
-// Settings → Roles (admins): what each role can see and change, area by area.
-// Admin can do everything and can't be changed; Staff is built in. The
-// database enforces the same rules (public.can), so a role that can't edit an
-// area can't change it from anywhere.
+// Settings → Roles (admins): what each role can see and change, page by page,
+// grouped like the menu. Admin can do everything and can't be changed; Staff
+// is built in. The database enforces the same rules (public.can), so a role
+// that can't edit a page can't change its data from anywhere.
 import { h, pageHead, toast, niceError, confirmDialog } from '../ui.js';
 import { state, insertRow, updateRow, deleteRow, listProfiles } from '../store.js';
-import { AREAS, LEVELS, roleList } from '../perms.js';
+import { SECTIONS, PAGES, roleList } from '../perms.js';
 
 let people = null; let loading = false;
 const slug = (name) => name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'role';
+const LABEL = { none: 'Hidden', view: 'View', edit: 'Edit' };
+const levelsFor = (page) => (page.edit ? ['none', 'view', 'edit'] : ['none', 'view']);
+const lvlOf = (r, page) => r.permissions?.[page.id] || 'none';
+
+// A small form in a dialog: name, description and (for a new role) where to start from.
+function roleDialog({ title, role, starts }) {
+  return new Promise((resolve) => {
+    const name = h('input', { type: 'text', maxlength: 40, value: role?.name || '', required: true, placeholder: 'e.g. Receiving' });
+    const desc = h('input', { type: 'text', maxlength: 140, value: role?.description || '', placeholder: 'Who it’s for, e.g. whoever unloads deliveries' });
+    const from = starts ? h('select', null, starts.map(([v, label]) => h('option', { value: v }, label))) : null;
+    const dlg = h('dialog', { class: 'role-dialog' }, h('form', { method: 'dialog' },
+      h('p', { style: { margin: 0 } }, h('strong', null, title)),
+      h('label', { class: 'field' }, 'Name', name), h('label', { class: 'field' }, 'Description (optional)', desc),
+      from ? h('label', { class: 'field' }, 'Start with', from) : null,
+      h('div', { class: 'actions' }, h('button', { class: 'btn', value: 'cancel', formnovalidate: true }, 'Cancel'), h('button', { class: 'btn primary', value: 'ok' }, role ? 'Save' : 'Add role'))));
+    dlg.addEventListener('close', () => { resolve(dlg.returnValue === 'ok' && name.value.trim() ? { name: name.value.trim(), description: desc.value.trim() || null, from: from?.value } : null); dlg.remove(); });
+    document.body.append(dlg); dlg.showModal(); name.focus();
+  });
+}
 
 export default {
   id: 'roles',
@@ -17,63 +36,88 @@ export default {
     const live = !state.data.missingTables?.has('roles');
     if (!people && !loading) { loading = true; listProfiles().then((p) => { people = p; }).catch(() => { people = []; }).finally(() => { loading = false; rerender(); }); }
     const roles = roleList();
-    const using = (id) => (people || []).filter((p) => p.role === id).length;
+    const using = (id) => (people || []).filter((p) => p.role === id);
 
-    const nameInput = h('input', { type: 'text', maxlength: 40, placeholder: 'e.g. Receiving', 'aria-label': 'New role name', disabled: !live });
-    const addRole = async (e) => {
-      e.preventDefault();
-      const name = nameInput.value.trim(); if (!name) { nameInput.focus(); return; }
-      let id = slug(name); const taken = new Set(roles.map((r) => r.id)); for (let i = 2; taken.has(id); i++) id = `${slug(name).slice(0, 36)}-${i}`;
-      const staff = roles.find((r) => r.id === 'staff');
+    const save = async (r, permissions) => {
+      try { await updateRow('roles', 'id', r.id, { permissions }); } catch (err) { toast(niceError(err), 'bad'); }
+    };
+    const addRole = async (copyOf) => {
+      const starts = [['staff', 'Same as Staff'], ['view', 'View everything, change nothing'], ['none', 'Nothing (pick pages below)'],
+        ...roles.filter((r) => r.id !== 'admin' && r.id !== 'staff').map((r) => [r.id, `Same as ${r.name}`])];
+      const got = copyOf ? { name: `${copyOf.name} copy`, description: copyOf.description, from: copyOf.id } : await roleDialog({ title: 'New role', starts });
+      if (!got) return;
+      let id = slug(got.name); const taken = new Set(roles.map((r) => r.id)); for (let i = 2; taken.has(id); i++) id = `${slug(got.name).slice(0, 36)}-${i}`;
+      const base = roles.find((r) => r.id === got.from);
+      const permissions = got.from === 'view' ? Object.fromEntries(PAGES.map((p) => [p.id, 'view'])) : got.from === 'none' ? {} : { ...(base?.permissions || {}) };
       try {
-        await insertRow('roles', { id, name, permissions: { ...(staff?.permissions || {}) }, sort: Math.max(1, ...roles.map((r) => r.sort ?? 0)) + 1 });
-        toast(`${name} added, starting from Staff’s access. Change what it can do below.`); nameInput.value = '';
+        await insertRow('roles', { id, name: got.name, description: got.description, permissions, sort: Math.max(1, ...roles.map((r) => r.sort ?? 0)) + 1 });
+        toast(`${got.name} added. Choose what it can see and change in its column.`);
       } catch (err) { toast(niceError(err), 'bad'); }
     };
-    const setLevel = async (r, area, v, sel) => {
-      try { await updateRow('roles', 'id', r.id, { permissions: { ...(r.permissions || {}), [area]: v } }); }
-      catch (err) { sel.value = r.permissions?.[area] || 'none'; toast(niceError(err), 'bad'); }
+    const editRole = async (r) => {
+      const got = await roleDialog({ title: `Rename ${r.name}`, role: r }); if (!got) return;
+      try { await updateRow('roles', 'id', r.id, { name: got.name, description: got.description }); toast('Saved.'); } catch (err) { toast(niceError(err), 'bad'); }
     };
-    const rename = async (r, v, input) => {
-      if (!v) { input.value = r.name; return; }
-      try { await updateRow('roles', 'id', r.id, { name: v }); toast('Role renamed.'); } catch (err) { input.value = r.name; toast(niceError(err), 'bad'); }
-    };
-    const remove = async (r) => {
-      if (using(r.id)) { toast(`${using(r.id)} ${using(r.id) === 1 ? 'person has' : 'people have'} the ${r.name} role. Give them another role on Users first.`, 'bad'); return; }
+    const removeRole = async (r) => {
+      const n = using(r.id).length;
+      if (n) { toast(`${n} ${n === 1 ? 'person has' : 'people have'} the ${r.name} role. Give them another role on Users first.`, 'bad'); return; }
       if (!(await confirmDialog(`Delete the ${r.name} role?`, 'Delete'))) return;
       try { await deleteRow('roles', 'id', r.id); toast(`${r.name} deleted.`); } catch (err) { toast(niceError(err), 'bad'); }
     };
 
-    const head = h('tr', null, h('th', { class: 'role-area-h' }, 'Area'), roles.map((r) => {
-      const n = using(r.id);
-      const locked = r.id === 'admin' || !live;
-      const input = h('input', { type: 'text', value: r.name, maxlength: 40, disabled: locked, 'aria-label': `Name of the ${r.name} role`,
-        onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); }, onchange: (e) => rename(r, e.target.value.trim(), e.target) });
-      return h('th', { class: 'role-col' + (r.id === 'admin' ? ' role-admin' : '') },
-        h('div', { class: 'role-name' + (locked ? '' : ' cell entry') }, input),
-        h('div', { class: 'role-meta' }, people ? `${n} ${n === 1 ? 'person' : 'people'}` : '', r.builtin ? ' · built in' : '',
-          !r.builtin && live ? h('button', { class: 'btn icon-btn danger', title: `Delete ${r.name}`, 'aria-label': `Delete ${r.name}`, onclick: () => remove(r) }, '×') : null));
+    // ---- header: one column per role ----
+    const head = h('tr', null, h('th', { class: 'rp-page-h' }, 'Page'), roles.map((r) => {
+      const admin = r.id === 'admin'; const who = using(r.id);
+      const icon = (label, title, fn, cls = '') => h('button', { type: 'button', class: `rp-icon ${cls}`.trim(), title, 'aria-label': `${title}: ${r.name}`, onclick: fn }, label);
+      return h('th', { class: 'rp-role' + (admin ? ' rp-admin' : '') },
+        h('div', { class: 'rp-name' }, admin ? '🔒 ' : '', r.name),
+        r.description ? h('div', { class: 'rp-desc' }, r.description) : null,
+        h('div', { class: 'rp-meta' },
+          h('a', { href: '#users', title: who.map((p) => p.email).join(', ') || 'Nobody yet' }, people ? `${who.length} ${who.length === 1 ? 'person' : 'people'}` : '…'),
+          !admin && live ? [icon('✎', 'Rename', () => editRole(r)), icon('⧉', 'Duplicate', () => addRole(r)),
+            !r.builtin ? icon('×', 'Delete', () => removeRole(r), 'danger') : null] : null));
     }));
-    const rows = AREAS.map((a) => h('tr', null,
-      h('td', { class: 'role-area' }, h('strong', null, a.label), h('div', { class: 'small muted' }, a.tabs)),
-      roles.map((r) => {
-        if (r.id === 'admin') return h('td', { class: 'role-cell role-admin' }, h('span', { class: 'lvl lvl-edit' }, 'Full'));
-        const cur = r.permissions?.[a.id] || 'none';
-        const sel = h('select', { 'aria-label': `${r.name}: ${a.label}`, 'data-k': `role|${r.id}|${a.id}`, disabled: !live, class: `lvl-sel lvl-${cur}`,
-          onchange: (e) => setLevel(r, a.id, e.target.value, e.target) },
-          LEVELS.filter(([v]) => a.edit || v !== 'edit').map(([v, label]) => h('option', { value: v, selected: v === cur }, label)));
-        return h('td', { class: 'role-cell' + (live ? ' cell entry' : '') }, sel);
-      })));
-    const settingsRow = h('tr', { class: 'role-fixed' },
-      h('td', { class: 'role-area' }, h('strong', null, 'Settings'), h('div', { class: 'small muted' }, 'Users, Roles, Periods, Security, Change history')),
-      roles.map((r) => h('td', { class: 'role-cell' + (r.id === 'admin' ? ' role-admin' : '') }, r.id === 'admin' ? h('span', { class: 'lvl lvl-edit' }, 'Full') : h('span', { class: 'lvl lvl-none' }, 'Hidden'))));
 
-    return h('div', null,
-      pageHead('Roles', 'What each role can see and change. Hidden: the pages don’t show. View: the pages show but nothing can be changed. Edit: the pages can be changed too. Everyone can use My Account.',
-        h('form', { class: 'role-add', onsubmit: addRole }, h('label', { class: 'field' }, 'New role', nameInput), h('button', { class: 'btn primary', type: 'submit', disabled: !live }, 'Add role')),
-        h('p', { class: 'small muted' }, 'A new role starts with Staff’s access. Give people a role on Users.')),
+    // ---- body: a row per page, grouped by section ----
+    const seg = (r, page) => {
+      const cur = lvlOf(r, page);
+      return h('div', { class: 'rp-seg', role: 'group', 'aria-label': `${r.name}: ${page.label}` }, levelsFor(page).map((v) =>
+        h('button', { type: 'button', class: `rp-btn rp-${v}`, 'aria-pressed': String(cur === v), disabled: !live, 'data-k': `role|${r.id}|${page.id}|${v}`,
+          onclick: () => { if (cur !== v) save(r, { ...(r.permissions || {}), [page.id]: v }); } }, LABEL[v])));
+    };
+    const sectionSet = (r, sec, v) => save(r, { ...(r.permissions || {}), ...Object.fromEntries(sec.tabs.map((p) => [p.id, v === 'edit' && !p.edit ? 'view' : v])) });
+    const body = SECTIONS.flatMap((sec) => [
+      h('tr', { class: 'rp-sec' }, h('th', { scope: 'rowgroup' }, sec.label), roles.map((r) => h('td', { class: r.id === 'admin' ? 'rp-admin' : null },
+        r.id === 'admin' || !live ? null : h('div', { class: 'rp-quick' }, h('span', { class: 'muted' }, 'All:'),
+          ['none', 'view', ...(sec.tabs.some((p) => p.edit) ? ['edit'] : [])].map((v) => h('button', { type: 'button', class: 'rp-link', title: `Set every ${sec.label} page to ${LABEL[v]} for ${r.name}`, onclick: () => sectionSet(r, sec, v) }, LABEL[v])))))),
+      ...sec.tabs.map((page) => h('tr', { class: 'rp-row' },
+        h('td', { class: 'rp-page' }, page.label, page.note ? h('div', { class: 'small muted' }, page.note) : !page.edit ? h('div', { class: 'small muted' }, 'Report: view only') : null),
+        roles.map((r) => (r.id === 'admin' ? h('td', { class: 'rp-admin' }, h('span', { class: 'rp-full' }, '✓ Full')) : h('td', null, seg(r, page)))))),
+    ]);
+    const settingsRows = [
+      h('tr', { class: 'rp-sec' }, h('th', { scope: 'rowgroup' }, 'Settings'), roles.map((r) => h('td', { class: r.id === 'admin' ? 'rp-admin' : null }))),
+      h('tr', { class: 'rp-row rp-fixed' }, h('td', { class: 'rp-page' }, 'My Account', h('div', { class: 'small muted' }, 'Everyone: their password and security questions')),
+        roles.map((r) => h('td', { class: r.id === 'admin' ? 'rp-admin' : null }, h('span', { class: 'rp-full' }, '✓ Always')))),
+      h('tr', { class: 'rp-row rp-fixed' }, h('td', { class: 'rp-page' }, 'Users, Roles, Periods, Security, Change history', h('div', { class: 'small muted' }, 'Admins only')),
+        roles.map((r) => h('td', { class: r.id === 'admin' ? 'rp-admin' : null }, r.id === 'admin' ? h('span', { class: 'rp-full' }, '✓ Full') : h('span', { class: 'rp-off' }, 'Hidden')))),
+    ];
+    // ---- footer: what each role adds up to ----
+    const foot = h('tr', { class: 'rp-sum' }, h('td', null, 'Adds up to'), roles.map((r) => {
+      if (r.id === 'admin') return h('td', { class: 'rp-admin' }, 'Everything');
+      const seen = PAGES.filter((p) => lvlOf(r, p) !== 'none').length; const edits = PAGES.filter((p) => p.edit && lvlOf(r, p) === 'edit').length;
+      return h('td', null, `Sees ${seen} of ${PAGES.length} pages`, h('br'), `Changes ${edits}`);
+    }));
+
+    return h('div', { class: 'roles-page' },
+      pageHead('Roles', 'What each role can see and change, page by page.'),
+      h('div', { class: 'rp-top' },
+        h('div', { class: 'rp-legend' },
+          h('span', { class: 'rp-btn rp-none', 'aria-pressed': 'true' }, 'Hidden'), ' the page doesn’t show',
+          h('span', { class: 'rp-btn rp-view', 'aria-pressed': 'true' }, 'View'), ' can see it, can’t change anything',
+          h('span', { class: 'rp-btn rp-edit', 'aria-pressed': 'true' }, 'Edit'), ' can see and change it'),
+        live ? h('button', { class: 'btn primary', onclick: () => addRole() }, '+ New role') : null),
       !live ? h('div', { class: 'note warn' }, 'Roles start working after the next deploy to main. Until then everyone is Staff or Admin.') : null,
-      h('div', { class: 'tablewrap' }, h('table', { class: 't roles-table' }, h('thead', null, head), h('tbody', null, rows, settingsRow))),
-      h('p', { class: 'small muted roles-foot' }, 'The database enforces these too: a role that can’t edit an area can’t change it from anywhere. Hidden sales and prices aren’t even sent to that person’s browser. Changes apply the next time someone loads the site.'));
+      h('div', { class: 'tablewrap' }, h('table', { class: 't roles-table' }, h('thead', null, head), h('tbody', null, body, settingsRows), h('tfoot', null, foot))),
+      h('p', { class: 'small muted rp-foot' }, 'Changes save as you click and apply the next time that person loads the site. The database enforces them too: a role that can’t edit a page can’t change its data from anywhere, and sales and prices aren’t sent at all to a role that can’t see a sales, price, dashboard or accounting page. Give people a role on Users.'));
   },
 };

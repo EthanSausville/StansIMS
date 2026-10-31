@@ -61,7 +61,7 @@ export const newCounts = {
     const items = countItems();
     const rows = countSheet(state.data, derived.inventory(), sheetDate, items);
     const done = rows.filter((r) => r.counted !== null).length;
-    const allowed = can('counts', 'edit'); const closed = isClosed(sheetDate); const locked = closed || !allowed;
+    const allowed = can('newcounts', 'edit'); const closed = isClosed(sheetDate); const locked = closed || !allowed;
     let group = null; const body = [];
     for (const r of rows) {
       if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 4 }, groupName(group)))); }

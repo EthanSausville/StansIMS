@@ -125,7 +125,7 @@ reset role;
 
 \echo '--- roles ---'
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
-insert into public.roles (id, name, permissions) values ('receiving', 'Receiving', '{"receipts":"edit","counts":"view","inventory":"view","standards":"view"}');
+insert into public.roles (id, name, permissions) values ('receiving', 'Receiving', '{"newreceipts":"edit","receipts":"view","newcounts":"view","inventory":"view","costs":"view"}');
 update public.profiles set role = 'receiving' where email = 'staff@stans.test';
 \set ON_ERROR_STOP off
 \echo 'a role that doesn''t exist (should fail):'

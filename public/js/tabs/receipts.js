@@ -26,7 +26,7 @@ function enterView(rerender) {
   const groups = [['Raw materials', ix.byType('Raw Material')], ['Packaging', ix.byType('Component')]];
   const already = new Map(state.data.goods_receipts.filter((r) => r.date === day).map((r) => [r.item_no, Number(r.qty) || 0]));
   const isToday = day === todayIso();
-  const closed = isClosed(day); const allowed = can('receipts', 'edit'); const locked = closed || !allowed;
+  const closed = isClosed(day); const allowed = can('newreceipts', 'edit'); const locked = closed || !allowed;
 
   const lines = () => [...ix.byType('Raw Material'), ...ix.byType('Component')]
     .map((item) => ({ item, n: parse(typed[item.item_no]) })).filter((l) => l.n !== null);

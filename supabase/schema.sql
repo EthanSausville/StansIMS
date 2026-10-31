@@ -371,8 +371,9 @@ end $$;
 
 -- ---------- roles (Settings → Roles) ----------
 -- Each person has one role. Admin can do everything, including Settings; it
--- can't be changed. Every other role says, for each area of the site, whether
--- it's hidden ('none'), view only ('view') or can be changed ('edit').
+-- can't be changed. Every other role says, page by page (keys are the site's
+-- tab ids, e.g. newreceipts), whether it's hidden ('none'), view only ('view')
+-- or can be changed ('edit').
 -- Staff is built in (it can be changed but not deleted); admins add others.
 create table if not exists public.roles (
   id          text primary key check (id ~ '^[a-z0-9][a-z0-9_-]{0,39}$'),
@@ -385,7 +386,7 @@ create table if not exists public.roles (
 insert into public.roles (id, name, description, permissions, builtin, sort) values
   ('admin', 'Admin', 'Everything, including users, roles, periods and security.', '{}'::jsonb, true, 0),
   ('staff', 'Staff', 'Enters production, deliveries, counts and sales; views the rest.',
-   '{"dashboard":"view","accounting":"view","sales":"edit","prices":"view","production":"edit","receipts":"edit","counts":"edit","inventory":"view","planning":"view","standards":"view"}'::jsonb, true, 1)
+   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"view","production":"edit","newreceipts":"edit","receipts":"edit","newcounts":"edit","counts":"edit","inventory":"view","consumption":"view","planning":"view","purchasing":"view","safety":"view","costs":"view","bom":"view","labor":"view","overhead":"view"}'::jsonb, true, 1)
 on conflict (id) do nothing;
 -- A profile's role is one of these (it used to be only staff or admin).
 alter table public.profiles drop constraint if exists profiles_role_check;
@@ -413,7 +414,7 @@ end $$;
 drop trigger if exists roles_guard on public.roles;
 create trigger roles_guard before insert or update or delete on public.roles for each row execute function public.roles_guard();
 
--- Can the signed-in person view (or, with 'edit', change) this area?
+-- Can the signed-in person view (or, with 'edit', change) this page?
 create or replace function public.can(p_area text, p_need text default 'view') returns boolean
 language sql stable security definer set search_path = '' as $$
   select exists (
@@ -425,10 +426,15 @@ language sql stable security definer set search_path = '' as $$
                  when 'view' then p_need = 'view'
                  else false end))
 $$;
--- Sales lines and prices are only sent to people who can see something built from them.
+-- Any of these pages.
+create or replace function public.can_any(p_areas text[], p_need text default 'view') returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from unnest(p_areas) a where public.can(a, p_need))
+$$;
+-- Sales lines and prices are only sent to people who can see a page built from them.
 create or replace function public.can_see_sales() returns boolean
 language sql stable security definer set search_path = '' as $$
-  select public.can('sales') or public.can('prices') or public.can('dashboard') or public.can('accounting')
+  select public.can_any(array['sales', 'sales-customers', 'sales-products', 'prices', 'dashboard', 'journals', 'taccounts'])
 $$;
 
 -- ---------- closed periods (Settings → Periods) ----------
@@ -487,19 +493,20 @@ revoke insert, update on public.closed_periods from authenticated;
 grant insert (month, note), update (note) on public.closed_periods to authenticated;
 grant execute on function public.can(text, text) to authenticated;
 grant execute on function public.can_see_sales() to authenticated;
+grant execute on function public.can_any(text[], text) to authenticated;
 
 -- Who reads and who changes each table. Reading: everyone signed in, except
 -- sales lines and prices (see can_see_sales). Changing: whoever's role can
--- edit that area (Settings → Roles); admins always can.
+-- edit a page that changes it (Settings → Roles); admins always can.
 do $$
 declare t text; a text; rd text;
 begin
   for t, a in select * from (values
-      ('production', 'production'), ('goods_receipts', 'receipts'), ('cycle_counts', 'counts'),
-      ('sales', 'sales'), ('sales_imports', 'sales'), ('qb_name_map', 'sales'), ('standard_prices', 'prices'),
-      ('production_plan', 'planning'), ('purchase_settings', 'planning'),
-      ('items', 'standards'), ('standard_costs', 'standards'), ('boms', 'standards'), ('bom_lines', 'standards'),
-      ('labor_positions', 'standards'), ('overhead_costs', 'standards'), ('year_settings', 'standards'),
+      ('production', '{production}'), ('goods_receipts', '{newreceipts,receipts}'), ('cycle_counts', '{newcounts,counts}'),
+      ('sales', '{sales}'), ('sales_imports', '{sales}'), ('qb_name_map', '{sales}'), ('standard_prices', '{prices}'),
+      ('production_plan', '{planning}'), ('purchase_settings', '{safety}'),
+      ('items', '{costs}'), ('standard_costs', '{costs}'), ('boms', '{bom}'), ('bom_lines', '{bom}'),
+      ('labor_positions', '{labor}'), ('overhead_costs', '{overhead}'), ('year_settings', '{costs,labor,overhead}'),
       ('settings', null), ('recipes', null), ('recipe_lines', null), ('fg_lines', null), ('roles', null), ('closed_periods', null)) as x(t, a) loop
     rd := case when t in ('sales', 'sales_imports', 'qb_name_map', 'standard_prices') then 'public.can_see_sales()' else 'public.is_member()' end;
     execute format('alter table public.%I enable row level security', t);
@@ -509,7 +516,8 @@ begin
     execute format('drop policy if exists "edit" on public.%I', t);
     execute format('create policy "read" on public.%I for select to authenticated using (%s)', t, rd);
     execute format('create policy "edit" on public.%I for all to authenticated using (%s) with check (%s)', t,
-      coalesce(format('public.can(%L, %L)', a, 'edit'), 'public.is_admin()'), coalesce(format('public.can(%L, %L)', a, 'edit'), 'public.is_admin()'));
+      case when a is null then 'public.is_admin()' else format('public.can_any(%L::text[], %L)', a, 'edit') end,
+      case when a is null then 'public.is_admin()' else format('public.can_any(%L::text[], %L)', a, 'edit') end);
   end loop;
 end $$;
 

@@ -73,7 +73,7 @@ export default {
   get sideWidth() { return editing ? 300 : 170; },
   get sideKey() { return editing ? 'costs-form' : 'costs'; },
   render({ rerender }) {
-    const cm = derived.costs(); const admin = can('standards', 'edit');
+    const cm = derived.costs(); const admin = can('costs', 'edit');
     const entered = new Map(state.data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, c.cost]));
     const items = [...state.data.items].sort((a, b) => a.sort - b.sort);
     const costOf = (it, y) => (enterable(it) ? entered.get(`${it.item_no}|${y}`) ?? null : cm.cost(it.item_no, y));

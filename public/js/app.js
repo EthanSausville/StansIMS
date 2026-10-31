@@ -21,7 +21,7 @@ import history from './tabs/history.js';
 import { account, security } from './tabs/settings.js';
 import roles from './tabs/roles.js';
 import periods from './tabs/periods.js';
-import { can, TAB_AREA } from './perms.js';
+import { can, PAGES } from './perms.js';
 import { myQuestions, setupScreen, answerBoxes, changeMyPassword } from './security.js';
 
 // Groups across the top; the open group's tabs show in the row beneath.
@@ -38,7 +38,8 @@ const GROUPS = [
 const TABS = GROUPS.flatMap((g) => g.tabs);
 // A tab shows when the person's role can see its area (Settings → Roles);
 // admin-only tabs (most of Settings) only for admins.
-const tabVisible = (t) => (t.adminOnly ? isAdmin() : can(TAB_AREA[t.id]));
+const ROLE_PAGES = new Set(PAGES.map((p) => p.id)); // pages a role decides (My Account is everyone's)
+const tabVisible = (t) => (t.adminOnly ? isAdmin() : !ROLE_PAGES.has(t.id) || can(t.id));
 const visibleTabs = (g) => g.tabs.filter(tabVisible);
 const GEAR_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.6 7.6 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.3.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>';
 const groupOf = (id) => GROUPS.find((g) => g.tabs.some((t) => t.id === id));

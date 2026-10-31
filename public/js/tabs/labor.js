@@ -88,7 +88,7 @@ export default {
   label: 'Labor',
   sideWidth: 0.35,
   render({ rerender }) {
-    const d = state.data; const admin = canArea('standards', 'edit');
+    const d = state.data; const admin = canArea('labor', 'edit');
     const live = !d.missingTables?.has('labor_positions'); // false until the database has the labor table
     const can = admin && live;
     const years = laborYears();

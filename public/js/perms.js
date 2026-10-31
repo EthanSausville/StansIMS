@@ -3,34 +3,35 @@
 // site shows and which cells can be typed in.
 import { state } from './store.js';
 
-// The areas of the site a role can be given. `edit: false` areas are reports:
-// hidden or view only.
-export const AREAS = [
-  { id: 'dashboard', label: 'Dashboard', tabs: 'Dashboard', edit: false },
-  { id: 'accounting', label: 'Accounting', tabs: 'Journals, T-Accounts', edit: false },
-  { id: 'sales', label: 'Sales', tabs: 'Sales Detail, By Customer, By Product, QuickBooks reports', edit: true },
-  { id: 'prices', label: 'Standard prices', tabs: 'Standard Price', edit: true },
-  { id: 'production', label: 'Production', tabs: 'Inventory → Production', edit: true },
-  { id: 'receipts', label: 'Receipts', tabs: 'New Receipts, All Receipts', edit: true },
-  { id: 'counts', label: 'Counts', tabs: 'New Counts, All Counts', edit: true },
-  { id: 'inventory', label: 'Inventory reports', tabs: 'Daily Inventory, Consumption', edit: false },
-  { id: 'planning', label: 'Planning', tabs: 'Production plan, Purchases, Safety Stocks', edit: true },
-  { id: 'standards', label: 'Standards', tabs: 'Master List, BOMs, Labor, Overhead', edit: true },
+// What a role can be given, page by page, grouped the way the menu is.
+// `edit: false` pages are reports: hidden or view only. Permission keys are
+// the tabs' ids (the database uses the same keys).
+export const SECTIONS = [
+  { label: 'Dashboard', tabs: [{ id: 'dashboard', label: 'Dashboard', edit: false }] },
+  { label: 'Accounting', tabs: [{ id: 'journals', label: 'Journals', edit: false }, { id: 'taccounts', label: 'T-Accounts', edit: false }] },
+  { label: 'Sales', tabs: [
+    { id: 'sales', label: 'Sales Detail', edit: true, note: 'Edit: add and change sales, load QuickBooks reports' },
+    { id: 'sales-customers', label: 'By Customer', edit: false }, { id: 'sales-products', label: 'By Product', edit: false },
+    { id: 'prices', label: 'Standard Price', edit: true }] },
+  { label: 'Inventory', tabs: [
+    { id: 'production', label: 'Production', edit: true },
+    { id: 'newreceipts', label: 'New Receipts', edit: true, note: 'Edit: enter deliveries' }, { id: 'receipts', label: 'All Receipts', edit: true, note: 'Edit: fix past deliveries' },
+    { id: 'newcounts', label: 'New Counts', edit: true, note: 'Edit: enter counts' }, { id: 'counts', label: 'All Counts', edit: true, note: 'Edit: fix past counts' },
+    { id: 'inventory', label: 'Daily Inventory', edit: false }, { id: 'consumption', label: 'Consumption', edit: false }] },
+  { label: 'Planning', tabs: [
+    { id: 'planning', label: 'Production', edit: true, note: 'Edit: the production plan' }, { id: 'purchasing', label: 'Purchases', edit: false },
+    { id: 'safety', label: 'Safety Stocks', edit: true }] },
+  { label: 'Standards', tabs: [
+    { id: 'costs', label: 'Master List', edit: true, note: 'Edit: items and standard costs' }, { id: 'bom', label: 'BOMs', edit: true },
+    { id: 'labor', label: 'Labor', edit: true }, { id: 'overhead', label: 'Overhead', edit: true }] },
 ];
+export const PAGES = SECTIONS.flatMap((s) => s.tabs);
 export const LEVELS = [['none', 'Hidden'], ['view', 'View'], ['edit', 'Edit']];
 
-// Which area each tab belongs to.
-export const TAB_AREA = {
-  dashboard: 'dashboard', journals: 'accounting', taccounts: 'accounting',
-  sales: 'sales', 'sales-customers': 'sales', 'sales-products': 'sales', prices: 'prices',
-  production: 'production', newreceipts: 'receipts', receipts: 'receipts', newcounts: 'counts', counts: 'counts',
-  inventory: 'inventory', consumption: 'inventory',
-  planning: 'planning', purchasing: 'planning', safety: 'planning',
-  costs: 'standards', bom: 'standards', labor: 'standards', overhead: 'standards',
-};
-
-// Staff, until the database has roles (and as the built-in starting point).
-export const STAFF_DEFAULT = { dashboard: 'view', accounting: 'view', sales: 'edit', prices: 'view', production: 'edit', receipts: 'edit', counts: 'edit', inventory: 'view', planning: 'view', standards: 'view' };
+// Staff, until the database has roles (and as the built-in starting point):
+// enters production, deliveries, counts and sales; views everything else.
+const STAFF_EDITS = new Set(['sales', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts']);
+export const STAFF_DEFAULT = Object.fromEntries(PAGES.map((t) => [t.id, STAFF_EDITS.has(t.id) ? 'edit' : 'view']));
 export const FALLBACK_ROLES = [
   { id: 'admin', name: 'Admin', builtin: true, permissions: {}, sort: 0 },
   { id: 'staff', name: 'Staff', builtin: true, permissions: STAFF_DEFAULT, sort: 1 },
@@ -43,7 +44,7 @@ export const roleList = () => {
 };
 export const roleName = (id) => roleList().find((r) => r.id === id)?.name || id || '';
 
-// Can the signed-in person view (or, with 'edit', change) this area?
+// Can the signed-in person view (or, with 'edit', change) this page?
 export function can(area, need = 'view') {
   const p = state.profile;
   if (!p || p.disabled) return false;
@@ -53,7 +54,6 @@ export function can(area, need = 'view') {
   const lvl = (role ? role.permissions : p.role === 'staff' ? STAFF_DEFAULT : {})?.[area] || 'none';
   return lvl === 'edit' || (lvl === 'view' && need === 'view');
 }
-export const canEditTab = (tabId) => can(TAB_AREA[tabId], 'edit');
 
 // Closed months (Settings → Periods): 'YYYY-MM' of every closed month.
 export function closedMonths() { return new Set((state.data?.closed_periods || []).map((c) => String(c.month).slice(0, 7))); }

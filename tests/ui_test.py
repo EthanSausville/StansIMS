@@ -50,8 +50,9 @@ def mock_db():
                       dict(user_id='u2', email='staff@stans.test', role='staff', created_at='2026-10-27T12:00:00Z')]
     # u1 has set their security questions (answers kept as 'plain:<normalized>' by the mock).
     db['roles'] = [dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0),
-                   dict(id='staff', name='Staff', builtin=True, sort=1, permissions=dict(dashboard='view', accounting='view', sales='edit', prices='view', production='edit',
-                        receipts='edit', counts='edit', inventory='view', planning='view', standards='view'))]
+                   dict(id='staff', name='Staff', builtin=True, sort=1, permissions={k: ('edit' if k in ('sales', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts') else 'view') for k in
+                        ['dashboard', 'journals', 'taccounts', 'sales', 'sales-customers', 'sales-products', 'prices', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts',
+                         'inventory', 'consumption', 'planning', 'purchasing', 'safety', 'costs', 'bom', 'labor', 'overhead']})]
     db['closed_periods'] = []
     db['security_answers'] = [dict(user_id='u1', slot=1, question='pet', answer_hash='plain:rexthebeagle'),
                               dict(user_id='u1', slot=2, question='car', answer_hash='plain:hondacivic98'),
@@ -1006,20 +1007,27 @@ with sync_playwright() as p:
     # ---- Settings → Roles and Periods ----
     ctx, page, errors = open_app(browser)
     page.goto(BASE + '/#roles'); page.wait_for_selector('table.roles-table')
-    check(page.locator('table.roles-table th.role-col').count() == 2 and page.locator('table.roles-table th.role-col', has_text='0 people').count() == 0 and page.locator('table.roles-table tbody tr').count() == 11, 'Roles shows Admin and Staff for every area')
-    page.locator('.role-add input').fill('Receiving'); page.locator('.role-add').get_by_role('button', name='Add role').click(); page.wait_for_timeout(300)
-    check(page.evaluate("window.__MOCK_DB__.roles.some(r => r.id === 'receiving' && r.permissions.receipts === 'edit')"), 'admins can add a role (starting from Staff’s access)')
-    page.locator('select[data-k="role|receiving|production"]').select_option('none'); page.wait_for_timeout(250)
-    page.locator('select[data-k="role|receiving|sales"]').select_option('none'); page.wait_for_timeout(250)
-    check(page.evaluate("window.__MOCK_DB__.roles.find(r => r.id === 'receiving').permissions.production") == 'none', 'and choose what it can see and change')
-    check(page.locator('select[data-k="role|receiving|dashboard"] option[value=edit]').count() == 0, 'report areas only offer Hidden or View')
+    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 23, 'Roles shows Admin and Staff for every page, grouped like the menu')
+    check(page.locator('.sidebar:not([hidden])').count() == 0, 'Roles has no side bar')
+    page.get_by_role('button', name='+ New role').click(); page.wait_for_timeout(100)
+    dlg = page.locator('dialog[open]'); dlg.locator('input').first.fill('Receiving'); dlg.locator('input').nth(1).fill('Whoever unloads deliveries'); dlg.get_by_role('button', name='Add role').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.roles.some(r => r.id === 'receiving' && r.permissions.newreceipts === 'edit')"), 'admins can add a role (starting from Staff’s access)')
+    page.locator('[data-k="role|receiving|production|none"]').click(); page.wait_for_timeout(250)
+    check(page.evaluate("window.__MOCK_DB__.roles.find(r => r.id === 'receiving').permissions.production") == 'none', 'and choose, page by page, what it can see and change')
+    page.locator('tr.rp-sec', has_text='Sales').locator('td').nth(2).get_by_role('button', name='Hidden').click(); page.wait_for_timeout(250)
+    check(page.evaluate("['sales','sales-customers','sales-products','prices'].every(k => window.__MOCK_DB__.roles.find(r => r.id === 'receiving').permissions[k] === 'none')"), 'or a whole section at once')
+    check(page.locator('[data-k="role|receiving|dashboard|edit"]').count() == 0, 'report pages only offer Hidden or View')
     shot(page, '43-roles')
     page.goto(BASE + '/#users'); page.wait_for_timeout(500)
     sel = page.locator('table.users-table tr', has_text='staff@stans.test').locator('select')
     check('Receiving' in sel.inner_text(), 'Users can give someone the new role')
     page.goto(BASE + '/#periods'); page.wait_for_selector('table.periods-table')
-    june = page.locator('table.periods-table tr', has_text='June 2026')
-    check(page.locator('table.periods-table tr', has_text='July 2026').locator('text=Current month').count() == 1, 'the current month can’t be closed')
+    check(page.locator('.sidebar:not([hidden])').count() == 0 and page.locator('tr.pr-year').count() == 2, 'Periods has no side bar, and groups months under years')
+    check(page.locator('tr.pr-year', has_text='2025').locator('.pr-fold').count() == 1 and page.locator('tr.pr-month', has_text='December').count() == 0, 'a finished year folds up')
+    page.locator('tr.pr-year', has_text='2025').click(); page.wait_for_timeout(150)
+    check(page.locator('tbody.pr-group').nth(1).locator('tr.pr-month').count() == 12, 'and opens to show its months')
+    june = page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='June')
+    check(page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='July').locator('text=Current month').count() == 1, 'the current month can’t be closed')
     june.get_by_role('button', name='Close').click(); page.locator('dialog[open]').get_by_role('button', name='Close').click(); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.closed_periods.map(c => c.month).join()") == '2026-06-01', 'admins can close a month')
     shot(page, '44-periods')
@@ -1029,7 +1037,7 @@ with sync_playwright() as p:
     jcell = page.locator('input[data-k^="production|2026-06-"]').first
     check(jcell.count() == 1 and jcell.is_disabled() and page.locator('.closed-note', has_text='June 2026 is closed').count() == 1, 'a closed month’s production can’t be typed in')
     page.goto(BASE + '/#periods'); page.wait_for_timeout(300)
-    page.locator('table.periods-table tr', has_text='June 2026').get_by_role('button', name='Reopen').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen').click(); page.wait_for_timeout(300)
+    page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='June').get_by_role('button', name='Reopen').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen').click(); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.closed_periods.length") == 0, 'and reopen it')
     check(not errors, 'no browser errors on Roles and Periods' + (f': {errors[:3]}' if errors else ''))
     ctx.close()
@@ -1038,7 +1046,7 @@ with sync_playwright() as p:
     ctx, page, errors = open_app(browser, role='receiving')
     rdb = dict(mock_db(), profiles=[dict(user_id='u1', email='owner@stans.test', role='receiving', created_at='2026-10-27T12:00:00Z')],
                roles=[dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0), dict(id='staff', name='Staff', builtin=True, permissions={}, sort=1),
-                      dict(id='receiving', name='Receiving', builtin=False, permissions=dict(receipts='edit', counts='view', inventory='view'), sort=2)])
+                      dict(id='receiving', name='Receiving', builtin=False, permissions=dict(newreceipts='edit', receipts='edit', newcounts='view', counts='view', inventory='view', consumption='view'), sort=2)])
     body = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
         f'window.__MOCK_DB__={json.dumps(rdb)};window.__MOCK_ROLE__="receiving";window.__MOCK_SIGNED_IN__=true;')
     page.route('**/config.js', lambda r: r.fulfill(status=200, content_type='text/javascript', body=body))

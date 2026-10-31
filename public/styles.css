@@ -1481,3 +1481,5 @@ table.inv-daily tbody tr.count-row:hover td, table.inv-daily tbody tr.adj-row:ho
 table.inv-daily tbody tr.month-row:hover th, table.inv-daily tbody tr.month-row:hover td { background: var(--stans-grey); }
 table.inv-daily tr.month-row th, table.inv-daily tr.month-row td { background: var(--stans-grey); color: var(--ink); font-weight: 600; border-top: 2px solid var(--line-strong); text-align: left; }
 .count-timing { margin-top: 4px; }
+table.inv-daily th.grp-start, table.inv-daily td.grp-start { border-left: 2px solid var(--line-strong); }
+table.inv-daily thead th.grp-start { border-left-color: rgba(255, 255, 255, .35); }

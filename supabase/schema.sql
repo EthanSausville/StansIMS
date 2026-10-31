@@ -385,7 +385,7 @@ create table if not exists public.roles (
 insert into public.roles (id, name, description, permissions, builtin, sort) values
   ('admin', 'Admin', null, '{}'::jsonb, true, 0),
   ('staff', 'Accountant', null,
-   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"edit","production":"edit","lots":"view","newlots":"edit","newreceipts":"edit","newcounts":"edit","inventory":"view","planning":"edit","purchasing":"view","safety":"edit","costs":"edit","bom":"edit","labor":"edit","overhead":"edit","periods":"edit"}'::jsonb, true, 1)
+   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"edit","production":"edit","lots":"view","newlots":"edit","newreceipts":"edit","newcounts":"edit","inventory":"view","monthly":"view","planning":"edit","purchasing":"view","safety":"edit","costs":"edit","bom":"edit","labor":"edit","overhead":"edit","periods":"edit"}'::jsonb, true, 1)
 on conflict (id) do nothing;
 -- The built-in staff role is called Accountant; roles no longer have descriptions.
 update public.roles set name = 'Accountant' where id = 'staff' and name = 'Staff';
@@ -405,6 +405,9 @@ update public.roles set permissions = (permissions - 'receipts' - 'counts' - 'co
   || jsonb_build_object('newcounts', case when 'edit' in (permissions->>'newcounts', permissions->>'counts') then 'edit'
                                           when 'view' in (permissions->>'newcounts', permissions->>'counts') then 'view' else 'none' end)
 where permissions ?| array['receipts', 'counts', 'consumption'];
+-- Month-end inventory moved to its own tab (Inventory → Monthly): whoever could see Daily can see it.
+update public.roles set permissions = permissions || jsonb_build_object('monthly', permissions->>'inventory')
+where permissions ? 'inventory' and not permissions ? 'monthly';
 -- A profile's role is one of these (it used to be only staff or admin).
 alter table public.profiles drop constraint if exists profiles_role_check;
 do $$ begin

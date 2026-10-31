@@ -4,7 +4,7 @@ import dashboard from './tabs/dashboard.js';
 import production, { lotsTab, newLotsTab } from './tabs/production.js';
 import { newReceipts } from './tabs/receipts.js';
 import { newCounts } from './tabs/counts.js';
-import inventory from './tabs/inventory.js';
+import inventory, { monthlyTab } from './tabs/inventory.js';
 import { productionPlanTab, purchasingTab, safetyStocksTab } from './tabs/planning.js';
 import sales from './tabs/sales.js';
 import { byCustomer, byProduct } from './tabs/salessummary.js';
@@ -30,7 +30,7 @@ const GROUPS = [
   { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
   { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
   { id: 'production', label: 'Production', tabs: [production, lotsTab, newLotsTab] },
-  { id: 'inventory', label: 'Inventory', tabs: [inventory, newReceipts, newCounts] },
+  { id: 'inventory', label: 'Inventory', tabs: [inventory, monthlyTab, newReceipts, newCounts] },
   { id: 'planning', label: 'Planning', tabs: [productionPlanTab, purchasingTab, safetyStocksTab] },
   { id: 'costing', label: 'Standards', tabs: [costs, bom, labor, overhead] },
   { id: 'settings', label: 'Settings', gear: true, tabs: [account, users, roles, periods, security, history] },

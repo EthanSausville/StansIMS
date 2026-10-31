@@ -52,7 +52,7 @@ def mock_db():
     db['roles'] = [dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0),
                    dict(id='staff', name='Accountant', builtin=True, sort=1, permissions={k: ('edit' if k in ('sales', 'production', 'newlots', 'newreceipts', 'receipts', 'newcounts', 'counts') else 'view') for k in
                         ['dashboard', 'journals', 'taccounts', 'sales', 'sales-customers', 'sales-products', 'prices', 'production', 'lots', 'newlots', 'newreceipts', 'receipts', 'newcounts', 'counts',
-                         'inventory', 'consumption', 'planning', 'purchasing', 'safety', 'costs', 'bom', 'labor', 'overhead']})]
+                         'inventory', 'monthly', 'consumption', 'planning', 'purchasing', 'safety', 'costs', 'bom', 'labor', 'overhead']})]
     db['closed_periods'] = []
     db['closed_years'] = []
     db['closed_beginnings'] = []
@@ -95,7 +95,7 @@ def shot(page, name):
 GROUPS = {
     'Dashboard': ['Dashboard'],
     'Production': ['Daily', 'Lots', 'New Batch'],
-    'Inventory': ['Daily', 'Receive', 'Count'],
+    'Inventory': ['Daily', 'Monthly', 'Receive', 'Count'],
     'Planning': ['Production', 'Purchases', 'Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor', 'Overhead'],
@@ -260,7 +260,7 @@ with sync_playwright() as p:
     fh = page.evaluate("(() => { const f = document.querySelector('.float-head'); if (!f) return null; const r = f.getBoundingClientRect(); return [Math.round(r.top), f.textContent.includes('Cheese')]; })()")
     check(fh is not None and abs(fh[0] - bar) <= 1 and fh[1], f'wide tables keep their column names under the site header too ({fh})')
     page.evaluate("document.querySelector('main .tablewrap').scrollLeft = 300"); page.wait_for_timeout(150)
-    off = page.evaluate("(() => { const w = document.querySelector('main .tablewrap'); const real = w.querySelector('thead tr:nth-child(2) th:nth-child(5)').getBoundingClientRect().left; const copy = document.querySelector('.float-head thead tr:nth-child(2) th:nth-child(5)').getBoundingClientRect().left; return Math.round(real - copy); })()")
+    off = page.evaluate("(() => { const w = document.querySelector('main .tablewrap'); const real = w.querySelector('thead tr:nth-child(1) th:nth-child(5)').getBoundingClientRect().left; const copy = document.querySelector('.float-head thead tr:nth-child(1) th:nth-child(5)').getBoundingClientRect().left; return Math.round(real - copy); })()")
     check(abs(off) <= 1, f'the floating header lines up with the columns after scrolling sideways (off by {off}px)')
     page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 0"); page.wait_for_timeout(150)
     dock = page.evaluate("(() => { const f = document.querySelector('.float-foot .ff-scroll'); if (!f) return null; return Math.round(innerHeight - f.getBoundingClientRect().bottom); })()")
@@ -348,6 +348,16 @@ with sync_playwright() as p:
     check(rcpt(100001) == b_cheese and rcpt(lid_no) == b_lid, 'Undo takes the delivery back out')
     # A delivery on a past day moves that day's inventory.
     cheese_on = lambda: float(page.locator('tr[data-day="2026-07-10"] td').nth(1).inner_text().replace(',', '') or 0)
+    tab(page, 'Inventory/Daily')
+    hd = page.locator('table.inv-daily thead tr')
+    ch = page.locator('table.inv-daily thead th[title*="#100001"]')
+    check(hd.count() == 1 and page.locator('table.inv-daily .band-label').count() == 0 and [ch.locator(c).inner_text() for c in ('.fg-recipe', '.fg-size', '.fg-pack')] == ['Cheese', 'lb', '1 box = 30 lb'],
+          'Inventory → Daily has Production-style headers: one row, name / unit / what it comes in')
+    fgh = page.locator('table.inv-daily thead th[title*="#500001"]')
+    check([fgh.locator(c).inner_text() for c in ('.fg-recipe', '.fg-size', '.fg-pack')] == ['Original', '7 oz', 'Case of 24'], 'finished goods split into recipe / size / case')
+    check(page.locator('table.inv-daily tbody tr[data-day]').first.get_attribute('data-day') == TODAY.isoformat() and page.locator('.daily-mode, .seg', has_text='Month-end').count() == 0, 'it starts at today, with no Month-end switch')
+    tab(page, 'Monthly')
+    check(page.locator('table.xtable thead', has_text='Jan').count() == 1 and page.locator('table.xtable tbody tr', has_text='Cheese').count() == 1, 'Monthly is its own tab: each month’s ending inventory')
     tab(page, 'Inventory/Daily'); a = cheese_on()
     tab(page, 'Receive')
     page.locator('input.big-date').fill('2026-07-10'); page.locator('input.big-date').dispatch_event('change'); page.wait_for_timeout(200)
@@ -764,7 +774,7 @@ with sync_playwright() as p:
     tab(page, 'Inventory/Daily')
     order = page.locator(f'tr[data-day="{cday}"], tr[data-count^="{cday}"], tr[data-adjust^="{cday}"]').evaluate_all('es => es.map(e => e.dataset.day ? "day" : e.dataset.count ? "count" : "adjust")')
     check(order == ['day', 'count', 'adjust'], f'a start-of-day count and its adjustment sit below the day ({order})')
-    col = page.locator('table.inv-daily thead tr').nth(1).locator('th').evaluate_all(f'es => es.findIndex(e => (e.title || "").includes("#{fg_no}"))')
+    col = page.locator('table.inv-daily thead tr').nth(0).locator('th').evaluate_all(f'es => es.findIndex(e => (e.title || "").includes("#{fg_no}"))')
     num = lambda sel: float(page.locator(sel).locator('td').nth(col).inner_text().replace(',', '').replace('+', '') or 'nan')
     made = page.evaluate(f"window.__MOCK_DB__.production.filter(r => r.date === '{cday}' && r.item_no === {fg_no}).reduce((t, r) => t + r.cases, 0)")
     sold = page.evaluate(f"window.__MOCK_DB__.sales.filter(r => r.date === '{cday}' && r.item_no === {fg_no}).reduce((t, r) => t + Number(r.quantity), 0)")
@@ -1078,7 +1088,7 @@ with sync_playwright() as p:
     # ---- Settings → Roles and Periods ----
     ctx, page, errors = open_app(browser)
     page.goto(BASE + '/#roles'); page.wait_for_selector('table.roles-table')
-    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 26, 'Roles shows Admin and Accountant for every page (Settings pages too), grouped like the menu')
+    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 27, 'Roles shows Admin and Accountant for every page (Settings pages too), grouped like the menu')
     check(page.locator('.sidebar:not([hidden])').count() == 0, 'Roles has no side bar')
     page.get_by_role('button', name='+ New role').click(); page.wait_for_timeout(100)
     dlg = page.locator('dialog[open]'); dlg.locator('input').first.fill('Receiving'); dlg.locator('select').select_option('staff'); dlg.get_by_role('button', name='Add role').click(); page.wait_for_timeout(300)

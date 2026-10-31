@@ -19,6 +19,7 @@ export const SECTIONS = [
     { id: 'newlots', label: 'New Batch', edit: true, note: 'Edit: enter a day’s production' }] },
   { label: 'Inventory', tabs: [
     { id: 'inventory', label: 'Daily', edit: false },
+    { id: 'monthly', label: 'Monthly', edit: false },
     { id: 'newreceipts', label: 'Receive', edit: true, note: 'Edit: enter deliveries' },
     { id: 'newcounts', label: 'Count', edit: true, note: 'Edit: enter counts' }] },
   { label: 'Planning', tabs: [

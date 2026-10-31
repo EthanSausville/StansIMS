@@ -121,7 +121,7 @@ export default {
     const who = (c) => (c ? `Closed ${c.closed_at ? longDate(String(c.closed_at).slice(0, 10)) : ''}${c.closed_by_email ? ` by ${c.closed_by_email}` : ''}`.trim() : null);
     const monthRow = (ym) => {
       const c = closed.get(ym); const current = ym === nowYm; const future = ym > nowYm; const yc = closedYears.has(Number(ym.slice(0, 4)));
-      return h('tr', { class: 'pr-month' + (future ? ' pr-future' : '') },
+      return h('tr', { class: 'pr-month' + (current ? ' pr-current' : '') },
         h('td', { class: 'pr-name' }, monthName(ym).replace(/ \d{4}$/, '')),
         h('td', null, h('span', { class: `user-status ${c || yc ? 'off' : current || future ? 'invited' : 'on'}`, title: who(c) }, c || yc ? '🔒 Closed' : future ? 'Future month' : current ? 'Current month' : 'Open')),
         future ? cells(blankRow) : cells(figs.get(ym)),
@@ -137,7 +137,7 @@ export default {
       return h('tr', { class: 'pr-month pr-edge' },
         h('td', { class: 'pr-name' }, 'Beginning'),
         h('td', null, h('span', { class: `user-status ${c ? 'off' : 'on'}`, title: who(c) }, c ? '🔒 Standards locked' : 'Standards open')),
-        cells({ ...blankRow, inventory: inventoryValue(`${y - 1}-12-31`, y) }),
+        cells({ ...blankRow, inventory: `${y - 1}-12-31` < today ? inventoryValue(`${y - 1}-12-31`, y) : null }),
         h('td', { class: 'user-actions' }, !beginLive ? null
           : c ? (prevEnding ? h('span', { class: 'small muted', title: `${y - 1} Ending rolled over to these standards` }, `${y - 1} Ending closed`) : h('button', { class: 'btn small', onclick: () => reopenBeginning(y) }, 'Reopen'))
             : h('button', { class: 'btn small primary', onclick: () => closeBeginning(y) }, 'Close')));

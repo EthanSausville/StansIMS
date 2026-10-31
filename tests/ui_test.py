@@ -25,7 +25,7 @@ def mock_db():
     db['bom_lines'] = [dict(l, id=i + 1, year=2026) for i, l in enumerate(db['bom_lines'])]
     db['boms'] = [dict(b, year=2026) for b in db['boms']]
     db['sales'] = [dict({k: v for k, v in r.items() if k != 'row'}, id=i + 1) for i, r in enumerate(inputs['sales'])]
-    db['settings'] = [dict(inputs['settings'], id=1)]
+    db['settings'] = [dict(inputs['settings'], id=1, site_date='2026-07-13')]  # tests run on a fixed date
     db['sales_imports'] = []
     st = inputs['settings']
     db['labor_positions'] = [
@@ -68,7 +68,7 @@ port = server.server_address[1]
 threading.Thread(target=server.serve_forever, daemon=True).start()
 BASE = f'http://127.0.0.1:{port}'
 
-# The site pretends today is 7/13/2026 (ui.js PRETEND_TODAY) while the data runs through early July.
+# The tests run as if today were 7/13/2026 (settings.site_date), since the test data runs through early July.
 TODAY = datetime.date(2026, 7, 13)
 failures = []
 def check(cond, label):
@@ -83,6 +83,7 @@ def open_app(browser, role='admin', signed_in=True, viewport=(1440, 900)):
     page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
     cfg = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"sb_publishable_test"};'
            f'window.__MOCK_DB__={json.dumps(mock_db())};window.__MOCK_ROLE__="{role}";window.__MOCK_SIGNED_IN__={str(signed_in).lower()};')
+    page.add_init_script("try { localStorage.setItem('site-date', '2026-07-13') } catch (e) {}")  # before the data loads, too
     page.route('**/config.js', lambda r: r.fulfill(status=200, content_type='text/javascript', body=cfg))
     page.route('**/api/account/password', lambda r: r.fulfill(status=200, content_type='application/json', body='{"configured":false}'))
     page.route('https://cdn.jsdelivr.net/**', lambda r: r.fulfill(status=200, content_type='text/javascript', body=(ROOT / 'tests/mock-supabase.js').read_text()))
@@ -1047,8 +1048,8 @@ with sync_playwright() as p:
     g26 = page.locator('tbody.pr-group').first
     rows = g26.locator('tr.pr-month').all_inner_texts()
     check(len(rows) == 14 and rows[0].startswith('Ending') and rows[1].startswith('December') and rows[-1].startswith('Beginning'), 'every month of the year, between its Ending and Beginning')
-    check(g26.locator('tr.pr-future').count() == 5 and 'Future month' in g26.locator('tr.pr-month', has_text='December').inner_text()
-          and g26.locator('tr.pr-future').get_by_role('button').count() == 0, 'months still ahead say Future month, greyed, with nothing to close')
+    check(g26.locator('tr.pr-month', has_text='Future month').count() == 5 and g26.locator('tr.pr-month', has_text='December').get_by_role('button').count() == 0
+          and g26.locator('tr.pr-current').count() == 1 and 'July' in g26.locator('tr.pr-current').inner_text(), 'months still ahead say Future month, with nothing to close; the current month is greyed')
     check(page.locator('tr.pr-year').get_by_role('button').count() == 0 and 'Year not over' in rows[0], 'this year’s Ending waits for the year to end; no buttons on year rows')
     june = g26.locator('tr.pr-month', has_text='June')
     check(g26.locator('tr.pr-month', has_text='July').locator('text=Current month').count() == 1, 'the current month can’t be closed')

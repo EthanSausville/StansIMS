@@ -72,10 +72,10 @@ export const dateLabel = (iso) => {
 };
 export const longDate = (iso) => toDate(iso).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
 
-// The date the whole site treats as today: Settings → Site (settings.site_date),
-// blank for the real date. Until the database has that setting, it's pinned to
-// Monday 7/13/2026 (the data runs through the week of 7/6).
-export const PRETEND_TODAY = '2026-07-13';
+// The date the whole site treats as today: settings.site_date in the database,
+// blank (the normal case) for the real date. PRETEND_TODAY pins it when the
+// database has no such setting; null = the real date.
+export const PRETEND_TODAY = null;
 // undefined: no setting yet; null: the real date; 'YYYY-MM-DD': pinned. The last
 // value is remembered in the browser so the pages start on the right date
 // before the data has loaded.

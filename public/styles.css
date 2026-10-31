@@ -1430,4 +1430,4 @@ table.roles-table.compact .rp-btn .rp-short { display: inline; }
 table.roles-table.compact th.rp-role { min-width: 120px; }
 table.roles-table.compact td.rp-page { min-width: 160px; }
 table.t.periods-table tr.pr-edge td.pr-name { color: var(--stans-orange, #e4560f); }
-table.t.periods-table tr.pr-future td { background: #f1efec; color: #9a918a; }
+table.t.periods-table tr.pr-current td { background: #f1efec; }

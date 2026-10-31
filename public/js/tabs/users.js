@@ -14,11 +14,12 @@ import { questionsByUser, resetAnswers } from '../security.js';
 let users = null;      // rows shown
 let configured = null; // does the Worker have the secret key?
 let loading = false;
+let loadError = '';   // why the list couldn't be loaded
 let mode = 'password'; // add form: 'invite' or 'password' (password first: email isn't set up yet)
 let sq = null;         // user id → how many security questions they've set (null: not available)
 
 function load(rerender) {
-  if (loading) return; loading = true;
+  if (loading) return; loading = true; loadError = '';
   questionsByUser().then((m) => { sq = m; rerender(); });
   adminApi('GET')
     .then(async (r) => {
@@ -26,7 +27,7 @@ function load(rerender) {
       if (configured) users = r.users;
       else users = (await listProfiles()).map((p) => ({ id: p.user_id, email: p.email, name: p.name || null, role: p.role, disabled: !!p.disabled, created_at: p.created_at, last_sign_in_at: null, confirmed: true }));
     })
-    .catch((e) => { toast(niceError(e), 'bad'); users = users || []; })
+    .catch((e) => { loadError = niceError(e); users = users || []; })
     .finally(() => { loading = false; rerender(); });
 }
 const reload = (rerender) => { users = null; load(rerender); rerender(); };
@@ -153,6 +154,7 @@ export default {
     const admins = rows.filter((u) => u.role === 'admin' && !u.disabled).length;
     return h('div', null,
       pageHead('Users', 'Everyone who can use the site. Staff enter production, deliveries, counts and sales; admins can also change standards, planning settings and users. Turning someone off signs them out and keeps them out, without losing anything they entered. Every change here is recorded in Change history.'),
+      loadError ? h('div', { class: 'note bad' }, h('strong', null, 'Couldn’t load the users: '), loadError, ' ', h('button', { class: 'btn small', onclick: () => reload(rerender) }, 'Try again')) : null,
       configured === false ? h('div', { class: 'note warn' },
         h('strong', null, 'Adding, deleting, emails and passwords need one more setup step. '),
         'In Supabase, open Project Settings → API Keys and copy the secret key. In Cloudflare, open the stansims Worker → Settings → Variables and Secrets → Add, choose type Secret, name it SUPABASE_SERVICE_ROLE_KEY and paste the key. Until then you can change names and roles and turn accounts off and on here.') : null,

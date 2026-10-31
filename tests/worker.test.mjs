@@ -22,7 +22,9 @@ function fakeSupabase() {
     const body = opts.body ? JSON.parse(opts.body) : null; const hdr = opts.headers || {};
     db.calls.push({ method, path: path + url.search, body, hdr });
     const ok = (data, status = 200) => new Response(JSON.stringify(data), { status });
-    const service = hdr.apikey === 'sb_secret_y';
+    const service = hdr.apikey === 'sb_secret_y' || hdr.apikey === 'eyJlegacy';
+    // Supabase refuses a new-style secret key sent as a Bearer token (it isn't a JWT).
+    if ((hdr.Authorization || '').startsWith('Bearer sb_')) return ok({ message: 'Invalid JWT' }, 401);
     if (path === '/rest/v1/rpc/check_identity') {
       const id = db.sessions[(hdr.Authorization || '').slice(7)]; if (!id || hdr.apikey !== 'sb_publishable_x') return ok({ message: 'JWT' }, 401);
       if (db.locked) return ok({ message: 'Too many wrong tries. Wait 15 minutes and try again.' }, 400);
@@ -121,6 +123,17 @@ test('never locks the site out', async () => {
   db.profiles[1].role = 'admin'; db.sessions['tok-2'] = STAFF;
   assert.equal((await call(env(), { token: 'tok-2', body: { action: 'disable', id: ADMIN } })).status, 200);
   assert.equal((await call(env(), { token: 'tok-admin', method: 'GET' })).status, 403, 'and the turned-off admin is out');
+});
+
+test('new secret keys go only in the apikey header; the old service_role JWT also as Bearer', async () => {
+  const db = fakeSupabase();
+  let r = await call(env(), { method: 'GET' });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.ok(db.calls.filter((c) => c.hdr.apikey === 'sb_secret_y').every((c) => !c.hdr.Authorization));
+  const db2 = fakeSupabase();
+  r = await call(env({ SUPABASE_SERVICE_ROLE_KEY: 'eyJlegacy' }), { method: 'GET' });
+  assert.equal(r.status, 200);
+  assert.ok(db2.calls.filter((c) => c.hdr.apikey === 'eyJlegacy').every((c) => c.hdr.Authorization === 'Bearer eyJlegacy'));
 });
 
 test('too many requests are slowed down', async () => {

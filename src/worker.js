@@ -51,7 +51,10 @@ function supa(env) {
   const url = (env.SUPABASE_URL || '').replace(/\/$/, '');
   const anon = env.SUPABASE_ANON_KEY || env.SUPABASE_PUBLISHABLE_KEY || '';
   const secret = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '';
-  const service = { apikey: secret, Authorization: `Bearer ${secret}` };
+  // Supabase's new secret keys (sb_secret_...) go only in the apikey header;
+  // they aren't JWTs, so sending one as a Bearer token is refused. The older
+  // service_role key is a JWT and is also sent as the Bearer token.
+  const service = secret.startsWith('eyJ') ? { apikey: secret, Authorization: `Bearer ${secret}` } : { apikey: secret };
   const call = async (path, { method = 'GET', body, headers = service, prefer } = {}) => {
     const res = await fetch(url + path, {
       method, body: body === undefined ? undefined : JSON.stringify(body),

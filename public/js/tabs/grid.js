@@ -2,12 +2,13 @@
 // sheets in the workbook (Production, GoodsReceipt, CycleCounts, ...).
 import { h, numberCell, dateLabel, qty, todayIso } from '../ui.js';
 import { isClosed, closedNote } from '../perms.js';
-import { eachDay, isWeekend, monthEnd, hasReceiving, holdsLabel } from '../calc.js';
+import { eachDay, isWeekend, monthEnd, hasReceiving, holdsLabel, COMPANY_START } from '../calc.js';
 
 const perLabel = (it) => (hasReceiving(it) ? `1 ${it.receiving_unit} = ${holdsLabel(it)}` : '');
 import { totalsFoot } from '../xtable.js';
 
-export const monthDays = ({ year, month }) => [...eachDay(`${year}-${String(month).padStart(2, '0')}-01`, monthEnd(year, month))];
+// A month's days (none before the company was purchased).
+export const monthDays = ({ year, month }) => { const first = `${year}-${String(month).padStart(2, '0')}-01`; return [...eachDay(first < COMPANY_START ? COMPANY_START : first, monthEnd(year, month))]; };
 
 // Header rows: item type, item name, and (optionally) pack size notes.
 // `before`/`after` are extra calculated column labels.

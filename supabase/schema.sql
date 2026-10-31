@@ -579,6 +579,11 @@ begin
       raise exception '% is closed, so entries dated % can’t be changed. An admin can reopen it in Settings → Periods.', to_char(d, 'FMMonth YYYY'), to_char(d, 'FMMM/FMDD/YYYY');
     end if;
   end loop;
+  -- Nothing is dated before the company was purchased (1/23/2026). The SQL
+  -- editor (no signed-in user) can still fix old rows.
+  if tg_op <> 'DELETE' and new.date < date '2026-01-23' and auth.uid() is not null then
+    raise exception 'The company was purchased on 1/23/2026, so nothing can be dated %.', to_char(new.date, 'FMMM/FMDD/YYYY');
+  end if;
   return coalesce(new, old);
 end $$;
 do $$

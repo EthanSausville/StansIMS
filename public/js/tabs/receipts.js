@@ -8,7 +8,7 @@ import { h, pageHead, monthPicker, chip, qty, toast, niceError, todayIso, longDa
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
 import { can, isClosed, closedNote } from '../perms.js';
-import { hasReceiving, unitWord, holdsLabel, toDate } from '../calc.js';
+import { hasReceiving, unitWord, holdsLabel, toDate, COMPANY_START } from '../calc.js';
 
 let day = todayIso();
 let typed = {};      // item_no -> text typed but not saved yet (kept across re-renders)
@@ -87,8 +87,8 @@ function enterView(rerender) {
     catch (err) { toast(niceError(err), 'bad'); }
   };
 
-  const dateInput = h('input', { type: 'date', class: 'big-date', value: day, max: todayIso(), 'aria-label': 'Delivery date',
-    onchange: (e) => { if (e.target.value) { day = e.target.value; lastSaved = null; rerender(); } } });
+  const dateInput = h('input', { type: 'date', class: 'big-date', value: day, min: COMPANY_START, max: todayIso(), 'aria-label': 'Delivery date',
+    onchange: (e) => { if (e.target.value) { day = e.target.value < COMPANY_START ? COMPANY_START : e.target.value; lastSaved = null; rerender(); } } });
   refresh();
   return h('div', null,
     pageHead('New Receipts', 'For whoever unloads the truck: pick the day it came in, type how many boxes, bags or cases of each thing arrived, and press Save delivery. The site works out the pounds, cups or each for you. If something was already entered for that day, this adds to it. All Receipts shows everything received, to check or fix past days.',

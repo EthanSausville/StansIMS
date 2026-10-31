@@ -1,7 +1,7 @@
 import { h, pageHead, money, qty, toast, niceError, confirmDialog, todayIso, acctCell, acctParts } from '../ui.js';
 import { can } from '../perms.js';
 import { state, derived, insertRow, updateRow, deleteRow } from '../store.js';
-import { MONTHS, yearOf, evalEntry } from '../calc.js';
+import { MONTHS, yearOf, evalEntry, COMPANY_START } from '../calc.js';
 import { loadButton, pendingPreview, historyTable, importCount } from './qbpanel.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters, setFilter, showValue, downloadButton } from '../xtable.js';
 
@@ -17,7 +17,7 @@ function saleFields(initial = {}) {
   const customers = [...new Set(state.data.sales.map((s) => s.customer).filter(Boolean))].sort();
   const listId = 'customers-' + Math.random().toString(36).slice(2);
   const f = {
-    date: h('input', { type: 'date', required: true, value: initial.date || todayIso() }),
+    date: h('input', { type: 'date', required: true, min: COMPANY_START, value: initial.date || todayIso() }),
     invoice: h('input', { type: 'text', value: initial.invoice || '', placeholder: 'e.g. 14664' }),
     product: h('select', { required: true }, h('option', { value: '' }, 'Choose…'),
       fgs.map((fg) => h('option', { value: fg.name, selected: initial.product === fg.name }, fg.name)),

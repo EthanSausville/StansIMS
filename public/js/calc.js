@@ -34,6 +34,8 @@ export const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', '
 
 // ---------- dates (ISO strings, UTC math so time zones never shift a day) ----------
 export const toDate = (iso) => new Date(iso + 'T00:00:00Z');
+// The company was purchased on this day: nothing is dated before it.
+export const COMPANY_START = '2026-01-23';
 export const isoOf = (d) => d.toISOString().slice(0, 10);
 export const addDays = (iso, n) => { const d = toDate(iso); d.setUTCDate(d.getUTCDate() + n); return isoOf(d); };
 export const yearOf = (iso) => Number(iso.slice(0, 4));

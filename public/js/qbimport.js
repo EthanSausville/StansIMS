@@ -6,6 +6,7 @@
 // transactions, and a "Total for <name>" row. Headings can nest
 // ("Retail (Sales Tax) Items" > "Retail Gallon ..."); a line takes the
 // innermost heading. Lines outside any heading get product "--", as in QuickBooks.
+import { COMPANY_START } from './calc.js';
 
 const HEADERS = {
   date: ['transaction date', 'date'],
@@ -189,7 +190,9 @@ export function newSales(rows, existing, keep = new Set()) {
   rows.forEach((r, index) => { const k = exactKey(r); if (seen.has(k) && !keep.has(index)) duplicates.push({ index, row: r }); else { seen.add(k); unique.push(r); } });
   const have = new Map();
   for (const s of existing) { const k = saleKey(s); have.set(k, (have.get(k) || 0) + 1); }
-  const add = []; let skipped = 0;
-  for (const r of unique) { const k = saleKey(r); const n = have.get(k) || 0; if (n > 0) { have.set(k, n - 1); skipped++; } else add.push(r); }
-  return { add, skipped, duplicates };
+  const add = []; let skipped = 0; let early = 0;
+  for (const r of unique) {
+    if (r.date < COMPANY_START) { early++; continue; } // before the company was purchased
+    const k = saleKey(r); const n = have.get(k) || 0; if (n > 0) { have.set(k, n - 1); skipped++; } else add.push(r); }
+  return { add, skipped, duplicates, early };
 }

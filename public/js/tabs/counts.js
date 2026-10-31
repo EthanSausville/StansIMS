@@ -7,7 +7,7 @@ import { h, pageHead, monthPicker, longDate, seg, qty, todayIso, acctCell, chip,
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
 import { can, isClosed, closedNote } from '../perms.js';
-import { countSheet, COUNT_TOLERANCE, yearOf, hasReceiving, splitReceiving, unitWord, evalEntry } from '../calc.js';
+import { countSheet, COUNT_TOLERANCE, yearOf, hasReceiving, splitReceiving, unitWord, evalEntry, COMPANY_START } from '../calc.js';
 
 let mode = 'month'; // All Counts: 'month' or 'check'
 
@@ -47,8 +47,8 @@ function countText(it, v) {
   const parts = [sp.full ? `${qty(sp.full)} ${unitWord(it.receiving_unit, sp.full)}` : '', sp.loose ? `${qty(sp.loose, 2)} ${unitWord(it.unit, sp.loose)}` : ''].filter(Boolean);
   return `${parts.join(' + ') || '0'}${sp.full ? ` (${qty(v, 2)} ${unitWord(it.unit, v)})` : ''}`;
 }
-const dateField = (value, onPick, max) => h('label', { class: 'field' }, 'Count date', h('input', { type: 'date', class: 'big-date', value, max, 'aria-label': 'Count date',
-  onchange: (e) => { if (e.target.value) onPick(e.target.value); } }));
+const dateField = (value, onPick, max) => h('label', { class: 'field' }, 'Count date', h('input', { type: 'date', class: 'big-date', value, min: COMPANY_START, max, 'aria-label': 'Count date',
+  onchange: (e) => { if (e.target.value) onPick(e.target.value < COMPANY_START ? COMPANY_START : e.target.value); } }));
 const busyNote = (date) => {
   const busy = state.data.production.some((p) => p.date === date) || state.data.goods_receipts.some((r) => r.date === date);
   return busy ? h('div', { class: 'note warn' }, `There’s production or a delivery entered on ${longDate(date)}. Counts are taken at the start of the day, so count before anything is made or received, or count on another day.`) : null;

@@ -46,6 +46,14 @@ insert into public.production (date, item_no, cases) values ('2026-10-26', 50000
 update public.production set cases = 60 where date = '2026-10-26' and item_no = 500001;
 select cases, updated_by from public.production where date = '2026-10-26';
 delete from public.production where date = '2026-10-26';
+\set ON_ERROR_STOP off
+\echo 'entering production before the company was purchased (should fail):'
+insert into public.production (date, item_no, cases) values ('2026-01-22', 500001, 5);
+\echo 'counting before the company was purchased (should fail):'
+insert into public.cycle_counts (date, item_no, qty) values ('2026-01-20', 100001, 5);
+\set ON_ERROR_STOP on
+insert into public.production (date, item_no, cases) values ('2026-01-23', 500001, 5);
+delete from public.production where date = '2026-01-23' and item_no = 500001 and cases = 5;
 \echo 'staff changing a standard cost (should change 0 rows):'
 update public.standard_costs set cost = 99 where item_no = 100001;
 \set ON_ERROR_STOP off

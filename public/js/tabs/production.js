@@ -5,7 +5,7 @@
 import { h, pageHead, qty, numberCell, dateLabel, todayIso, chip, longDate, toast, niceError, DOW } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { can, isClosed, closedNote, monthName } from '../perms.js';
-import { eachDay, isWeekend, lotCode, productionDays, toDate } from '../calc.js';
+import { eachDay, isWeekend, lotCode, productionDays, toDate, COMPANY_START } from '../calc.js';
 import { downloadXlsx } from '../xlsx.js';
 import { xtable, filteredRows, activeFilterCount, clearFilters } from '../xtable.js';
 
@@ -52,8 +52,7 @@ function dailyView() {
   const values = new Map();
   for (const r of state.data.production) values.set(`${r.date}|${r.item_no}`, (values.get(`${r.date}|${r.item_no}`) || 0) + (Number(r.cases) || 0));
   const today = todayIso();
-  const first = state.data.production.reduce((m, r) => (r.date < m ? r.date : m), `${today.slice(0, 4)}-01-01`);
-  const allDays = [...eachDay(first < '2026-01-01' ? first : '2026-01-01', today)].reverse(); // newest first
+  const allDays = [...eachDay(COMPANY_START, today)].reverse(); // newest first, back to the day the company was purchased
   const allowed = can('production', 'edit');
   const save = (date, item_no, v) => saveCell('production', { date, item_no }, 'cases', v);
 
@@ -86,14 +85,15 @@ function dailyView() {
       h('span', { class: 'fg-recipe' }, recipe), h('span', { class: 'fg-size' }, size), h('span', { class: 'fg-pack' }, pack)); })));
   shownDays = Math.min(Math.max(shownDays, CHUNK), allDays.length);
   const body = h('tbody', null, rowsFor(allDays.slice(0, shownDays), null));
-  const more = h('div', { class: 'load-more small muted' }, shownDays < allDays.length ? 'Loading earlier days…' : `That’s everything back to ${monthName(allDays.at(-1).slice(0, 7))}.`);
+  const endNote = `That’s everything: the company was purchased on ${longDate(COMPANY_START)}.`;
+  const more = h('div', { class: 'load-more small muted' }, shownDays < allDays.length ? 'Loading earlier days…' : endNote);
   const loadMore = () => {
     if (shownDays >= allDays.length) return;
     const prev = allDays[shownDays - 1].slice(0, 7);
     const next = allDays.slice(shownDays, shownDays + CHUNK);
     shownDays += next.length;
     body.append(...rowsFor(next, prev));
-    if (shownDays >= allDays.length) { more.textContent = `That’s everything back to ${monthName(allDays.at(-1).slice(0, 7))}.`; io.disconnect(); }
+    if (shownDays >= allDays.length) { more.textContent = endNote; io.disconnect(); }
   };
   const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) loadMore(); }, { rootMargin: '600px 0px' });
   requestAnimationFrame(() => { if (more.isConnected) io.observe(more); });
@@ -233,8 +233,8 @@ function newLotsView(rerender) {
     try { for (const l of nlSaved.lines) await saveCell('production', { date: nlSaved.day, item_no: l.item.item_no }, 'cases', l.before || null); toast('Production taken back out.'); nlSaved = null; rerender(); }
     catch (err) { toast(niceError(err), 'bad'); }
   };
-  const dateInput = h('input', { type: 'date', class: 'big-date', value: day, max: todayIso(), 'aria-label': 'Production date',
-    onchange: (e) => { if (e.target.value) { nlDay = e.target.value; nlSaved = null; rerender(); } } });
+  const dateInput = h('input', { type: 'date', class: 'big-date', value: day, min: COMPANY_START, max: todayIso(), 'aria-label': 'Production date',
+    onchange: (e) => { if (e.target.value) { nlDay = e.target.value < COMPANY_START ? COMPANY_START : e.target.value; nlSaved = null; rerender(); } } });
   refresh();
   return h('div', null,
     pageHead('New Lots', 'For the production line: pick the day, type how many cases of each product were made, and press Save production. Each product made that day is a lot. If something was already entered for that day, this adds to it.',

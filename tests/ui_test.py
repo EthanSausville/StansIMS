@@ -316,6 +316,8 @@ with sync_playwright() as p:
         page.locator('.load-more').scroll_into_view_if_needed(); page.wait_for_timeout(250)
     after_rows = page.locator('table.prod-table tbody tr').count()
     check(after_rows > before_rows and page.locator('tr.month-row[data-month="2026-01"]').count() == 1, f'scrolling down loads earlier days back to January ({before_rows} -> {after_rows} rows)')
+    last = page.locator('table.prod-table tbody tr[data-day]').last.get_attribute('data-day')
+    check(last == '2026-01-23' and 'purchased' in page.locator('.load-more').inner_text(), f'the list stops at 1/23/2026, when the company was purchased ({last})')
     check(page.locator('.to-top.show').count() == 1, 'back-to-top button shows once scrolled down')
     page.locator('.to-top').click(); page.wait_for_timeout(900)
     check(page.locator('.to-top.show').count() == 0, 'and takes you back to the top')

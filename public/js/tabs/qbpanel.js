@@ -42,9 +42,9 @@ function convert(p) {
   const { rows, zero } = convertLines(p.lines, maps, stdPrice);
   // Duplicates are left out unless kept (an invoice can really list the same item twice).
   const all = newSales(rows, state.data.sales).duplicates;
-  const { add, skipped } = newSales(rows, state.data.sales, p.keepDup);
+  const { add, skipped, early } = newSales(rows, state.data.sales, p.keepDup);
   const duplicates = all.map((d) => ({ ...d, kept: p.keepDup.has(d.index) }));
-  return { rows, zero, add, skipped, duplicates };
+  return { rows, zero, add, skipped, duplicates, early };
 }
 
 async function loadFile(file, rerender) {
@@ -89,7 +89,7 @@ export function pendingPreview(rerender) {
     try {
       const names = [...[...p.chosen.customer].map(([qb_name, name]) => ({ kind: 'customer', qb_name, name: name.trim() || guessCustomer(qb_name) })),
         ...[...p.chosen.product].map(([qb_name, name]) => ({ kind: 'product', qb_name, name }))];
-      const { added } = await importSales({ fileName: p.fileName, period: p.report.period, from: p.from, to: p.to, rows: c.add, skipped: c.skipped + c.duplicates.filter((d) => !d.kept).length, names });
+      const { added } = await importSales({ fileName: p.fileName, period: p.report.period, from: p.from, to: p.to, rows: c.add, skipped: c.skipped + c.early + c.duplicates.filter((d) => !d.kept).length, names });
       toast(`Added ${added} line${added === 1 ? '' : 's'} from ${p.fileName}.`);
       pending = null;
     } catch (err) { toast(niceError(err), 'bad'); } finally { busy = false; rerender(); }
@@ -104,6 +104,7 @@ export function pendingPreview(rerender) {
         stat('$0 lines left out', c.zero, 'Voided, notes, no charge'),
         stat('Duplicate lines', c.duplicates.filter((d) => !d.kept).length, c.duplicates.length ? `Repeated in the report; left out${c.duplicates.some((d) => d.kept) ? ` (${c.duplicates.filter((d) => d.kept).length} kept)` : ''}` : 'None'),
         stat('Already in Sales Detail', c.skipped, c.skipped ? 'Will be skipped' : ''),
+        c.early ? stat('Before 1/23/2026', c.early, 'Before the company was purchased: skipped') : null,
         stat('New lines to add', c.add.length, c.add.length ? money(addTotal) : 'Nothing new')),
       toConfirm ? h('div', { class: 'confirm-names' },
         h('h3', null, 'New QuickBooks names'),

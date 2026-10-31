@@ -53,8 +53,9 @@ The first account created becomes an admin. Everyone else is added by an admin o
 1. **SQL Editor → New query:** paste `supabase/schema.sql`, Run (later changes are applied automatically; see *Automatic database updates*). Then paste `seed.sql` (kept outside the repo), Run.
 2. **Authentication → Sign In / Providers → Email:** turn off **Allow new users to sign up**, so only people you invite can get in.
 3. **Authentication → URL Configuration:** set **Site URL** to the site's address (e.g. `https://inventory.example.com`) and add it under **Redirect URLs**. Invite and password-reset links go there.
-4. **Authentication → Users → Add user → Create new user:** your own email and a password, with **Auto Confirm User** on. Being first, you're the admin.
-5. Add everyone else on the site: **Settings → Users** (needs the Worker secret below). People added in the Supabase dashboard instead start turned off; turn them on in Settings → Users.
+4. **Email (needed for invitations, password-reset and email-change emails):** Supabase's built-in email only reaches members of your Supabase team, about 2 an hour, so those emails fail for everyone else until you connect an email-sending service (Resend, Brevo, Postmark…) under **Authentication → Emails → SMTP Settings → Enable Custom SMTP**. Until then, add people on Settings → Users with *Set a password now* (the page says so).
+5. **Authentication → Users → Add user → Create new user:** your own email and a password, with **Auto Confirm User** on. Being first, you're the admin.
+6. Add everyone else on the site: **Settings → Users** (needs the Worker secret below). People added in the Supabase dashboard instead start turned off; turn them on in Settings → Users.
 
 ### 2. Cloudflare Worker
 

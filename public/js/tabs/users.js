@@ -14,7 +14,7 @@ import { questionsByUser, resetAnswers } from '../security.js';
 let users = null;      // rows shown
 let configured = null; // does the Worker have the secret key?
 let loading = false;
-let mode = 'invite';   // add form: 'invite' or 'password'
+let mode = 'password'; // add form: 'invite' or 'password' (password first: email isn't set up yet)
 let sq = null;         // user id → how many security questions they've set (null: not available)
 
 function load(rerender) {
@@ -110,7 +110,7 @@ export default {
         h('label', { class: 'field' }, 'Email', email), h('label', { class: 'field' }, 'Name', name), h('label', { class: 'field' }, 'Role', role),
         mode === 'password' ? h('label', { class: 'field' }, `Password (${PASSWORD_RULE})`, pass) : null,
         h('button', { class: 'btn primary', type: 'submit' }, mode === 'invite' ? 'Send invitation' : 'Add user')),
-      h('p', { class: 'small muted' }, mode === 'invite' ? 'They get an email with a link to choose their own password.' : 'They can sign in right away; give them the password privately. They can change it under Settings → My Account.'));
+      h('p', { class: 'small muted' }, mode === 'invite' ? 'They get an email with a link to choose their own password (once email is set up; see the note above).' : 'They can sign in right away; give them the password privately. They can change it under Settings → My Account.'));
 
     // ---- everyone ----
     const columns = [
@@ -156,6 +156,11 @@ export default {
       configured === false ? h('div', { class: 'note warn' },
         h('strong', null, 'Adding, deleting, emails and passwords need one more setup step. '),
         'In Supabase, open Project Settings → API Keys and copy the secret key. In Cloudflare, open the stansims Worker → Settings → Variables and Secrets → Add, choose type Secret, name it SUPABASE_SERVICE_ROLE_KEY and paste the key. Until then you can change names and roles and turn accounts off and on here.') : null,
+      h('div', { class: 'note warn email-note' },
+        h('strong', null, 'Email isn’t set up yet, so anything that sends an email will fail: '),
+        'invitations, Resend invite, Reset password, Change email, and “Forgot password?” on the sign-in page. Until it’s set up, add people with ',
+        h('em', null, 'Set a password now'), ' and give them the password in person; if someone forgets theirs, use ', h('em', null, 'Set password'), ' here. ',
+        'To turn email on: sign up with an email-sending service (Resend, Brevo, Postmark…), then in Supabase open Authentication → Emails → SMTP Settings, turn on Enable Custom SMTP and enter its details. Supabase’s built-in email only reaches members of your Supabase team, about 2 emails an hour.'),
       admins === 1 && rows.length > 1 ? h('div', { class: 'note info' }, 'There’s only one admin. A second one means you can never be locked out.') : null,
       configured ? addCard : null,
       users === null ? h('div', { class: 'empty' }, 'Loading…') : h('div', { class: 'tablewrap' },

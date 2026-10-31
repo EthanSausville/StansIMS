@@ -172,6 +172,8 @@ with sync_playwright() as p:
     # ---- Settings → Users: full control ----
     page.get_by_role('tab', name='Users', exact=True).click(); page.wait_for_timeout(300)
     check(page.locator('table.users-table tbody tr').count() == 2 and page.locator('form.user-add').count() == 1, 'Users lists everyone, with Add a user')
+    check(page.locator('.note.email-note', has_text='Email isn’t set up yet').count() == 1 and page.locator('form.user-add button[aria-pressed=true]', has_text='Set a password now').count() == 1, 'Users warns that email isn’t set up, and starts on Set a password now')
+    page.locator('form.user-add').get_by_role('button', name='Email them an invitation').click(); page.wait_for_timeout(150)
     page.locator('form.user-add input[type=email]').fill('new.person@stans.test'); page.locator('form.user-add input[aria-label=Name]').fill('New Person')
     page.locator('form.user-add').get_by_role('button', name='Send invitation').click(); page.wait_for_timeout(400)
     newp = page.evaluate("window.__MOCK_DB__.profiles.find(p => p.email === 'new.person@stans.test')")

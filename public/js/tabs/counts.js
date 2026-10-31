@@ -6,13 +6,14 @@
 import { h, pageHead, monthPicker, longDate, seg, qty, todayIso, acctCell, chip, toast, niceError, itemNoTh, itemNoTd } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
+import { can, isClosed, closedNote } from '../perms.js';
 import { countSheet, COUNT_TOLERANCE, yearOf, hasReceiving, splitReceiving, unitWord, evalEntry } from '../calc.js';
 
 let mode = 'month'; // All Counts: 'month' or 'check'
 
 // Counting an item that comes in boxes / bags / cases: full ones, plus what's
 // loose in the base unit (12 boxes + 15 lb of cheese = 375 lb).
-function boxCountCell(item, value, save) {
+function boxCountCell(item, value, save, locked) {
   const per = Number(item.units_per_receiving);
   const sp = splitReceiving(item, value);
   const full = h('input', { type: 'text', inputmode: 'decimal', class: 'cnt-full', value: sp ? sp.full : '', 'data-k': `csf|${item.item_no}`, 'aria-label': `Full ${unitWord(item.receiving_unit)} of ${item.name}` });
@@ -22,13 +23,13 @@ function boxCountCell(item, value, save) {
   const show = () => { try { const v = read(); total.textContent = v === null ? '' : `= ${qty(v, 2)} ${unitWord(item.unit, v)}`; full.classList.remove('error'); loose.classList.remove('error'); } catch { total.textContent = 'Numbers only'; } };
   const commit = async () => { let v; try { v = read(); } catch (err) { (full.value && Number.isNaN(Number(full.value)) ? full : loose).classList.add('error'); toast(err.message, 'bad'); return; }
     if ((v ?? null) === (value ?? null)) return; try { await save(v); } catch (err) { toast(niceError(err), 'bad'); } };
-  for (const el of [full, loose]) { el.addEventListener('input', show); el.addEventListener('change', commit); }
+  for (const el of [full, loose]) { el.disabled = !!locked; el.addEventListener('input', show); el.addEventListener('change', commit); }
   show();
   return h('td', { class: 'cnt-box' }, h('div', { class: 'cnt-line' }, full, h('span', { class: 'cnt-u' }, `full ${unitWord(item.receiving_unit)}`), h('span', { class: 'cnt-plus' }, '+'), loose, h('span', { class: 'cnt-u' }, `${unitWord(item.unit)} loose`)), total);
 }
 // Counting an item that's only counted in its base unit.
-function plainCountCell(item, value, save) {
-  const input = h('input', { type: 'text', inputmode: 'decimal', class: 'cnt-full', value: value ?? '', 'data-k': `cs|${item.item_no}`, 'aria-label': `${item.name} counted` });
+function plainCountCell(item, value, save, locked) {
+  const input = h('input', { type: 'text', inputmode: 'decimal', class: 'cnt-full', value: value ?? '', disabled: !!locked, 'data-k': `cs|${item.item_no}`, 'aria-label': `${item.name} counted` });
   input.addEventListener('change', async () => { let v; try { v = input.value.trim() ? evalEntry(input.value) : null; input.classList.remove('error'); } catch (err) { input.classList.add('error'); toast(err.message, 'bad'); return; }
     if ((v ?? null) === (value ?? null)) return; try { await save(v); } catch (err) { toast(niceError(err), 'bad'); } });
   return h('td', { class: 'cnt-box' }, h('div', { class: 'cnt-line' }, input, h('span', { class: 'cnt-u' }, unitWord(item.unit) || 'each')));
@@ -60,6 +61,7 @@ export const newCounts = {
     const items = countItems();
     const rows = countSheet(state.data, derived.inventory(), sheetDate, items);
     const done = rows.filter((r) => r.counted !== null).length;
+    const allowed = can('counts', 'edit'); const closed = isClosed(sheetDate); const locked = closed || !allowed;
     let group = null; const body = [];
     for (const r of rows) {
       if (r.item.type !== group) { group = r.item.type; body.push(h('tr', { class: 'grp' }, h('td', { colspan: 4 }, groupName(group)))); }
@@ -67,7 +69,7 @@ export const newCounts = {
       body.push(h('tr', null,
         itemNoTd(r.item), h('td', { class: 'sticky-col sticky-col2 cnt-name' }, h('strong', null, r.item.name)),
         h('td', { class: 'muted' }, comesIn(r.item)),
-        hasReceiving(r.item) ? boxCountCell(r.item, r.counted, saveIt) : plainCountCell(r.item, r.counted, saveIt)));
+        hasReceiving(r.item) ? boxCountCell(r.item, r.counted, saveIt, locked) : plainCountCell(r.item, r.counted, saveIt, locked)));
     }
     return h('div', null,
       pageHead('New Counts', 'Count what’s on the shelf and type it in: full boxes, bags or cases, plus anything loose. Each count saves as soon as you move to the next box. The sheet doesn’t show what the system expects, so the count isn’t steered by it; All Counts → Check a day compares them afterwards.',
@@ -75,6 +77,7 @@ export const newCounts = {
         h('div', { class: 'dl-day' }, sheetDate === todayIso() ? 'Today' : longDate(sheetDate)),
         sheetDate !== todayIso() ? h('button', { class: 'btn', onclick: () => { sheetDate = todayIso(); rerender(); } }, 'Back to today') : null,
         chip('Counted', `${done} of ${rows.length}`)),
+      !allowed ? h('div', { class: 'note warn' }, 'Your role can view counts but not enter them.') : closed ? h('div', { class: 'note closed-note' }, '🔒 ', closedNote(sheetDate.slice(0, 7))) : null,
       busyNote(sheetDate),
       h('h2', { class: 'dl-title' }, `What’s on the shelf on ${longDate(sheetDate)}?`),
       h('div', { class: 'tablewrap', 'data-scroll': 'count-sheet' }, h('table', { class: 't count-sheet' },
@@ -141,7 +144,7 @@ export const allCounts = {
       entryGrid({
         table: 'cycle_counts', field: 'qty', items, ym: view.ym, rows: state.data.cycle_counts, footer: false,
         cellClass: (d, it) => [conflict(d, it) ? 'flag' : '', off.has(`${d}|${it.item_no}`) ? 'off' : ''].join(' ').trim() || null,
-        editable: { allowed: true, save: (date, item_no, v) => saveCell('cycle_counts', { date, item_no }, 'qty', v) },
+        editable: { allowed: can('counts', 'edit'), save: (date, item_no, v) => saveCell('cycle_counts', { date, item_no }, 'qty', v) },
       }));
   },
 };

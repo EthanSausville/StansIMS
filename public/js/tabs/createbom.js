@@ -4,7 +4,8 @@
 // nest to any depth. Lines that would put an item inside itself are refused.
 // Nothing is saved until Save.
 import { h, qty, money, fmt, toast, niceError, confirmDialog, thisYear } from '../ui.js';
-import { state, derived, isAdmin, saveBom, deleteBom } from '../store.js';
+import { state, derived, saveBom, deleteBom } from '../store.js';
+import { can } from '../perms.js';
 import { costModel, wouldLoop, index, evalEntry, TYPES, nextItemNo as nextNo, itemNoProblem } from '../calc.js';
 
 const stat = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'small muted' }, sub) : null);
@@ -89,7 +90,7 @@ function problems() {
 // The editor, laid out for the side bar. `year` is the cost year shown.
 export function bomEditor({ rerender }) {
   rerenderRef = rerender;
-  if (!isAdmin() || !draft) return [];
+  if (!can('standards', 'edit') || !draft) return [];
   const { year } = draft;
   const ix = index(state.data, year); const cmNow = derived.costs();
   const touch = () => { draft.dirty = true; rerender(); };

@@ -1,4 +1,5 @@
 import { h, pageHead, money, qty, toast, niceError, confirmDialog, todayIso, acctCell, acctParts } from '../ui.js';
+import { can } from '../perms.js';
 import { state, derived, insertRow, updateRow, deleteRow } from '../store.js';
 import { MONTHS, yearOf, evalEntry } from '../calc.js';
 import { loadButton, pendingPreview, historyTable, importCount } from './qbpanel.js';
@@ -130,12 +131,13 @@ export default {
     const body = preview || (open === 'history' ? historyTable() : null);
     const sel = selected ? rowsAll.find((r) => r.id === selected) : null;
     const done = (id) => { form = null; selected = id; rerender(); };
+    const canEdit = can('sales', 'edit');
     // Side bar: load a QuickBooks report, add a line by hand, see past loads.
     return h('div', null,
       pageHead('Sales Detail', 'Every invoice line, as on the workbook’s SalesReport sheet. Use the ▾ button on any column heading to filter or sort, like an Excel table; the totals at the bottom of the screen add up the lines showing. Load a QuickBooks Sales by Product/Service Detail export to add new lines (lines already here are skipped), or add one by hand.',
-        loadButton(rerender),
-        !form ? h('button', { class: 'btn primary', onclick: () => { form = 'add'; rerender(); } }, 'Add sale') : null,
-        !form && sel ? h('button', { class: 'btn primary', onclick: () => { form = 'edit'; rerender(); } }, 'Edit sale') : null,
+        canEdit ? loadButton(rerender) : null,
+        canEdit && !form ? h('button', { class: 'btn primary', onclick: () => { form = 'add'; rerender(); } }, 'Add sale') : null,
+        canEdit && !form && sel ? h('button', { class: 'btn primary', onclick: () => { form = 'edit'; rerender(); } }, 'Edit sale') : null,
         form ? saleForm(form === 'edit' ? sel : null, done) : null,
         importCount() ? h('button', { class: 'btn ghost' + (open === 'history' && !preview ? ' on' : ''), 'aria-expanded': String(open === 'history'), onclick: flip('history') }, `Loaded reports (${importCount()})`) : null,
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters(TID); rerender(); } }, `Clear filters (${nFilters})`) : null,

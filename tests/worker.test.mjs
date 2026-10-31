@@ -38,6 +38,7 @@ function fakeSupabase() {
       if (method === 'PATCH') { rows.forEach((p) => Object.assign(p, body)); return ok(rows); }
       return ok(rows);
     }
+    if (path === '/rest/v1/roles') { const id = (url.searchParams.get('id') || '').replace('eq.', ''); return ok(['staff', 'admin', 'receiving'].includes(id) ? [{ id }] : []); }
     if (path === '/rest/v1/audit_log') { db.audit.push(body); return new Response('', { status: 201 }); }
     if (path === '/auth/v1/admin/users' && method === 'GET') return ok({ users: db.users });
     if ((path === '/auth/v1/admin/users' && method === 'POST') || path === '/auth/v1/invite') {
@@ -100,6 +101,10 @@ test('invite, add, change, turn off and on, delete', async () => {
   assert.equal((await call(env(), { body: { action: 'update', id: STAFF, role: 'boss' } })).status, 400);
   assert.equal((await call(env(), { body: { action: 'update', id: STAFF, role: 'admin', name: 'Sam' } })).status, 200);
   assert.equal(db.profiles[1].role, 'admin'); assert.equal(db.profiles[1].name, 'Sam');
+  assert.equal((await call(env(), { body: { action: 'update', id: STAFF, role: 'receiving' } })).status, 200, 'any role from Settings → Roles');
+  assert.equal(db.profiles[1].role, 'receiving');
+  assert.equal((await call(env(), { body: { action: 'update', id: STAFF, role: 'nope' } })).status, 400, 'but not one that doesn’t exist');
+  await call(env(), { body: { action: 'update', id: STAFF, role: 'admin' } });
   r = await call(env(), { body: { action: 'disable', id: STAFF } });
   assert.equal(r.status, 200); assert.equal(db.profiles[1].disabled, true);
   assert.ok(db.calls.some((c) => c.path === `/auth/v1/admin/users/${STAFF}` && c.body?.ban_duration === '876000h'), 'turning off also blocks sign-in');

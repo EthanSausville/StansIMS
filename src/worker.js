@@ -30,7 +30,7 @@ const json = (status, body) => new Response(JSON.stringify(body), {
   status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
 });
 
-const ROLES = new Set(['staff', 'admin']);
+const ROLE_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const EMAIL = /^[^\s@<>()[\],;:"]{1,64}@[^\s@<>()[\],;:"]{1,190}\.[a-z]{2,24}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MIN_PASSWORD = 10;
@@ -115,7 +115,7 @@ async function otherAdmins(s, id) {
 const clean = {
   email(v) { const e = String(v || '').trim().toLowerCase(); if (!EMAIL.test(e)) throw new Fail(400, 'Enter a valid email address.'); return e; },
   name(v) { const n = String(v ?? '').replace(/[\u0000-\u001f<>]/g, '').trim(); if (n.length > 80) throw new Fail(400, 'Names can be up to 80 characters.'); return n || null; },
-  role(v) { if (!ROLES.has(v)) throw new Fail(400, 'Role must be staff or admin.'); return v; },
+  role(v) { if (!ROLE_ID.test(String(v || ''))) throw new Fail(400, 'Unknown role.'); return v; },
   id(v) { if (!UUID.test(String(v || ''))) throw new Fail(400, 'Unknown user.'); return String(v); },
   password(v) {
     const p = String(v || '');
@@ -126,6 +126,14 @@ const clean = {
     return p;
   },
 };
+
+// A role must exist (Settings → Roles). Before the database has roles, only staff and admin.
+async function checkRole(s, id) {
+  let rows = null;
+  try { rows = await s.call(`/rest/v1/roles?id=eq.${encodeURIComponent(id)}&select=id`); } catch { rows = null; }
+  if (rows ? !rows.length : !['staff', 'admin'].includes(id)) throw new Fail(400, 'Unknown role. Pick one from Settings → Roles.');
+  return id;
+}
 
 async function listUsers(s) {
   const [auth, profs] = await Promise.all([s.call('/auth/v1/admin/users?page=1&per_page=1000'), profiles(s)]);
@@ -166,7 +174,7 @@ async function handleAdmin(request, env, url) {
 
   switch (b.action) {
     case 'invite': {
-      const email = clean.email(b.email); const role = clean.role(b.role || 'staff'); const name = clean.name(b.name);
+      const email = clean.email(b.email); const role = await checkRole(s, clean.role(b.role || 'staff')); const name = clean.name(b.name);
       const u = await s.call(`/auth/v1/invite?redirect_to=${encodeURIComponent(redirectTo)}`, { method: 'POST', body: { email, data: { name } } });
       await waitForProfile(s, u.id);
       await setProfile(s, u.id, { role, name, disabled: false, email });
@@ -174,7 +182,7 @@ async function handleAdmin(request, env, url) {
       return json(200, { ok: true, message: `Invitation sent to ${email}.` });
     }
     case 'create': {
-      const email = clean.email(b.email); const role = clean.role(b.role || 'staff'); const name = clean.name(b.name); const password = clean.password(b.password);
+      const email = clean.email(b.email); const role = await checkRole(s, clean.role(b.role || 'staff')); const name = clean.name(b.name); const password = clean.password(b.password);
       const u = await s.call('/auth/v1/admin/users', { method: 'POST', body: { email, password, email_confirm: true, user_metadata: { name } } });
       await waitForProfile(s, u.id);
       await setProfile(s, u.id, { role, name, disabled: false, email });
@@ -185,7 +193,7 @@ async function handleAdmin(request, env, url) {
       const id = clean.id(b.id); const patch = {};
       if ('name' in b) patch.name = clean.name(b.name);
       if ('role' in b) {
-        patch.role = clean.role(b.role);
+        patch.role = await checkRole(s, clean.role(b.role));
         if (patch.role !== 'admin' && id === who.id) throw new Fail(400, 'You can’t remove your own admin access.');
         if (patch.role !== 'admin' && !(await otherAdmins(s, id))) throw new Fail(400, 'There must be at least one admin.');
       }

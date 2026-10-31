@@ -1,5 +1,6 @@
 import { h, pageHead, numberCell, typePill, toast, niceError, confirmDialog, acctText, acctCell, thisYear, thisMonth } from '../ui.js';
-import { state, derived, saveCell, isAdmin, insertRow, updateRow, deleteRow } from '../store.js';
+import { state, derived, saveCell, insertRow, updateRow, deleteRow } from '../store.js';
+import { can } from '../perms.js';
 import { TYPES, isLaborItem, isTiedIndirect, nextItemNo, itemNoProblem, hasReceiving, receiptText, parseReceipt } from '../calc.js';
 
 import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
@@ -72,7 +73,7 @@ export default {
   get sideWidth() { return editing ? 300 : 170; },
   get sideKey() { return editing ? 'costs-form' : 'costs'; },
   render({ rerender }) {
-    const cm = derived.costs(); const admin = isAdmin();
+    const cm = derived.costs(); const admin = can('standards', 'edit');
     const entered = new Map(state.data.standard_costs.map((c) => [`${c.item_no}|${c.year}`, c.cost]));
     const items = [...state.data.items].sort((a, b) => a.sort - b.sort);
     const costOf = (it, y) => (enterable(it) ? entered.get(`${it.item_no}|${y}`) ?? null : cm.cost(it.item_no, y));
@@ -107,7 +108,7 @@ export default {
     const sel = selected ? items.find((it) => it.item_no === selected) : null;
     const nFilters = activeFilterCount('costs');
     return h('div', null,
-      pageHead('Master List', 'Every item, with its standard cost for each year. Update on January 1st each year; a cost left blank for a year uses the year before’s (shown in grey). Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab and overhead from the Overhead tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Only admins can change these.'),
+      pageHead('Master List', 'Every item, with its standard cost for each year. Update on January 1st each year; a cost left blank for a year uses the year before’s (shown in grey). Enter costs for raw materials, packaging and overhead; direct labor comes from the Labor tab and overhead from the Overhead tab, and recipes and finished goods add themselves up. Recipe costs are per oz; finished goods are per case. Grey cells are calculated.' + (admin ? '' : ' Your role can view these but not change them.'),
         admin && !editing ? h('button', { class: 'btn primary', onclick: () => { editing = 'new'; rerender(); } }, 'Add item') : null,
         admin && editing ? itemForm(editing === 'new' ? null : items.find((it) => it.item_no === editing), (no) => { editing = null; selected = no; rerender(); }) : null,
         admin && !editing && sel ? h('button', { class: 'btn primary', onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item') : null,

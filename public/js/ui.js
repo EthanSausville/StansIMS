@@ -58,7 +58,7 @@ export function toast(message, kind = '') {
 
 export function niceError(e) {
   const m = e?.message || String(e);
-  if (/row-level security|permission denied/i.test(m)) return 'Only admins can change this.';
+  if (/row-level security|permission denied/i.test(m)) return 'Your role can’t change this.';
   if (/foreign key/i.test(m)) return 'That item is still used elsewhere (recipes, production, sales…), so it can’t be removed.';
   if (/duplicate key/i.test(m)) return 'That already exists.';
   if (/Failed to fetch|NetworkError/i.test(m)) return 'Couldn’t reach the database. Check your connection and try again.';

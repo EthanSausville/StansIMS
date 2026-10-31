@@ -9,7 +9,8 @@
 //   Safety Stocks  lead times, safety stocks, minimum orders.
 // The rules are in calc.js (demandPlan, materialPlan).
 import { h, pageHead, numberCell, qty, chip, longDate, typePill, todayIso, toast, niceError, acctCell, acctText, itemNoCol, itemNoTh, itemNoTd } from '../ui.js';
-import { state, derived, saveCell, saveField, isAdmin } from '../store.js';
+import { state, derived, saveCell, saveField } from '../store.js';
+import { can } from '../perms.js';
 import { DEFAULT_LEAD_DAYS, SAFETY_LEAD_MULTIPLE, PLAN_WEEKS, ENTRY_WEEKS, ACTUAL_WEEKS, addDays, holdsLabel, inReceiving, hasReceiving, unitWord, mondayOf, receiptText } from '../calc.js';
 
 // "2,640 box" for a quantity in base units, when the item has a receiving unit.
@@ -41,7 +42,7 @@ export const safetyStocksTab = {
   id: 'safety',
   label: 'Safety Stocks',
   render({ rerender }) {
-    const rows = derived.materials().rows; const admin = isAdmin();
+    const rows = derived.materials().rows; const admin = can('planning', 'edit');
     const settings = new Map(state.data.purchase_settings.map((s) => [s.item_no, s]));
     const unit = (r) => r.item.unit || 'each';
     const n0 = (v) => qty(v, 0);
@@ -91,7 +92,7 @@ export const safetyStocksTab = {
         `Each row is a raw material or packaging item, in its unit from the Master List. Demand is what the next ${ENTRY_WEEKS} weeks on the Production tab will use.`,
         `Grey numbers are the defaults: a ${DEFAULT_LEAD_DAYS}-day lead time, a safety stock that covers ${SAFETY_LEAD_MULTIPLE}× the lead time of use, and a minimum order of one box, bag or case. Type over one to change it; clear it to go back.`,
         'Notes start with the minimum order and what the item comes in; type over them to keep your own (supplier, who to call…), or clear them to go back.',
-        'Purchases uses these to tell you when to order and how much.' + (admin ? '' : ' Only admins can change them.'),
+        'Purchases uses these to tell you when to order and how much.' + (admin ? '' : ' Your role can view these but not change them.'),
       ]),
       noData(),
       h('div', { class: 'table-block wide' },
@@ -109,7 +110,7 @@ export const productionPlanTab = {
   id: 'planning',
   label: 'Production',
   render() {
-    const plan = derived.plan(); const admin = isAdmin();
+    const plan = derived.plan(); const admin = can('planning', 'edit');
     const weeks = plan.weeks.slice(0, ENTRY_WEEKS);
     const head = (w, i, kind) => h('th', { class: `num wk ${kind}${i === 0 ? ' first' : ''}`, title: `Week of ${longDate(w)}` },
       h('span', { class: 'wk-label' }, kind === 'plan' && i === 0 ? 'This week' : 'Week of'), h('span', { class: 'wk-date' }, shortDate(w)));

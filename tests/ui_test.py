@@ -49,6 +49,10 @@ def mock_db():
     db['profiles'] = [dict(user_id='u1', email='owner@stans.test', role='admin', created_at='2026-10-27T12:00:00Z'),
                       dict(user_id='u2', email='staff@stans.test', role='staff', created_at='2026-10-27T12:00:00Z')]
     # u1 has set their security questions (answers kept as 'plain:<normalized>' by the mock).
+    db['roles'] = [dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0),
+                   dict(id='staff', name='Staff', builtin=True, sort=1, permissions=dict(dashboard='view', accounting='view', sales='edit', prices='view', production='edit',
+                        receipts='edit', counts='edit', inventory='view', planning='view', standards='view'))]
+    db['closed_periods'] = []
     db['security_answers'] = [dict(user_id='u1', slot=1, question='pet', answer_hash='plain:rexthebeagle'),
                               dict(user_id='u1', slot=2, question='car', answer_hash='plain:hondacivic98'),
                               dict(user_id='u1', slot=3, question='city', answer_hash='plain:detroitmi')]
@@ -92,7 +96,7 @@ GROUPS = {
     'Standards': ['Master List', 'BOMs', 'Labor', 'Overhead'],
     'Accounting': ['Journals', 'T-Accounts'],
 }
-ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['My Account', 'Users', 'Security', 'Change history']
+ALL_TABS = [t for ts in GROUPS.values() for t in ts] + ['My Account', 'Users', 'Roles', 'Periods', 'Security', 'Change history']
 
 def edit_bom(page, name):
     row = page.locator('table.tree-table tr.d0', has=page.locator('.tree-name', has_text=name)).first
@@ -101,7 +105,7 @@ def edit_bom(page, name):
 
 
 def tab(page, label):
-    if label in ('Users', 'Change history', 'My Account', 'Security'):
+    if label in ('Users', 'Change history', 'My Account', 'Security', 'Roles', 'Periods'):
         page.locator('.gear-group').click(); page.wait_for_timeout(80)
         if page.get_by_role('tab', name=label, exact=True).count(): page.get_by_role('tab', name=label, exact=True).click()
     else:
@@ -159,7 +163,7 @@ with sync_playwright() as p:
     check(sub == GROUPS['Accounting'], f'Accounting group shows Journals and T-Accounts ({sub})')
     page.locator('.gear-group').click(); page.wait_for_timeout(120)
     st = page.locator('.tabs .tab').all_inner_texts()
-    check(st == ['My Account', 'Users', 'Security', 'Change history'], f'the gear opens Settings, with its pages in the yellow bar ({st})')
+    check(st == ['My Account', 'Users', 'Roles', 'Periods', 'Security', 'Change history'], f'the gear opens Settings, with its pages in the yellow bar ({st})')
     gx = page.evaluate("[Math.round(document.querySelector('.gear-group').getBoundingClientRect().right), innerWidth]")
     check(gx[1] - gx[0] < 40, f'the gear is at the far right ({gx})')
     page.get_by_role('tab', name='Security', exact=True).click(); page.wait_for_timeout(600)
@@ -997,6 +1001,59 @@ with sync_playwright() as p:
     row = page.locator('tr', has_text='Overhead').filter(has=page.locator('td', has_text='300002')).first
     check(row.count() == 1 and row.locator('td.calc[title="From the Overhead tab"]').count() >= 1, 'Master List shows Overhead as coming from the Overhead tab')
     check(not errors, 'no browser errors on Overhead' + (f': {errors[:3]}' if errors else ''))
+    ctx.close()
+
+    # ---- Settings → Roles and Periods ----
+    ctx, page, errors = open_app(browser)
+    page.goto(BASE + '/#roles'); page.wait_for_selector('table.roles-table')
+    check(page.locator('table.roles-table th.role-col').count() == 2 and page.locator('table.roles-table th.role-col', has_text='0 people').count() == 0 and page.locator('table.roles-table tbody tr').count() == 11, 'Roles shows Admin and Staff for every area')
+    page.locator('.role-add input').fill('Receiving'); page.locator('.role-add').get_by_role('button', name='Add role').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.roles.some(r => r.id === 'receiving' && r.permissions.receipts === 'edit')"), 'admins can add a role (starting from Staff’s access)')
+    page.locator('select[data-k="role|receiving|production"]').select_option('none'); page.wait_for_timeout(250)
+    page.locator('select[data-k="role|receiving|sales"]').select_option('none'); page.wait_for_timeout(250)
+    check(page.evaluate("window.__MOCK_DB__.roles.find(r => r.id === 'receiving').permissions.production") == 'none', 'and choose what it can see and change')
+    check(page.locator('select[data-k="role|receiving|dashboard"] option[value=edit]').count() == 0, 'report areas only offer Hidden or View')
+    shot(page, '43-roles')
+    page.goto(BASE + '/#users'); page.wait_for_timeout(500)
+    sel = page.locator('table.users-table tr', has_text='staff@stans.test').locator('select')
+    check('Receiving' in sel.inner_text(), 'Users can give someone the new role')
+    page.goto(BASE + '/#periods'); page.wait_for_selector('table.periods-table')
+    june = page.locator('table.periods-table tr', has_text='June 2026')
+    check(page.locator('table.periods-table tr', has_text='July 2026').locator('text=Current month').count() == 1, 'the current month can’t be closed')
+    june.get_by_role('button', name='Close').click(); page.locator('dialog[open]').get_by_role('button', name='Close').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.closed_periods.map(c => c.month).join()") == '2026-06-01', 'admins can close a month')
+    shot(page, '44-periods')
+    page.goto(BASE + '/#production'); page.wait_for_timeout(300)
+    page.get_by_role('button', name='Today').first.click(); page.wait_for_timeout(150)
+    page.get_by_role('button', name='Previous month').first.click(); page.wait_for_timeout(300)
+    jcell = page.locator('input[data-k^="production|2026-06-"]').first
+    check(jcell.count() == 1 and jcell.is_disabled() and page.locator('.closed-note', has_text='June 2026 is closed').count() == 1, 'a closed month’s production can’t be typed in')
+    page.goto(BASE + '/#periods'); page.wait_for_timeout(300)
+    page.locator('table.periods-table tr', has_text='June 2026').get_by_role('button', name='Reopen').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.closed_periods.length") == 0, 'and reopen it')
+    check(not errors, 'no browser errors on Roles and Periods' + (f': {errors[:3]}' if errors else ''))
+    ctx.close()
+
+    # ---- someone with a limited role sees and changes only their areas ----
+    ctx, page, errors = open_app(browser, role='receiving')
+    rdb = dict(mock_db(), profiles=[dict(user_id='u1', email='owner@stans.test', role='receiving', created_at='2026-10-27T12:00:00Z')],
+               roles=[dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0), dict(id='staff', name='Staff', builtin=True, permissions={}, sort=1),
+                      dict(id='receiving', name='Receiving', builtin=False, permissions=dict(receipts='edit', counts='view', inventory='view'), sort=2)])
+    body = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
+        f'window.__MOCK_DB__={json.dumps(rdb)};window.__MOCK_ROLE__="receiving";window.__MOCK_SIGNED_IN__=true;')
+    page.route('**/config.js', lambda r: r.fulfill(status=200, content_type='text/javascript', body=body))
+    page.goto(BASE + '/'); page.wait_for_selector('.groups .group')
+    groups = page.locator('.groups:not(.gear-slot) .group').all_inner_texts()
+    check([g.strip().upper() for g in groups] == ['INVENTORY'], f'only the areas the role can see show ({groups})')
+    check(page.locator('.tabs .tab').all_inner_texts() == ['New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'], 'and only their tabs')
+    check(page.locator('.dl-input').count() > 0 and not page.locator('.dl-input').first.is_disabled(), 'it lands on New Receipts and can enter deliveries')
+    page.goto(BASE + '/#newcounts'); page.wait_for_timeout(300)
+    check(page.locator('.note', has_text='can view counts but not enter them').count() == 1 and page.locator('.count-sheet input').first.is_disabled(), 'counts are view only')
+    page.goto(BASE + '/#sales'); page.wait_for_timeout(300)
+    check(page.locator('.tabs .tab[aria-selected=true]').inner_text() != 'Sales Detail', 'a hidden page can’t be opened by its address')
+    page.locator('.gear-group').click(); page.wait_for_timeout(100)
+    check(page.locator('.set-card', has_text='Signed in as').count() == 1 and page.get_by_role('tab', name='Roles').count() == 0, 'Settings shows only My Account')
+    check(not errors, 'no browser errors for a limited role' + (f': {errors[:3]}' if errors else ''))
     ctx.close()
 
     # ---- security questions: required before using the site ----

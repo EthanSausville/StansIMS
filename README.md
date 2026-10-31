@@ -24,12 +24,11 @@ On table tabs, the actions (loading a report, month and year pickers, Add item /
 
 ## Who can do what
 
-| | Staff | Admin |
-|---|---|---|
-| See everything | ✓ | ✓ |
-| Enter production, goods receipts, cycle counts, sales | ✓ | ✓ |
-| Change items, standard costs and prices, recipes, bills of materials, labor and purchase settings | | ✓ |
-| Manage users: add (invite or set a password), change name / email / role, turn off and on, reset or set passwords, delete (Settings → Users) | | ✓ |
+Everyone has a **role** (Settings → Roles). **Admin** can do everything, including Settings, and can't be changed. Every other role says, area by area (Dashboard, Accounting, Sales, Standard prices, Production, Receipts, Counts, Inventory reports, Planning, Standards), whether it's hidden, view only, or can be changed. **Staff** is built in: it enters production, receipts, counts and sales and views the rest. Admins add more roles and give people roles on Settings → Users.
+
+The database enforces the same rules (`public.can(area, 'view'|'edit')` in every table's row-level security), so a role that can't edit an area can't change it from anywhere, and sales lines and prices aren't sent at all to a role that can't see Sales, Standard prices, the Dashboard or Accounting.
+
+**Closed periods** (Settings → Periods): an admin closes a month once its books are final; its production, receipts, counts and sales can't then be added to, changed or removed by anyone, admins included (`public.period_guard`), until an admin reopens it. Closing and reopening are recorded in Change history.
 
 The first account created becomes an admin. Everyone else is added by an admin on Settings → Users. An account that appears any other way starts turned off and can see nothing until an admin turns it on. There is always at least one enabled admin, and admins can't turn off, demote or delete themselves.
 

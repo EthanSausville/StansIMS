@@ -1,6 +1,7 @@
 import { h, pageHead, monthPicker, money, qty, fmt, chip, acctCell, seg, longDate } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
+import { can } from '../perms.js';
 import { productionLots } from '../calc.js';
 import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton } from '../xtable.js';
 
@@ -65,7 +66,7 @@ export default {
       entryGrid({
         table: 'production', field: 'cases', rerender, items: fgs, ym: view.ym, rows: state.data.production, notes: false, digits: 2,
         beforeLabels: ['Est. loss', 'Batches', 'Oz'], before: calc,
-        editable: { allowed: true, save: (date, item_no, v) => saveCell('production', { date, item_no }, 'cases', v) },
+        editable: { allowed: can('production', 'edit'), save: (date, item_no, v) => saveCell('production', { date, item_no }, 'cases', v) },
       }));
   },
 };

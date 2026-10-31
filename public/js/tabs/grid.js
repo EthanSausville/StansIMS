@@ -1,6 +1,7 @@
 // A month of days down the side and items across the top, like the daily
 // sheets in the workbook (Production, GoodsReceipt, CycleCounts, ...).
 import { h, numberCell, dateLabel, qty, todayIso } from '../ui.js';
+import { isClosed, closedNote } from '../perms.js';
 import { eachDay, isWeekend, monthEnd, hasReceiving, holdsLabel } from '../calc.js';
 
 const perLabel = (it) => (hasReceiving(it) ? `1 ${it.receiving_unit} = ${holdsLabel(it)}` : '');
@@ -30,6 +31,8 @@ export function itemHead(items, { before = [], after = [], notes = true, firstLa
 export function entryGrid({ table, field, items, ym, editable, before, after, beforeLabels = [], afterLabels = [], cellClass, rows, notes = true, footer = true, digits = 4, rerender }) {
   const values = new Map(rows.map((r) => [`${r.date}|${r.item_no}`, r[field]]));
   const today = todayIso();
+  const ymKey = `${ym.year}-${String(ym.month).padStart(2, '0')}`;
+  const closed = isClosed(`${ymKey}-01`); // a closed month can't be changed (Settings → Periods)
   const days = monthDays(ym);
   const totals = items.map(() => 0);
   const body = h('tbody', null, days.map((d) => h('tr', { class: [isWeekend(d) ? 'weekend' : '', d === today ? 'today' : ''].join(' ').trim() || null },
@@ -39,14 +42,15 @@ export function entryGrid({ table, field, items, ym, editable, before, after, be
       const v = values.get(`${d}|${it.item_no}`);
       if (typeof v === 'number') totals[i] += v;
       return numberCell(v ?? null, (nv) => editable.save(d, it.item_no, nv), {
-        disabled: !editable.allowed, digits, key: `${table}|${d}|${it.item_no}`,
+        disabled: !editable.allowed || closed, digits, key: `${table}|${d}|${it.item_no}`,
         title: `${it.name}, ${d}`, cls: cellClass ? cellClass(d, it) : null });
     }),
     after ? after(d) : null)));
   const foot = footer ? totalsFoot({ id: `grid-${table}`, rerender, width: 1 + beforeLabels.length + items.length + afterLabels.length,
     label: 'Month total', cells: [beforeLabels.map(() => h('td')), totals.map((t) => h('td', { class: 'num' }, t ? qty(t, 2) : '')), afterLabels.map(() => h('td'))] }) : null;
-  return h('div', { class: 'tablewrap tall', 'data-scroll': table },
-    h('table', { class: 't' }, itemHead(items, { before: beforeLabels, after: afterLabels, notes }), body, foot));
+  const wrap = h('div', { class: 'tablewrap tall', 'data-scroll': table },
+    h('table', { class: 't' + (closed ? ' closed-month' : '') }, itemHead(items, { before: beforeLabels, after: afterLabels, notes }), body, foot));
+  return closed ? [h('div', { class: 'note closed-note' }, '🔒 ', closedNote(ymKey)), wrap] : wrap;
 }
 
 // Read-only month grid: value(date, item) -> number|null.

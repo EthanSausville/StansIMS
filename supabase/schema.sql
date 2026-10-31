@@ -369,6 +369,109 @@ begin
   end loop;
 end $$;
 
+-- ---------- roles (Settings → Roles) ----------
+-- Each person has one role. Admin can do everything, including Settings; it
+-- can't be changed. Every other role says, for each area of the site, whether
+-- it's hidden ('none'), view only ('view') or can be changed ('edit').
+-- Staff is built in (it can be changed but not deleted); admins add others.
+create table if not exists public.roles (
+  id          text primary key check (id ~ '^[a-z0-9][a-z0-9_-]{0,39}$'),
+  name        text not null,
+  description text,
+  permissions jsonb not null default '{}'::jsonb,
+  builtin     boolean not null default false,
+  sort        int not null default 0
+);
+insert into public.roles (id, name, description, permissions, builtin, sort) values
+  ('admin', 'Admin', 'Everything, including users, roles, periods and security.', '{}'::jsonb, true, 0),
+  ('staff', 'Staff', 'Enters production, deliveries, counts and sales; views the rest.',
+   '{"dashboard":"view","accounting":"view","sales":"edit","prices":"view","production":"edit","receipts":"edit","counts":"edit","inventory":"view","planning":"view","standards":"view"}'::jsonb, true, 1)
+on conflict (id) do nothing;
+-- A profile's role is one of these (it used to be only staff or admin).
+alter table public.profiles drop constraint if exists profiles_role_check;
+do $$ begin
+  alter table public.profiles add constraint profiles_role_fkey foreign key (role) references public.roles (id) on update cascade;
+exception when duplicate_object then null; end $$;
+
+-- Admin can't be changed; built-in roles and roles someone has can't be deleted.
+create or replace function public.roles_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'DELETE' then
+    if old.builtin then raise exception 'The % role is built in and can’t be deleted.', old.name; end if;
+    if exists (select 1 from public.profiles p where p.role = old.id) then
+      raise exception 'Someone still has the % role. Give them another role first.', old.name;
+    end if;
+    return old;
+  end if;
+  if tg_op = 'UPDATE' then
+    if old.id = 'admin' then raise exception 'The Admin role can’t be changed.'; end if;
+    if new.id <> old.id or new.builtin <> old.builtin then raise exception 'A role’s id can’t be changed.'; end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists roles_guard on public.roles;
+create trigger roles_guard before insert or update or delete on public.roles for each row execute function public.roles_guard();
+
+-- Can the signed-in person view (or, with 'edit', change) this area?
+create or replace function public.can(p_area text, p_need text default 'view') returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (
+    select 1 from public.profiles p left join public.roles r on r.id = p.role
+     where p.user_id = auth.uid() and not p.disabled
+       and (p.role = 'admin'
+            or case coalesce(r.permissions ->> p_area, 'none')
+                 when 'edit' then true
+                 when 'view' then p_need = 'view'
+                 else false end))
+$$;
+-- Sales lines and prices are only sent to people who can see something built from them.
+create or replace function public.can_see_sales() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.can('sales') or public.can('prices') or public.can('dashboard') or public.can('accounting')
+$$;
+
+-- ---------- closed periods (Settings → Periods) ----------
+-- A closed month's production, deliveries, counts and sales can't be added to,
+-- changed or removed, by anyone, until an admin reopens it.
+create table if not exists public.closed_periods (
+  month           date primary key check (extract(day from month) = 1),
+  closed_at       timestamptz not null default now(),
+  closed_by       uuid default auth.uid(),
+  closed_by_email text,
+  note            text
+);
+create or replace function public.closed_periods_who() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  new.closed_by := auth.uid();
+  new.closed_at := now();
+  select p.email into new.closed_by_email from public.profiles p where p.user_id = auth.uid();
+  return new;
+end $$;
+drop trigger if exists closed_periods_who on public.closed_periods;
+create trigger closed_periods_who before insert on public.closed_periods for each row execute function public.closed_periods_who();
+
+create or replace function public.period_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare d date;
+begin
+  foreach d in array array[case when tg_op <> 'INSERT' then old.date end, case when tg_op <> 'DELETE' then new.date end] loop
+    if d is not null and exists (select 1 from public.closed_periods c where c.month = date_trunc('month', d)::date) then
+      raise exception '% is closed, so entries dated % can’t be changed. An admin can reopen it in Settings → Periods.', to_char(d, 'FMMonth YYYY'), to_char(d, 'FMMM/FMDD/YYYY');
+    end if;
+  end loop;
+  return coalesce(new, old);
+end $$;
+do $$
+declare t text;
+begin
+  foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales'] loop
+    execute format('drop trigger if exists period_guard on public.%I', t);
+    execute format('create trigger period_guard before insert or update or delete on public.%I for each row execute function public.period_guard()', t);
+  end loop;
+end $$;
+
 -- ---------- access rules ----------
 revoke all on all tables in schema public from anon;
 grant select, insert, update, delete on all tables in schema public to authenticated;
@@ -376,23 +479,37 @@ grant usage, select on all sequences in schema public to authenticated;
 grant execute on function public.is_admin() to authenticated;
 grant execute on function public.is_member() to authenticated;
 
+-- Roles: admins add, rename and change permissions; whether a role is built in can't be set.
+revoke insert, update on public.roles from authenticated;
+grant insert (id, name, description, permissions, sort), update (name, description, permissions, sort) on public.roles to authenticated;
+-- Closing a month: only which month and a note; who and when are filled in.
+revoke insert, update on public.closed_periods from authenticated;
+grant insert (month, note), update (note) on public.closed_periods to authenticated;
+grant execute on function public.can(text, text) to authenticated;
+grant execute on function public.can_see_sales() to authenticated;
+
+-- Who reads and who changes each table. Reading: everyone signed in, except
+-- sales lines and prices (see can_see_sales). Changing: whoever's role can
+-- edit that area (Settings → Roles); admins always can.
 do $$
-declare t text;
+declare t text; a text; rd text;
 begin
-  -- Setup tables: everyone signed in reads, admins write.
-  foreach t in array array['items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines',
-                           'boms', 'bom_lines', 'settings', 'year_settings', 'purchase_settings', 'labor_positions', 'overhead_costs', 'production_plan'] loop
+  for t, a in select * from (values
+      ('production', 'production'), ('goods_receipts', 'receipts'), ('cycle_counts', 'counts'),
+      ('sales', 'sales'), ('sales_imports', 'sales'), ('qb_name_map', 'sales'), ('standard_prices', 'prices'),
+      ('production_plan', 'planning'), ('purchase_settings', 'planning'),
+      ('items', 'standards'), ('standard_costs', 'standards'), ('boms', 'standards'), ('bom_lines', 'standards'),
+      ('labor_positions', 'standards'), ('overhead_costs', 'standards'), ('year_settings', 'standards'),
+      ('settings', null), ('recipes', null), ('recipe_lines', null), ('fg_lines', null), ('roles', null), ('closed_periods', null)) as x(t, a) loop
+    rd := case when t in ('sales', 'sales_imports', 'qb_name_map', 'standard_prices') then 'public.can_see_sales()' else 'public.is_member()' end;
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "read" on public.%I', t);
     execute format('drop policy if exists "admins write" on public.%I', t);
-    execute format('create policy "read" on public.%I for select to authenticated using (public.is_member())', t);
-    execute format('create policy "admins write" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())', t);
-  end loop;
-  -- Activity tables: everyone signed in reads and writes.
-  foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales', 'sales_imports', 'qb_name_map'] loop
-    execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "signed in" on public.%I', t);
-    execute format('create policy "signed in" on public.%I for all to authenticated using (public.is_member()) with check (public.is_member())', t);
+    execute format('drop policy if exists "edit" on public.%I', t);
+    execute format('create policy "read" on public.%I for select to authenticated using (%s)', t, rd);
+    execute format('create policy "edit" on public.%I for all to authenticated using (%s) with check (%s)', t,
+      coalesce(format('public.can(%L, %L)', a, 'edit'), 'public.is_admin()'), coalesce(format('public.can(%L, %L)', a, 'edit'), 'public.is_admin()'));
   end loop;
 end $$;
 
@@ -553,7 +670,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['items', 'standard_costs', 'standard_prices', 'boms', 'bom_lines', 'settings', 'year_settings',
-                           'purchase_settings', 'labor_positions', 'overhead_costs', 'production_plan', 'profiles'] loop
+                           'purchase_settings', 'labor_positions', 'overhead_costs', 'production_plan', 'profiles', 'roles', 'closed_periods'] loop
     execute format('drop trigger if exists audit on public.%I', t);
     execute format('create trigger audit after insert or update or delete on public.%I for each row execute function public.audit_change()', t);
   end loop;

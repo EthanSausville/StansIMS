@@ -1,5 +1,6 @@
 import { h, pageHead, numberCell, qty, acctText, itemNoCol } from '../ui.js';
-import { state, derived, saveCell, isAdmin } from '../store.js';
+import { state, derived, saveCell } from '../store.js';
+import { can } from '../perms.js';
 import { avgPricePerOz, missingStandards } from '../calc.js';
 import { xtable, filteredRows, prefTotals, setPrefTotals, activeFilterCount, clearFilters } from '../xtable.js';
 
@@ -7,7 +8,7 @@ export default {
   id: 'prices',
   label: 'Standard Price',
   render({ rerender }) {
-    const ix = derived.ix(); const cm = derived.costs(); const admin = isAdmin();
+    const ix = derived.ix(); const cm = derived.costs(); const admin = can('prices', 'edit');
     const fgs = ix.byType('Finished Good');
     const prices = new Map(state.data.standard_prices.map((p) => [`${p.item_no}|${p.year}`, p.price]));
     const price = (fg, y) => prices.get(`${fg.item_no}|${y}`) ?? null;
@@ -23,7 +24,7 @@ export default {
     const rows = filteredRows({ id: 'prices', columns, rows: fgs });
     const nFilters = activeFilterCount('prices');
     return h('div', null,
-      pageHead('Standard Price', 'Price per case by year. The bottom row is the average price per oz across all products, which values the leftover from partial batches on Production.' + (admin ? '' : ' Only admins can change these.'),
+      pageHead('Standard Price', 'Price per case by year. The bottom row is the average price per oz across all products, which values the leftover from partial batches on Production.' + (admin ? '' : ' Your role can view these but not change them.'),
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('prices'); rerender(); } }, `Clear filters (${nFilters})`) : null),
       cm.years.map((y) => { const m = missingStandards(state.data, y).prices; return m.length ? h('div', { class: 'note warn missing-prices' }, `No ${y} standard price yet for ${m.map((i) => i.name).join(', ')}. Sales margins use the nearest year that has one.`) : null; }),
       h('div', { class: 'tablewrap', 'data-scroll': 'prices' },

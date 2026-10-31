@@ -10,6 +10,7 @@ import { h, pageHead, toast, niceError, longDate, confirmDialog, passwordProblem
 import { sb, state, adminApi, listProfiles } from '../store.js';
 import { xtable, filteredRows } from '../xtable.js';
 import { questionsByUser, resetAnswers } from '../security.js';
+import { roleList, roleName } from '../perms.js';
 
 let users = null;      // rows shown
 let configured = null; // does the Worker have the secret key?
@@ -94,7 +95,7 @@ export default {
     // ---- add a user ----
     const email = h('input', { type: 'email', autocomplete: 'off', placeholder: 'name@company.com', 'aria-label': 'Email' });
     const name = h('input', { type: 'text', autocomplete: 'off', maxlength: 80, placeholder: 'First Last', 'aria-label': 'Name' });
-    const role = h('select', { 'aria-label': 'Role' }, h('option', { value: 'staff' }, 'Staff'), h('option', { value: 'admin' }, 'Admin'));
+    const role = h('select', { 'aria-label': 'Role' }, roleList().map((r) => h('option', { value: r.id, selected: r.id === 'staff' }, r.name)));
     const pass = h('input', { type: 'password', autocomplete: 'new-password', minlength: MIN_PASSWORD, maxlength: 72, 'aria-label': 'Password' });
     const add = async (e) => {
       e.preventDefault();
@@ -121,10 +122,10 @@ export default {
           onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
           onchange: (e) => act({ action: 'update', id: u.id, name: e.target.value }, rerender) });
         return h('td', { class: 'cell entry user-name' }, input); } },
-      { key: 'role', label: 'Role', value: (u) => u.role, cell: (u) => h('td', { class: 'cell entry' }, h('select', { 'aria-label': `Role for ${u.email}`, disabled: u.id === me,
+      { key: 'role', label: 'Role', value: (u) => roleName(u.role), cell: (u) => h('td', { class: 'cell entry' }, h('select', { 'aria-label': `Role for ${u.email}`, disabled: u.id === me,
         title: u.id === me ? 'You can’t change your own role' : null,
         onchange: async (e) => { const ok = await act({ action: 'update', id: u.id, role: e.target.value }, rerender); if (!ok) e.target.value = u.role; } },
-        ['staff', 'admin'].map((r) => h('option', { value: r, selected: u.role === r }, r === 'admin' ? 'Admin' : 'Staff')))) },
+        [...roleList(), ...(roleList().some((r) => r.id === u.role) ? [] : [{ id: u.role, name: u.role }])].map((r) => h('option', { value: r.id, selected: u.role === r.id }, r.name)))) },
       { key: 'status', label: 'Status', value: (u) => status(u)[0], cell: (u) => h('td', null, h('span', { class: `user-status ${status(u)[1]}` }, status(u)[0])) },
       { key: 'sq', label: 'Security questions', value: (u) => (sq?.get(u.id) ? 'Set' : 'Not set'),
         cell: (u) => h('td', null, sq === null ? '' : sq.get(u.id) ? h('span', { class: 'user-status on' }, 'Set') : h('span', { class: 'user-status invited' }, 'Not set')) },

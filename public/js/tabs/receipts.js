@@ -7,6 +7,7 @@
 import { h, pageHead, monthPicker, chip, qty, toast, niceError, todayIso, longDate, DOW } from '../ui.js';
 import { state, derived, saveCell } from '../store.js';
 import { entryGrid, view, monthDays } from './grid.js';
+import { can, isClosed, closedNote } from '../perms.js';
 import { hasReceiving, unitWord, holdsLabel, toDate } from '../calc.js';
 
 let day = todayIso();
@@ -25,6 +26,7 @@ function enterView(rerender) {
   const groups = [['Raw materials', ix.byType('Raw Material')], ['Packaging', ix.byType('Component')]];
   const already = new Map(state.data.goods_receipts.filter((r) => r.date === day).map((r) => [r.item_no, Number(r.qty) || 0]));
   const isToday = day === todayIso();
+  const closed = isClosed(day); const allowed = can('receipts', 'edit'); const locked = closed || !allowed;
 
   const lines = () => [...ix.byType('Raw Material'), ...ix.byType('Component')]
     .map((item) => ({ item, n: parse(typed[item.item_no]) })).filter((l) => l.n !== null);
@@ -33,7 +35,7 @@ function enterView(rerender) {
   const refresh = () => {
     const ls = lines(); const bad = ls.filter((l) => Number.isNaN(l.n));
     const good = ls.filter((l) => l.n > 0);
-    saveBtn.disabled = !good.length || bad.length > 0;
+    saveBtn.disabled = !good.length || bad.length > 0 || locked;
     summary.textContent = bad.length ? `Fix the number for ${bad.map((l) => l.item.name).join(', ')} (numbers only, like 12 or 2.5).`
       : good.length ? `Ready to save ${good.length} item${good.length > 1 ? 's' : ''} for ${fullDay(day)}.` : 'Type how many came in next to each item that was delivered.';
     summary.classList.toggle('bad', bad.length > 0);
@@ -43,7 +45,7 @@ function enterView(rerender) {
     const u = entryUnit(item); const per = perEntry(item);
     const conv = h('span', { class: 'dl-conv' });
     const input = h('input', { type: 'text', inputmode: 'decimal', class: 'dl-input', 'aria-label': `How many ${unitWord(u)} of ${item.name}`, 'data-k': `dl|${item.item_no}`,
-      value: typed[item.item_no] ?? '', autocomplete: 'off',
+      value: typed[item.item_no] ?? '', autocomplete: 'off', disabled: locked,
       oninput: (e) => { typed[item.item_no] = e.target.value; show(); refresh(); },
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); const all = [...document.querySelectorAll('.dl-input')]; const i = all.indexOf(e.target); (all[i + 1] || saveBtn).focus(); } } });
     const unitEl = h('span', { class: 'dl-unit' });
@@ -93,6 +95,7 @@ function enterView(rerender) {
       h('label', { class: 'field' }, 'Delivery date', dateInput),
       h('div', { class: 'dl-day' }, isToday ? 'Today' : DOW[toDate(day).getUTCDay()], ' · ', longDate(day)),
       !isToday ? h('button', { class: 'btn', onclick: () => { day = todayIso(); lastSaved = null; rerender(); } }, 'Back to today') : null),
+    !allowed ? h('div', { class: 'note warn' }, 'Your role can view deliveries but not enter them.') : closed ? h('div', { class: 'note closed-note' }, '🔒 ', closedNote(day.slice(0, 7))) : null,
     lastSaved ? h('section', { class: 'panel dl-saved' },
       h('h2', null, '✓ Saved'),
       h('ul', null, lastSaved.lines.map((l) => h('li', null, h('strong', null, count(l.n, entryUnit(l.item))), ` of ${l.item.name}`, hasReceiving(l.item) ? h('span', { class: 'muted' }, ` (${qty(l.base, 2)} ${unitWord(l.item.unit, l.base)})`) : null))),
@@ -125,7 +128,7 @@ export const allReceipts = {
         chip('Delivery days', new Set(month.map((r) => r.date)).size)),
       entryGrid({
         table: 'goods_receipts', field: 'qty', rerender, items, ym: view.ym, rows: state.data.goods_receipts,
-        editable: { allowed: true, save: (date, item_no, v) => saveCell('goods_receipts', { date, item_no }, 'qty', v) },
+        editable: { allowed: can('receipts', 'edit'), save: (date, item_no, v) => saveCell('goods_receipts', { date, item_no }, 'qty', v) },
       }));
   },
 };

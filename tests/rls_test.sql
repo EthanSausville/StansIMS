@@ -122,3 +122,61 @@ select count(*) > 0 as service_sees_profiles from public.profiles;
 insert into public.audit_log (user_id, email, table_name, action, new_row) values (null, 'worker', 'users', 'test', '{}');
 select count(*) as service_audit_rows from public.audit_log where email = 'worker';
 reset role;
+
+\echo '--- roles ---'
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+insert into public.roles (id, name, permissions) values ('receiving', 'Receiving', '{"receipts":"edit","counts":"view","inventory":"view","standards":"view"}');
+update public.profiles set role = 'receiving' where email = 'staff@stans.test';
+\set ON_ERROR_STOP off
+\echo 'a role that doesn''t exist (should fail):'
+update public.profiles set role = 'boss' where email = 'staff@stans.test';
+\echo 'deleting a role someone has (should fail):'
+delete from public.roles where id = 'receiving';
+\echo 'deleting Staff (should fail):'
+delete from public.roles where id = 'staff';
+\echo 'changing Admin (should fail):'
+update public.roles set permissions = '{}' where id = 'admin';
+\echo 'making a role built in (should fail):'
+update public.roles set builtin = true where id = 'receiving';
+\set ON_ERROR_STOP on
+reset role;
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+\echo 'receiving: sees items, but no sales or prices:'
+select (select count(*) from public.items) items, (select count(*) from public.sales) sales, (select count(*) from public.standard_prices) prices;
+insert into public.goods_receipts (date, item_no, qty) values ('2026-07-20', 100001, 30);
+\set ON_ERROR_STOP off
+\echo 'receiving entering production (should fail):'
+insert into public.production (date, item_no, cases) values ('2026-07-20', 500001, 5);
+\echo 'receiving changing a role (should change 0 rows):'
+update public.roles set permissions = '{"sales":"edit"}' where id = 'receiving';
+\set ON_ERROR_STOP on
+reset role;
+select permissions->>'sales' as receiving_sales_still from public.roles where id = 'receiving';
+
+\echo '--- closed periods ---'
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+\set ON_ERROR_STOP off
+\echo 'staff closing a month (should fail):'
+insert into public.closed_periods (month) values ('2026-06-01');
+\set ON_ERROR_STOP on
+reset role;
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+insert into public.closed_periods (month, note) values ('2026-06-01', 'June books done');
+select month, closed_by_email, note from public.closed_periods;
+\set ON_ERROR_STOP off
+\echo 'even an admin can''t add, change or remove June entries (3 failures):'
+insert into public.production (date, item_no, cases) values ('2026-06-15', 500005, 5);
+update public.sales set amount = amount where date between '2026-06-01' and '2026-06-30';
+delete from public.goods_receipts where date between '2026-06-01' and '2026-06-30';
+\echo 'or move an entry into June (should fail):'
+update public.goods_receipts set date = '2026-06-30' where date = '2026-07-20';
+\set ON_ERROR_STOP on
+\echo 'July is open:'
+update public.goods_receipts set qty = 31 where date = '2026-07-20';
+delete from public.closed_periods where month = '2026-06-01';
+\echo 'reopened, June can change again:'
+insert into public.production (date, item_no, cases) values ('2026-06-15', 500005, 5);
+delete from public.production where date = '2026-06-15' and item_no = 500005;
+delete from public.goods_receipts where date = '2026-07-20';
+reset role;
+select table_name, action from public.audit_log where table_name in ('roles', 'closed_periods') order by at, id;

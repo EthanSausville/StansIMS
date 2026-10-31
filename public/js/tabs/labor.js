@@ -5,7 +5,8 @@
 //   person paid for 5 days who is on the line 2) -> direct labor cost divided
 //   by productive line minutes.
 import { h, pageHead, numberCell, money, qty, fmt, pct, toast, niceError, confirmDialog, thisYear } from '../ui.js';
-import { state, isAdmin, saveRow, insertRow, updateRow, deleteRow } from '../store.js';
+import { state, saveRow, insertRow, updateRow, deleteRow } from '../store.js';
+import { can as canArea } from '../perms.js';
 import { laborRate, laborPosition, laborYears, evalEntry } from '../calc.js';
 
 const n = (v) => Number(v) || 0;
@@ -87,7 +88,7 @@ export default {
   label: 'Labor',
   sideWidth: 0.35,
   render({ rerender }) {
-    const d = state.data; const admin = isAdmin();
+    const d = state.data; const admin = canArea('standards', 'edit');
     const live = !d.missingTables?.has('labor_positions'); // false until the database has the labor table
     const can = admin && live;
     const years = laborYears();
@@ -223,7 +224,7 @@ export default {
     const details = detailP ? positionPanel(detailP, edit, () => { detailsFor = null; rerender(); }) : null;
 
     return h('div', { class: 'labor' + (isFc ? ' fc-year' : '') },
-      pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate. Click a year in the table to change it on the left.' + (admin ? '' : ' Only admins can change these.'),
+      pageHead('Labor Rate', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, benefits) divided by the minutes people spend on the line. The line runs the year’s production hours a week, and everyone who works the line is on it whenever it runs. A new year starts from the year before with an inflation adjustment and is a forecast until it begins; give it its own people to change anything else. Standard Cost uses each year’s rate. Click a year in the table to change it on the left.' + (admin ? '' : ' Your role can view these but not change them.'),
         h('div', { class: 'labor-side' + (isFc ? ' fc-year' : '') }, yearHead, people, peoplePanel, details, plant),
         !live ? h('div', { class: 'note warn' }, 'The database hasn’t been updated for the labor rate yet, so Master List uses the workbook’s labor scenarios and this can’t be edited. It becomes editable after the next deploy to main.') : null),
       h('section', { class: 'panel years-panel' }, h('div', { class: 'tablewrap flat' }, yearTable)),

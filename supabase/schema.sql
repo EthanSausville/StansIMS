@@ -693,3 +693,14 @@ revoke all on function public.reset_security_answers(uuid) from public, anon;
 grant execute on function public.check_identity(text, jsonb) to authenticated;
 grant execute on function public.set_security_answers(jsonb, text) to authenticated;
 grant execute on function public.reset_security_answers(uuid) to authenticated;
+
+-- ---------- the server's own access (service_role) ----------
+-- The site's Worker uses Supabase's secret key, which acts as service_role,
+-- for user management (Settings → Users) and password changes. Newer Supabase
+-- projects no longer give it access to tables automatically, so it's granted
+-- here, after every table above exists. service_role skips row-level security
+-- and is never available to the browser.
+grant usage on schema public to service_role;
+grant select, insert, update, delete on all tables in schema public to service_role;
+grant usage, select on all sequences in schema public to service_role;
+grant execute on all functions in schema public to service_role;

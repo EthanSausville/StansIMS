@@ -115,3 +115,10 @@ select public.check_identity('x');
 \set ON_ERROR_STOP on
 reset role;
 select action, new_row->>'email' as who from public.audit_log where table_name = 'users' order by at;
+
+\echo '--- the server (service_role) reads profiles and writes the change history ---'
+set role service_role;
+select count(*) > 0 as service_sees_profiles from public.profiles;
+insert into public.audit_log (user_id, email, table_name, action, new_row) values (null, 'worker', 'users', 'test', '{}');
+select count(*) as service_audit_rows from public.audit_log where email = 'worker';
+reset role;

@@ -20,6 +20,8 @@ reset role;
 \echo '--- the admin enables staff ---'
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
 update public.profiles set disabled = false where email = 'staff@stans.test';
+-- These tests use a narrower staff role than the built-in Accountant default.
+update public.roles set permissions = '{"dashboard":"view","sales":"edit","production":"edit","newreceipts":"edit","receipts":"edit","newcounts":"edit","counts":"edit","costs":"view"}' where id = 'staff';
 \set ON_ERROR_STOP off
 \echo 'admin changing who a profile belongs to (should fail):'
 update public.profiles set user_id = '00000000-0000-0000-0000-00000000000d' where email = 'stranger@stans.test';

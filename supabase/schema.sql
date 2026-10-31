@@ -382,7 +382,7 @@ create table if not exists public.roles (
 insert into public.roles (id, name, description, permissions, builtin, sort) values
   ('admin', 'Admin', null, '{}'::jsonb, true, 0),
   ('staff', 'Accountant', null,
-   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"view","production":"edit","newreceipts":"edit","receipts":"edit","newcounts":"edit","counts":"edit","inventory":"view","consumption":"view","planning":"view","purchasing":"view","safety":"view","costs":"view","bom":"view","labor":"view","overhead":"view"}'::jsonb, true, 1)
+   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"edit","production":"edit","newreceipts":"edit","receipts":"edit","newcounts":"edit","counts":"edit","inventory":"view","consumption":"view","planning":"edit","purchasing":"view","safety":"edit","costs":"edit","bom":"edit","labor":"edit","overhead":"edit","periods":"edit"}'::jsonb, true, 1)
 on conflict (id) do nothing;
 -- The built-in staff role is called Accountant; roles no longer have descriptions.
 update public.roles set name = 'Accountant' where id = 'staff' and name = 'Staff';

@@ -35,10 +35,10 @@ export const SECTIONS = [
 export const PAGES = SECTIONS.flatMap((s) => s.tabs);
 export const LEVELS = [['none', 'Hidden'], ['view', 'View'], ['edit', 'Edit']];
 
-// Staff, until the database has roles (and as the built-in starting point):
-// enters production, deliveries, counts and sales; views everything else.
-const STAFF_EDITS = new Set(['sales', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts']);
-export const STAFF_DEFAULT = Object.fromEntries(SECTIONS.filter((s) => !s.settings).flatMap((s) => s.tabs).map((t) => [t.id, STAFF_EDITS.has(t.id) ? 'edit' : 'view']));
+// Accountant (id 'staff'), until the database has roles (and as the built-in
+// starting point): changes every page it can, views the reports, and closes
+// periods; the other Settings pages are hidden.
+export const STAFF_DEFAULT = { ...Object.fromEntries(SECTIONS.filter((s) => !s.settings).flatMap((s) => s.tabs).map((t) => [t.id, t.edit ? 'edit' : 'view'])), periods: 'edit' };
 export const FALLBACK_ROLES = [
   { id: 'admin', name: 'Admin', builtin: true, permissions: {}, sort: 0 },
   { id: 'staff', name: 'Accountant', builtin: true, permissions: STAFF_DEFAULT, sort: 1 },

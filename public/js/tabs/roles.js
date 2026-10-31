@@ -4,12 +4,12 @@
 // that can't edit a page can't change its data from anywhere.
 import { h, pageHead, toast, niceError, confirmDialog } from '../ui.js';
 import { state, insertRow, updateRow, deleteRow, listProfiles } from '../store.js';
-import { SECTIONS, PAGES, roleList } from '../perms.js';
+import { SECTIONS, PAGES, roleList, rolesOf, viewAs } from '../perms.js';
 
 let people = null; let loading = false;
+let ro = null; // watches the table's width (compact buttons)
 const slug = (name) => name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'role';
 const LABEL = { none: 'Hidden', view: 'View', edit: 'Edit' };
-const levelsFor = (page) => (page.edit ? ['none', 'view', 'edit'] : ['none', 'view']);
 const lvlOf = (r, page) => r.permissions?.[page.id] || 'none';
 
 // A small form in a dialog: name, description and (for a new role) where to start from.
@@ -36,7 +36,7 @@ export default {
     const live = !state.data.missingTables?.has('roles');
     if (!people && !loading) { loading = true; listProfiles().then((p) => { people = p; }).catch(() => { people = []; }).finally(() => { loading = false; rerender(); }); }
     const roles = roleList();
-    const using = (id) => (people || []).filter((p) => p.role === id);
+    const using = (id) => (people || []).filter((p) => rolesOf(p).includes(id));
 
     const save = async (r, permissions) => {
       try { await updateRow('roles', 'id', r.id, { permissions }); } catch (err) { toast(niceError(err), 'bad'); }
@@ -74,6 +74,7 @@ export default {
         r.description ? h('div', { class: 'rp-desc' }, r.description) : null,
         h('div', { class: 'rp-meta' },
           h('a', { href: '#users', title: who.map((p) => p.email).join(', ') || 'Nobody yet' }, people ? `${who.length} ${who.length === 1 ? 'person' : 'people'}` : '…'),
+          !admin ? icon('👁', 'View the site as', () => viewAs([r.id], r.name)) : null,
           !admin && live ? [icon('✎', 'Rename', () => editRole(r)), icon('⧉', 'Duplicate', () => addRole(r)),
             !r.builtin ? icon('×', 'Delete', () => removeRole(r), 'danger') : null] : null));
     }));
@@ -81,15 +82,17 @@ export default {
     // ---- body: a row per page, grouped by section ----
     const seg = (r, page) => {
       const cur = lvlOf(r, page);
-      return h('div', { class: 'rp-seg', role: 'group', 'aria-label': `${r.name}: ${page.label}` }, levelsFor(page).map((v) =>
-        h('button', { type: 'button', class: `rp-btn rp-${v}`, 'aria-pressed': String(cur === v), disabled: !live, 'data-k': `role|${r.id}|${page.id}|${v}`,
-          onclick: () => { if (cur !== v) save(r, { ...(r.permissions || {}), [page.id]: v }); } }, LABEL[v])));
+      // All three always show; Edit is greyed out on report pages (nothing to change).
+      return h('div', { class: 'rp-seg', role: 'group', 'aria-label': `${r.name}: ${page.label}` }, ['none', 'view', 'edit'].map((v) => {
+        const na = v === 'edit' && !page.edit;
+        return h('button', { type: 'button', class: `rp-btn rp-${v}` + (na ? ' rp-na' : ''), 'aria-pressed': String(cur === v), disabled: !live || na, 'data-k': `role|${r.id}|${page.id}|${v}`,
+          title: na ? `${page.label} is a report: there’s nothing to change` : LABEL[v], 'aria-label': LABEL[v],
+          onclick: () => { if (cur !== v) save(r, { ...(r.permissions || {}), [page.id]: v }); } },
+          h('span', { class: 'rp-long' }, LABEL[v]), h('span', { class: 'rp-short', 'aria-hidden': 'true' }, LABEL[v][0]));
+      }));
     };
-    const sectionSet = (r, sec, v) => save(r, { ...(r.permissions || {}), ...Object.fromEntries(sec.tabs.map((p) => [p.id, v === 'edit' && !p.edit ? 'view' : v])) });
     const body = SECTIONS.flatMap((sec) => [
-      h('tr', { class: 'rp-sec' }, h('th', { scope: 'rowgroup' }, sec.label), roles.map((r) => h('td', { class: r.id === 'admin' ? 'rp-admin' : null },
-        r.id === 'admin' || !live ? null : h('div', { class: 'rp-quick' }, h('span', { class: 'muted' }, 'All:'),
-          ['none', 'view', ...(sec.tabs.some((p) => p.edit) ? ['edit'] : [])].map((v) => h('button', { type: 'button', class: 'rp-link', title: `Set every ${sec.label} page to ${LABEL[v]} for ${r.name}`, onclick: () => sectionSet(r, sec, v) }, LABEL[v])))))),
+      h('tr', { class: 'rp-sec' }, h('th', { scope: 'rowgroup' }, sec.label), roles.map((r) => h('td', { class: r.id === 'admin' ? 'rp-admin' : null }))),
       ...sec.tabs.map((page) => h('tr', { class: 'rp-row' },
         h('td', { class: 'rp-page' }, page.label, page.note ? h('div', { class: 'small muted' }, page.note) : !page.edit ? h('div', { class: 'small muted' }, 'Report: view only') : null),
         roles.map((r) => (r.id === 'admin' ? h('td', { class: 'rp-admin' }, h('span', { class: 'rp-full' }, '✓ Full')) : h('td', null, seg(r, page)))))),
@@ -108,6 +111,11 @@ export default {
       return h('td', null, `Sees ${seen} of ${PAGES.length} pages`, h('br'), `Changes ${edits}`);
     }));
 
+    // Narrow window: H / V / E instead of the full words, before the table has to scroll sideways.
+    const wrap = h('div', { class: 'tablewrap' });
+    const fit = () => { const t = wrap.firstChild; if (!t) return; t.classList.remove('compact'); if (t.scrollWidth > wrap.clientWidth + 1) t.classList.add('compact'); };
+    requestAnimationFrame(fit);
+    ro?.disconnect(); ro = new ResizeObserver(fit); ro.observe(wrap);
     return h('div', { class: 'roles-page' },
       pageHead('Roles', 'What each role can see and change, page by page.'),
       h('div', { class: 'rp-top' },
@@ -117,7 +125,7 @@ export default {
           h('span', { class: 'rp-btn rp-edit', 'aria-pressed': 'true' }, 'Edit'), ' can see and change it'),
         live ? h('button', { class: 'btn primary', onclick: () => addRole() }, '+ New role') : null),
       !live ? h('div', { class: 'note warn' }, 'Roles start working after the next deploy to main. Until then everyone is Staff or Admin.') : null,
-      h('div', { class: 'tablewrap' }, h('table', { class: 't roles-table' }, h('thead', null, head), h('tbody', null, body, settingsRows), h('tfoot', null, foot))),
-      h('p', { class: 'small muted rp-foot' }, 'Changes save as you click and apply the next time that person loads the site. The database enforces them too: a role that can’t edit a page can’t change its data from anywhere, and sales and prices aren’t sent at all to a role that can’t see a sales, price, dashboard or accounting page. Give people a role on Users.'));
+      (wrap.append(h('table', { class: 't roles-table' }, h('thead', null, head), h('tbody', null, body, settingsRows), h('tfoot', null, foot))), wrap),
+      h('p', { class: 'small muted rp-foot' }, 'Changes save as you click and apply the next time that person loads the site. The database enforces them too: a role that can’t edit a page can’t change its data from anywhere, and sales and prices aren’t sent at all to a role that can’t see a sales, price, dashboard or accounting page. Give people roles on Users; someone with several roles gets the most access any of them gives. 👁 shows the site the way a role sees it.'));
   },
 };

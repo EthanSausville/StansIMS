@@ -44,16 +44,39 @@ export const roleList = () => {
 };
 export const roleName = (id) => roleList().find((r) => r.id === id)?.name || id || '';
 
+// Someone's roles (they can have several).
+export const rolesOf = (p) => (p?.roles?.length ? p.roles : p?.role ? [p.role] : []);
+// The roles the site is acting on: an admin viewing as other roles gets theirs.
+export const activeRoles = () => (state.simulate ? state.simulate.roles : rolesOf(state.profile));
+const RANK = { none: 0, view: 1, edit: 2 };
+// The level a set of roles gives for a page: the most any of them gives.
+export function levelFor(roleIds, area) {
+  if (roleIds.includes('admin')) return 'edit';
+  let best = 'none';
+  for (const id of roleIds) {
+    const role = roleList().find((r) => r.id === id);
+    const lvl = (role ? role.permissions : id === 'staff' ? STAFF_DEFAULT : {})?.[area] || 'none';
+    if (RANK[lvl] > RANK[best]) best = lvl;
+  }
+  return best;
+}
 // Can the signed-in person view (or, with 'edit', change) this page?
 export function can(area, need = 'view') {
   const p = state.profile;
   if (!p || p.disabled) return false;
-  if (p.role === 'admin') return true;
+  const roles = activeRoles();
+  if (roles.includes('admin')) return true;
   if (!area) return true;
-  const role = roleList().find((r) => r.id === p.role);
-  const lvl = (role ? role.permissions : p.role === 'staff' ? STAFF_DEFAULT : {})?.[area] || 'none';
+  const lvl = levelFor(roles, area);
   return lvl === 'edit' || (lvl === 'view' && need === 'view');
 }
+// Sales lines and prices only reach someone who can see a page built from them (as in the database).
+export const canSeeSales = () => ['sales', 'sales-customers', 'sales-products', 'prices', 'dashboard', 'journals', 'taccounts'].some((k) => can(k));
+
+// "View as": an admin sees the site exactly as these roles would (what shows,
+// what can be typed in). Anything changed while viewing as is still real.
+export const viewAs = (roles, label) => window.dispatchEvent(new CustomEvent('stans:simulate', { detail: { roles, label } }));
+export const stopViewingAs = () => window.dispatchEvent(new CustomEvent('stans:simulate', { detail: null }));
 
 // Closed months (Settings → Periods): 'YYYY-MM' of every closed month.
 export function closedMonths() { return new Set((state.data?.closed_periods || []).map((c) => String(c.month).slice(0, 7))); }

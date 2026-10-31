@@ -39,9 +39,9 @@ export default {
     const close = async (yms) => {
       const list = yms.filter((ym) => !closed.has(ym) && ym < nowYm);
       if (!list.length) return;
-      const label = list.length === 1 ? monthName(list[0]) : `${list.length} months (${monthName(list[0])} – ${monthName(list.at(-1))})`;
+      const label = list.length === 1 ? monthName(list[0]) : list.length === 12 ? `all of ${list[0].slice(0, 4)}` : `the rest of ${list[0].slice(0, 4)} (${list.length} months)`;
       if (!(await confirmDialog(`Close ${label}? Nobody, admins included, can add, change or remove production, deliveries, counts or sales dated then until it’s reopened here.`, 'Close'))) return;
-      try { for (const ym of list) await insertRow('closed_periods', { month: `${ym}-01` }); toast(`${label} closed.`); }
+      try { for (const ym of list) await insertRow('closed_periods', { month: `${ym}-01` }); toast(`${label[0].toUpperCase()}${label.slice(1)} closed.`); }
       catch (err) { toast(niceError(err), 'bad'); }
     };
     const reopen = async (ym) => {
@@ -70,13 +70,15 @@ export default {
       const openPast = yms.filter((ym) => !closed.has(ym) && ym < nowYm);
       const sum = (f) => yms.reduce((t, ym) => t + f(tally.get(ym) || blank()), 0);
       const toggle = () => { pref.set(key, isOpen ? '0' : '1'); rerender(); };
-      const status = nClosed === yms.length ? '🔒 All closed' : done ? `${nClosed} of ${yms.length} closed` : `${nClosed} closed · ${yms.length - nClosed} open`;
-      const head = h('tr', { class: 'pr-year' + (done ? ' foldable' : '') + (isOpen ? ' open' : ''), onclick: done ? toggle : null },
-        h('th', { class: 'pr-name' }, done ? h('button', { type: 'button', class: 'pr-fold', 'aria-expanded': String(isOpen), 'aria-label': `${isOpen ? 'Fold up' : 'Show'} ${y}`, onclick: (e) => { e.stopPropagation(); toggle(); } }, isOpen ? '▾' : '▸') : null, String(y)),
-        h('th', { class: 'pr-status' }, status),
-        h('th', { class: 'num' }, n(sum((t) => t.production.size))), h('th', { class: 'num' }, n(sum((t) => t.receipts))), h('th', { class: 'num' }, n(sum((t) => t.counts.size))), h('th', { class: 'num' }, n(sum((t) => t.sales))),
-        h('th'),
-        h('th', { class: 'user-actions' }, live && openPast.length > 1 ? h('button', { class: 'btn small primary', onclick: (e) => { e.stopPropagation(); close(openPast); } }, done ? `Close all of ${y}` : `Close through ${monthName(openPast.at(-1)).replace(/ \d{4}$/, '')}`) : null));
+      const status = nClosed === yms.length ? '🔒 Closed' : done ? `${nClosed} of ${yms.length} months closed` : `${nClosed} closed · ${yms.length - nClosed} open`;
+      const head = h('tr', { class: 'pr-year' + (done ? ' foldable' : '') + (isOpen ? ' open' : ''), onclick: done ? toggle : null,
+          title: done ? (isOpen ? `Hide ${y}’s months` : `Show ${y}’s months`) : null, 'aria-expanded': done ? String(isOpen) : null },
+        h('td', { class: 'pr-name' }, String(y)),
+        h('td', null, h('span', { class: `user-status ${nClosed === yms.length ? 'off' : done ? 'on' : 'invited'}` }, status)),
+        h('td', { class: 'num' }, n(sum((t) => t.production.size))), h('td', { class: 'num' }, n(sum((t) => t.receipts))), h('td', { class: 'num' }, n(sum((t) => t.counts.size))), h('td', { class: 'num' }, n(sum((t) => t.sales))),
+        h('td'),
+        // A finished year closes in one go; months are otherwise closed one at a time.
+        h('td', { class: 'user-actions' }, live && done && openPast.length ? h('button', { class: 'btn small primary', onclick: (e) => { e.stopPropagation(); close(openPast); } }, 'Close year') : null));
       return h('tbody', { class: 'pr-group' }, head, isOpen ? [...yms].reverse().map(monthRow) : null);
     };
 

@@ -104,6 +104,11 @@ test('invite, add, change, turn off and on, delete', async () => {
   assert.equal((await call(env(), { body: { action: 'update', id: STAFF, role: 'receiving' } })).status, 200, 'any role from Settings → Roles');
   assert.equal(db.profiles[1].role, 'receiving');
   assert.equal((await call(env(), { body: { action: 'update', id: STAFF, role: 'nope' } })).status, 400, 'but not one that doesn’t exist');
+  assert.equal((await call(env(), { body: { action: 'update', id: STAFF, roles: ['staff', 'receiving'] } })).status, 200, 'several roles at once');
+  assert.deepEqual(db.profiles[1].roles, ['staff', 'receiving']);
+  assert.equal((await call(env(), { body: { action: 'update', id: STAFF, roles: ['staff', 'nope'] } })).status, 400, 'every role must exist');
+  assert.equal((await call(env(), { body: { action: 'update', id: STAFF, roles: [] } })).status, 400, 'at least one role');
+  assert.equal((await call(env(), { body: { action: 'update', id: ADMIN, roles: ['staff'] } })).status, 400, 'can’t drop your own admin');
   await call(env(), { body: { action: 'update', id: STAFF, role: 'admin' } });
   r = await call(env(), { body: { action: 'disable', id: STAFF } });
   assert.equal(r.status, 200); assert.equal(db.profiles[1].disabled, true);

@@ -394,13 +394,38 @@ do $$ begin
   alter table public.profiles add constraint profiles_role_fkey foreign key (role) references public.roles (id) on update cascade;
 exception when duplicate_object then null; end $$;
 
+-- Someone can have several roles: they get the most access any of them gives.
+-- profiles.roles holds them all; profiles.role is kept in step (admin if
+-- they're an admin, otherwise their first role) for the checks that only ask
+-- "is this an admin?". Setting just profiles.role (older code) sets roles to it.
+alter table public.profiles add column if not exists roles text[] not null default '{}';
+update public.profiles set roles = array[role] where roles = '{}';
+create or replace function public.profiles_roles() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare r text; clean text[] := '{}';
+begin
+  if tg_op = 'UPDATE' and new.role is distinct from old.role and new.roles is not distinct from old.roles then new.roles := array[new.role]; end if;
+  if coalesce(cardinality(new.roles), 0) = 0 then new.roles := array[coalesce(new.role, 'staff')]; end if;
+  foreach r in array new.roles loop
+    if not exists (select 1 from public.roles x where x.id = r) then raise exception 'Unknown role: %', r; end if;
+    if not r = any(clean) then clean := clean || r; end if;
+  end loop;
+  new.roles := clean;
+  new.role := case when 'admin' = any(clean) then 'admin' else clean[1] end;
+  return new;
+end $$;
+-- Named to run before keep_an_admin (triggers run in name order), so that sees the synced role.
+drop trigger if exists profiles_roles on public.profiles;
+drop trigger if exists a_profiles_roles on public.profiles;
+create trigger a_profiles_roles before insert or update on public.profiles for each row execute function public.profiles_roles();
+
 -- Admin can't be changed; built-in roles and roles someone has can't be deleted.
 create or replace function public.roles_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
   if tg_op = 'DELETE' then
     if old.builtin then raise exception 'The % role is built in and can’t be deleted.', old.name; end if;
-    if exists (select 1 from public.profiles p where p.role = old.id) then
+    if exists (select 1 from public.profiles p where old.id = any(p.roles)) then
       raise exception 'Someone still has the % role. Give them another role first.', old.name;
     end if;
     return old;
@@ -418,13 +443,15 @@ create trigger roles_guard before insert or update or delete on public.roles for
 create or replace function public.can(p_area text, p_need text default 'view') returns boolean
 language sql stable security definer set search_path = '' as $$
   select exists (
-    select 1 from public.profiles p left join public.roles r on r.id = p.role
+    select 1 from public.profiles p
      where p.user_id = auth.uid() and not p.disabled
-       and (p.role = 'admin'
-            or case coalesce(r.permissions ->> p_area, 'none')
-                 when 'edit' then true
-                 when 'view' then p_need = 'view'
-                 else false end))
+       and ('admin' = any(p.roles) or p.role = 'admin'
+            or exists (select 1 from public.roles r
+                        where r.id = any(p.roles)
+                          and case coalesce(r.permissions ->> p_area, 'none')
+                                when 'edit' then true
+                                when 'view' then p_need = 'view'
+                                else false end)))
 $$;
 -- Any of these pages.
 create or replace function public.can_any(p_areas text[], p_need text default 'view') returns boolean
@@ -531,7 +558,7 @@ create policy "admins change roles" on public.profiles for update to authenticat
 -- Profiles are created by the sign-up trigger only, and admins can change
 -- only the name, role and enabled switch (never who a profile belongs to).
 revoke insert, delete, update on public.profiles from authenticated;
-grant update (name, role, disabled) on public.profiles to authenticated;
+grant update (name, role, roles, disabled) on public.profiles to authenticated;
 
 -- Keeps at least one admin, so nobody can lock everyone out of the setup.
 create or replace function public.keep_an_admin() returns trigger

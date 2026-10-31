@@ -10,7 +10,7 @@ import { h, pageHead, toast, niceError, longDate, confirmDialog, passwordProblem
 import { sb, state, adminApi, listProfiles } from '../store.js';
 import { xtable, filteredRows } from '../xtable.js';
 import { questionsByUser, resetAnswers } from '../security.js';
-import { roleList, roleName } from '../perms.js';
+import { roleList, roleName, rolesOf, viewAs } from '../perms.js';
 
 let users = null;      // rows shown
 let configured = null; // does the Worker have the secret key?
@@ -26,7 +26,7 @@ function load(rerender) {
     .then(async (r) => {
       configured = !!r.configured;
       if (configured) users = r.users;
-      else users = (await listProfiles()).map((p) => ({ id: p.user_id, email: p.email, name: p.name || null, role: p.role, disabled: !!p.disabled, created_at: p.created_at, last_sign_in_at: null, confirmed: true }));
+      else users = (await listProfiles()).map((p) => ({ id: p.user_id, email: p.email, name: p.name || null, role: p.role, roles: rolesOf(p), disabled: !!p.disabled, created_at: p.created_at, last_sign_in_at: null, confirmed: true }));
     })
     .catch((e) => { loadError = e?.message || niceError(e); users = users || []; })
     .finally(() => { loading = false; rerender(); });
@@ -39,7 +39,7 @@ async function act(body, rerender) {
   try {
     if (configured) { const r = await adminApi('POST', body); toast(r.message || 'Done.'); }
     else {
-      const patch = body.action === 'disable' ? { disabled: true } : body.action === 'enable' ? { disabled: false } : body.action === 'update' ? Object.fromEntries(['name', 'role'].filter((k) => k in body).map((k) => [k, body[k]])) : null;
+      const patch = body.action === 'disable' ? { disabled: true } : body.action === 'enable' ? { disabled: false } : body.action === 'update' ? Object.fromEntries(['name', 'role', 'roles'].filter((k) => k in body).map((k) => [k, body[k]])) : null;
       if (!patch) throw new Error('That needs the user-management key set up (see the note above).');
       const { error } = await sb.from('profiles').update(patch).eq('user_id', body.id);
       if (error) throw error;
@@ -122,10 +122,20 @@ export default {
           onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
           onchange: (e) => act({ action: 'update', id: u.id, name: e.target.value }, rerender) });
         return h('td', { class: 'cell entry user-name' }, input); } },
-      { key: 'role', label: 'Role', value: (u) => roleName(u.role), cell: (u) => h('td', { class: 'cell entry' }, h('select', { 'aria-label': `Role for ${u.email}`, disabled: u.id === me,
-        title: u.id === me ? 'You can’t change your own role' : null,
-        onchange: async (e) => { const ok = await act({ action: 'update', id: u.id, role: e.target.value }, rerender); if (!ok) e.target.value = u.role; } },
-        [...roleList(), ...(roleList().some((r) => r.id === u.role) ? [] : [{ id: u.role, name: u.role }])].map((r) => h('option', { value: r.id, selected: u.role === r.id }, r.name)))) },
+      // Several roles each: they get the most access any of them gives (Settings → Roles).
+      { key: 'role', label: 'Roles', value: (u) => rolesOf(u).map(roleName).join(', '), cell: (u) => {
+        const list = rolesOf(u); const self = u.id === me;
+        const setRoles = (next) => act({ action: 'update', id: u.id, roles: next }, rerender);
+        const chips = list.map((id) => {
+          const locked = list.length === 1 || (self && id === 'admin');
+          return h('span', { class: 'role-chip' + (id === 'admin' ? ' admin' : '') + (locked ? ' solo' : '') }, roleName(id),
+            locked ? null : h('button', { type: 'button', title: `Remove ${roleName(id)}`, 'aria-label': `Remove ${roleName(id)} from ${u.email}`, onclick: () => setRoles(list.filter((x) => x !== id)) }, '×'));
+        });
+        const others = roleList().filter((r) => !list.includes(r.id));
+        const add = others.length ? h('select', { class: 'role-add-sel', 'aria-label': `Add a role to ${u.email}`, onchange: (e) => { if (e.target.value) setRoles([...list, e.target.value]); } },
+          h('option', { value: '' }, '+ Add role'), others.map((r) => h('option', { value: r.id }, r.name))) : null;
+        return h('td', { class: 'user-roles' }, h('div', { class: 'role-chips' }, chips, add));
+      } },
       { key: 'status', label: 'Status', value: (u) => status(u)[0], cell: (u) => h('td', null, h('span', { class: `user-status ${status(u)[1]}` }, status(u)[0])) },
       { key: 'sq', label: 'Security questions', value: (u) => (sq?.get(u.id) ? 'Set' : 'Not set'),
         cell: (u) => h('td', null, sq === null ? '' : sq.get(u.id) ? h('span', { class: 'user-status on' }, 'Set') : h('span', { class: 'user-status invited' }, 'Not set')) },
@@ -145,6 +155,7 @@ export default {
             if (!(await confirmDialog(`Clear ${u.email}’s security questions? They’ll have to pick new ones the next time they sign in.`, 'Clear'))) return;
             try { await resetAnswers(u.id); toast('Security questions cleared.'); reload(rerender); } catch (e) { toast(niceError(e), 'bad'); }
           }, '', 'For someone who forgot their answers') : null,
+          !self ? b('View as', () => viewAs(rolesOf(u), `${u.name || u.email} (${rolesOf(u).map(roleName).join(' + ')})`), '', 'See the site the way this person sees it') : null,
           self ? null : u.disabled
             ? b('Turn on', () => act({ action: 'enable', id: u.id }, rerender))
             : b('Turn off', async () => { if (await confirmDialog(`Turn off ${u.email}? They’ll be signed out and can’t sign in until you turn them back on. What they entered stays.`, 'Turn off')) act({ action: 'disable', id: u.id }, rerender); }, 'warn'),

@@ -140,7 +140,7 @@ async function listUsers(s) {
   const byId = new Map(profs.map((p) => [p.user_id, p]));
   return (auth.users || []).map((u) => {
     const p = byId.get(u.id) || {};
-    return { id: u.id, email: u.email, name: p.name || u.user_metadata?.name || null, role: p.role || 'staff', disabled: !!p.disabled,
+    return { id: u.id, email: u.email, name: p.name || u.user_metadata?.name || null, role: p.role || 'staff', roles: p.roles?.length ? p.roles : [p.role || 'staff'], disabled: !!p.disabled,
       created_at: u.created_at, last_sign_in_at: u.last_sign_in_at || null, confirmed: !!(u.email_confirmed_at || u.confirmed_at),
       invited_at: u.invited_at || null, banned: !!(u.banned_until && new Date(u.banned_until) > new Date()) };
   });
@@ -192,7 +192,15 @@ async function handleAdmin(request, env, url) {
     case 'update': {
       const id = clean.id(b.id); const patch = {};
       if ('name' in b) patch.name = clean.name(b.name);
-      if ('role' in b) {
+      if ('roles' in b) {
+        // Several roles: the person gets the most access any of them gives.
+        if (!Array.isArray(b.roles) || !b.roles.length || b.roles.length > 20) throw new Fail(400, 'Give them at least one role.');
+        const list = [...new Set(b.roles.map((r) => clean.role(r)))];
+        for (const r of list) await checkRole(s, r);
+        if (!list.includes('admin') && id === who.id) throw new Fail(400, 'You can’t remove your own admin access.');
+        if (!list.includes('admin') && !(await otherAdmins(s, id))) throw new Fail(400, 'There must be at least one admin.');
+        patch.roles = list;
+      } else if ('role' in b) {
         patch.role = await checkRole(s, clean.role(b.role));
         if (patch.role !== 'admin' && id === who.id) throw new Fail(400, 'You can’t remove your own admin access.');
         if (patch.role !== 'admin' && !(await otherAdmins(s, id))) throw new Fail(400, 'There must be at least one admin.');

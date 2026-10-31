@@ -1,5 +1,5 @@
 import { h, toast, niceError, passwordProblem, MIN_PASSWORD, PASSWORD_RULE, IDLE_MINUTES } from './ui.js';
-import { sb, configured, state, loadAll, loadProfile, isAdmin, onChange } from './store.js';
+import { sb, configured, state, loadAll, loadProfile, isAdmin, onChange, dataChanged } from './store.js';
 import dashboard from './tabs/dashboard.js';
 import production from './tabs/production.js';
 import { newReceipts, allReceipts } from './tabs/receipts.js';
@@ -21,7 +21,7 @@ import history from './tabs/history.js';
 import { account, security } from './tabs/settings.js';
 import roles from './tabs/roles.js';
 import periods from './tabs/periods.js';
-import { can, PAGES } from './perms.js';
+import { can, PAGES, canSeeSales, stopViewingAs, roleName } from './perms.js';
 import { myQuestions, setupScreen, answerBoxes, changeMyPassword } from './security.js';
 
 // Groups across the top; the open group's tabs show in the row beneath.
@@ -187,22 +187,28 @@ function shell() {
   const groupBar = h('nav', { class: 'groups', 'aria-label': 'Sections' });
   const gearSlot = h('nav', { class: 'groups gear-slot', 'aria-label': 'Settings' });
   const tabBar = h('nav', { class: 'tabs', role: 'tablist', 'aria-label': 'Pages' });
+  const simSlot = h('div', { class: 'sim-slot' });
   const about = h('div', { class: 'about-slot' });
   const { side, inner, useTab } = sideBar();
   const content = h('div', { class: 'content' });
   const main = h('main', { id: 'main', role: 'tabpanel' }, h('div', { class: 'layout' }, side, content));
   app.replaceChildren(
-    h('header', { class: 'topbar' },
+    h('header', { class: 'topbar' }, simSlot,
       h('div', { class: 'grouprow' }, h('a', { class: 'brand', href: '#dashboard', title: 'Dashboard' }, h('img', { src: 'logo.webp', alt: 'The Original Stan’s', width: 439, height: 237 })), groupBar, h('span', { class: 'spacer' }), gearSlot),
       h('div', { class: 'tabrow' }, tabBar, h('span', { class: 'spacer' }), about)),
     main);
-  const bars = { groupBar, tabBar, gearSlot };
+  const bars = { groupBar, tabBar, gearSlot, simSlot };
   topbarObserver.observe(app.querySelector('.topbar'));
   renderTabs(bars);
   return { tabBar: bars, main, content, side, sideInner: inner, about, useTab };
 }
 
-function renderTabs({ groupBar, tabBar, gearSlot }) {
+function renderTabs({ groupBar, tabBar, gearSlot, simSlot }) {
+  // While an admin views the site as other roles: say so, with a way back.
+  simSlot?.replaceChildren(...(state.simulate ? [h('div', { class: 'sim-bar', role: 'status' },
+    h('span', null, '👁 Viewing as ', h('strong', null, state.simulate.label || state.simulate.roles.map(roleName).join(' + ')),
+      h('span', { class: 'sim-sub' }, ' — what shows and what can be changed match ', state.simulate.roles.length > 1 ? 'those roles' : 'that role', '. Anything you change is real.')),
+    h('button', { class: 'btn small', onclick: stopViewingAs }, 'Stop viewing as'))] : []));
   const id = routeId();
   const open = groupOf(id);
   if (open) lastInGroup.set(open.id, id);
@@ -265,8 +271,31 @@ function schedule() { if (scheduled) return; scheduled = true; requestAnimationF
 
 window.addEventListener('stans:refresh', () => refresh(true));
 async function refresh(manual) {
-  try { await loadAll(); if (manual) toast('Data reloaded.'); } catch (e) { toast(niceError(e), 'bad'); }
+  try { await loadAll(); if (state.simulate) applyViewAs(); if (manual) toast('Data reloaded.'); } catch (e) { toast(niceError(e), 'bad'); }
 }
+
+// "View as" (Settings → Roles / Users): an admin sees the site as other roles.
+// Sales and prices are set aside while those roles couldn't see them, since
+// the database wouldn't send them either.
+const SALES_TABLES = ['sales', 'sales_imports', 'qb_name_map', 'standard_prices'];
+let setAside = null;
+function applyViewAs() {
+  if (setAside) { Object.assign(state.data, setAside); setAside = null; }
+  if (state.simulate && !canSeeSales()) { setAside = Object.fromEntries(SALES_TABLES.map((t) => [t, state.data[t]])); for (const t of SALES_TABLES) state.data[t] = []; }
+  dataChanged();
+}
+window.addEventListener('stans:simulate', (e) => {
+  if (!ui || !state.data) return;
+  if (e.detail && state.profile?.role !== 'admin') return; // only admins can view as
+  state.simulate = e.detail || null;
+  try { if (state.simulate) sessionStorage.setItem('view-as', JSON.stringify(state.simulate)); else sessionStorage.removeItem('view-as'); } catch { /* fine */ }
+  applyViewAs();
+  renderTabs(ui.tabBar);
+  const id = location.hash.slice(1).split('?')[0];
+  const t = TABS.find((x) => x.id === id);
+  if (!t || !tabVisible(t)) location.hash = routeId(); else render();
+  toast(state.simulate ? 'Viewing as. Use “Stop viewing as” at the top to go back.' : 'Back to your own view.');
+});
 
 let started = false;
 // Signed in, but the account isn't allowed in (disabled, or a sign-up no
@@ -302,6 +331,8 @@ async function start() {
     ui = shell();
     ui.content.replaceChildren(h('div', { class: 'boot' }, 'Loading data…'));
     await loadAll();
+    // Still viewing as another role in this browser tab (survives a reload).
+    try { const v = JSON.parse(sessionStorage.getItem('view-as') || 'null'); if (v && state.profile?.role === 'admin') { state.simulate = v; applyViewAs(); } } catch { /* fine */ }
     renderTabs(ui.tabBar); // now that roles are loaded, show only what this person's role can see
     render();
   } catch (e) {
@@ -454,7 +485,7 @@ else {
   const type = window.STANS_AUTH_TYPE;
   sb.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') { setPasswordScreen('recovery'); return; }
-    if (event === 'SIGNED_OUT') { started = false; ui = null; state.data = null; signInScreen(); return; }
+    if (event === 'SIGNED_OUT') { started = false; ui = null; state.data = null; state.simulate = null; try { sessionStorage.removeItem('view-as'); } catch { /* fine */ } signInScreen(); return; }
     if (session && !started && !window.STANS_AUTH_TYPE) { started = true; setTimeout(start, 0); }
   });
   const { data: { session } } = await sb.auth.getSession();

@@ -24,7 +24,7 @@ On table tabs, the actions (loading a report, month and year pickers, Add item /
 
 ## Who can do what
 
-Everyone has a **role** (Settings → Roles). **Admin** can do everything, including Settings, and can't be changed. Every other role says, area by area (Dashboard, Accounting, Sales, Standard prices, Production, Receipts, Counts, Inventory reports, Planning, Standards), whether it's hidden, view only, or can be changed. **Staff** is built in: it enters production, receipts, counts and sales and views the rest. Admins add more roles and give people roles on Settings → Users.
+Everyone has a **role** (Settings → Roles). **Admin** can do everything, including Settings, and can't be changed. Every other role says, area by area (Dashboard, Accounting, Sales, Standard prices, Production, Receipts, Counts, Inventory reports, Planning, Standards), whether it's hidden, view only, or can be changed. **Staff** is built in: it enters production, receipts, counts and sales and views the rest. Admins add more roles and give people roles on Settings → Users. Someone can have **several roles** and gets the most access any of them gives (`profiles.roles`). Admins can **view the site as** any role or any person (👁 on Settings → Roles, *View as* on Users) to check what they'd see; a blue bar at the top says so and stops it, and anything changed meanwhile is real.
 
 The database enforces the same rules (`public.can(area, 'view'|'edit')` in every table's row-level security), so a role that can't edit an area can't change it from anywhere, and sales lines and prices aren't sent at all to a role that can't see Sales, Standard prices, the Dashboard or Accounting.
 

@@ -180,3 +180,33 @@ delete from public.production where date = '2026-06-15' and item_no = 500005;
 delete from public.goods_receipts where date = '2026-07-20';
 reset role;
 select table_name, action from public.audit_log where table_name in ('roles', 'closed_periods') order by at, id;
+
+\echo '--- several roles: the most access any of them gives ---'
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+insert into public.roles (id, name, permissions) values ('production-crew', 'Production crew', '{"production":"edit"}');
+update public.profiles set roles = array['receiving', 'production-crew'] where email = 'staff@stans.test';
+select email, role, roles from public.profiles where email = 'staff@stans.test';
+reset role;
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+select public.can('production', 'edit') as production_edit, public.can('newreceipts', 'edit') as receipts_edit, public.can('sales') as sees_sales;
+insert into public.production (date, item_no, cases) values ('2026-07-22', 500001, 2);
+insert into public.goods_receipts (date, item_no, qty) values ('2026-07-22', 100001, 2);
+reset role;
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+\set ON_ERROR_STOP off
+\echo 'deleting a role that''s one of several someone has (should fail):'
+delete from public.roles where id = 'production-crew';
+\echo 'an unknown role in the list (should fail):'
+update public.profiles set roles = array['receiving', 'nope'] where email = 'staff@stans.test';
+\echo 'the only admin removing admin from their own roles (should fail):'
+update public.profiles set roles = array['staff'] where email = 'owner@stans.test';
+\set ON_ERROR_STOP on
+\echo 'setting just role (older code) replaces the list:'
+update public.profiles set role = 'staff' where email = 'staff@stans.test';
+select role, roles from public.profiles where email = 'staff@stans.test';
+\echo 'admin plus another role is still an admin:'
+update public.profiles set roles = array['staff', 'admin'] where email = 'staff@stans.test';
+select role, roles from public.profiles where email = 'staff@stans.test';
+update public.profiles set roles = array['staff'] where email = 'staff@stans.test';
+delete from public.production where date = '2026-07-22'; delete from public.goods_receipts where date = '2026-07-22';
+reset role;

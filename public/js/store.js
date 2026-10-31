@@ -9,7 +9,7 @@ const cfg = window.STANS_CONFIG || {};
 export const configured = Boolean(cfg.supabaseUrl && cfg.supabaseKey);
 export const sb = configured ? createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }) : null;
 
-export const state = { data: null, profile: null, user: null, version: 0, loadedAt: 0 };
+export const state = { data: null, profile: null, user: null, version: 0, loadedAt: 0, simulate: null };
 const listeners = new Set();
 export const onChange = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 function changed() { state.version++; derivedCache.clear(); for (const fn of listeners) fn(); }
@@ -66,7 +66,9 @@ export async function loadProfile() {
   return state.profile;
 }
 
-export const isAdmin = () => state.profile?.role === 'admin' && !state.profile?.disabled;
+// While an admin is viewing the site as another role (state.simulate), they aren't treated as an admin.
+export const isAdmin = () => !state.simulate && state.profile?.role === 'admin' && !state.profile?.disabled;
+export const dataChanged = () => changed();
 
 // User management (Settings → Users) goes through the site's Worker, which
 // holds the Supabase secret key; it checks the caller is an enabled admin.

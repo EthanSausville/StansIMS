@@ -20,7 +20,7 @@ if (!window.__MOCK_NO_ADMIN_API__) window.__MOCK_ADMIN_API__ = async (method, bo
   const log = (action, row) => (db.audit_log ||= []).push({ id: (db.audit_log.length + 1), at: new Date().toISOString(), user_id: me, email: 'owner@stans.test', table_name: 'users', action, new_row: row });
   const find = (id) => { const p = ps.find((x) => x.user_id === id); if (!p) throw new Error('That user wasn’t found.'); return p; };
   const admins = (id) => ps.filter((p) => p.role === 'admin' && !p.disabled && p.user_id !== id).length;
-  if (method === 'GET') return { configured: true, me, users: ps.map((p) => ({ id: p.user_id, email: p.email, name: p.name || null, role: p.role, disabled: !!p.disabled, created_at: p.created_at,
+  if (method === 'GET') return { configured: true, me, users: ps.map((p) => ({ id: p.user_id, email: p.email, name: p.name || null, role: p.role, roles: p.roles?.length ? p.roles : [p.role], disabled: !!p.disabled, created_at: p.created_at,
     last_sign_in_at: p.last_sign_in_at || null, confirmed: p.confirmed !== false })) };
   const b = body || {};
   switch (b.action) {
@@ -32,7 +32,13 @@ if (!window.__MOCK_NO_ADMIN_API__) window.__MOCK_ADMIN_API__ = async (method, bo
     }
     case 'update': {
       const p = find(b.id);
+      if ('roles' in b) {
+        if (!b.roles.length) throw new Error('Give them at least one role.');
+        if (!b.roles.includes('admin') && (b.id === me || !admins(b.id))) throw new Error('There must be at least one admin.');
+        p.roles = [...new Set(b.roles)]; p.role = p.roles.includes('admin') ? 'admin' : p.roles[0];
+      }
       if ('role' in b && b.role !== 'admin' && (b.id === me || !admins(b.id))) throw new Error('There must be at least one admin.');
+      if ('role' in b) p.roles = [b.role];
       for (const k of ['name', 'role', 'email']) if (k in b) p[k] = b[k];
       log('update', b); return { ok: true, message: 'Saved.' };
     }

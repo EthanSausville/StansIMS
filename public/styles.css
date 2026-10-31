@@ -1376,9 +1376,6 @@ table.roles-table th.rp-role { min-width: 190px; text-align: center; vertical-al
 .rp-icon.danger:hover { background: #b3261e; border-color: #b3261e; }
 table.roles-table tr.rp-sec th, table.roles-table tr.rp-sec td { background: var(--stans-cream, #fdf3d7); padding-top: 8px; padding-bottom: 6px; }
 table.roles-table tr.rp-sec th { text-align: left; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--stans-orange, #e4560f); }
-.rp-quick { display: flex; gap: 6px; justify-content: center; align-items: center; font-size: 12px; }
-.rp-link { background: none; border: 0; padding: 0 2px; color: var(--stans-brown); text-decoration: underline; cursor: pointer; font-size: 12px; }
-.rp-link:hover { color: var(--stans-orange, #e4560f); }
 table.roles-table td { text-align: center; }
 .rp-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
 .rp-btn { border: 0; background: #fff; color: #8a7f76; padding: 4px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; min-width: 58px; }
@@ -1399,20 +1396,36 @@ table.roles-table tfoot td:first-child { text-align: left; font-weight: 700; col
 .role-dialog form { display: flex; flex-direction: column; gap: 10px; min-width: min(420px, 86vw); }
 .role-dialog input, .role-dialog select { width: 100%; }
 /* Settings → Periods, and closed months elsewhere */
-table.periods-table tr.period-closed td { background: #f5f1ec; }
 .note.closed-note { background: #efe9e2; color: var(--stans-brown); border-left: 4px solid var(--stans-brown); }
 table.t.closed-month td.cell input { background: transparent !important; border-color: transparent; color: var(--muted); }
 table.roles-table th.role-col .role-name input { color: var(--stans-brown); }
 table.roles-table th.role-col .role-name input:disabled { color: inherit; }
 table.roles-table th .icon-btn { color: #fff; border-color: rgba(255,255,255,.55); background: transparent; }
-/* Settings → Periods: years */
+/* Settings → Periods: years, with their months tabbed in under them */
 .pr-intro { margin: 0 0 12px; max-width: 100ch; }
-table.periods-table tbody.pr-group tr.pr-year th { background: var(--stans-cream, #fdf3d7); color: var(--stans-brown); text-align: left; padding-top: 10px; padding-bottom: 10px; font-size: 13px; }
-table.periods-table tbody.pr-group tr.pr-year th.num { text-align: right; }
-table.periods-table tbody.pr-group tr.pr-year th.pr-name { font-size: 17px; font-weight: 800; }
-table.periods-table tbody.pr-group tr.pr-year th.pr-status { font-weight: 600; }
-table.periods-table tbody.pr-group tr.pr-year.foldable { cursor: pointer; }
-table.periods-table tbody.pr-group tr.pr-year.foldable:hover th { background: #fbeab8; }
-.pr-fold { background: none; border: 0; font-size: 14px; width: 22px; padding: 0; margin-right: 4px; color: var(--stans-orange, #e4560f); cursor: pointer; }
-table.periods-table td.pr-name { padding-left: 34px; font-weight: 600; }
-table.t.periods-table tr.pr-month td.pr-name { padding-left: 46px; font-weight: 600; }
+table.t.periods-table tr.pr-year td { font-weight: 800; color: var(--stans-brown); border-top: 2px solid var(--line); }
+table.t.periods-table tr.pr-year td.pr-name { font-size: 16px; }
+table.t.periods-table tr.pr-year.foldable { cursor: pointer; }
+table.t.periods-table tr.pr-year.foldable:hover td { background: #faf6f1; }
+#app .content .tablewrap > table.t.periods-table tr.pr-month > td.pr-name { padding-left: calc(var(--page-x) + 26px); font-weight: 600; }
+/* View as (an admin seeing the site as other roles) */
+.sim-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 16px; background: #1d4f8a; color: #fff; font-size: 13.5px; }
+.sim-bar .sim-sub { opacity: .85; }
+.sim-bar .btn { background: #fff; color: #1d4f8a; border-color: #fff; }
+/* Users: several roles each */
+td.user-roles { white-space: normal; min-width: 210px; }
+.role-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.role-chip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 9px; border-radius: 999px; background: #f1e4d5; color: var(--stans-brown); font-size: 12.5px; font-weight: 650; }
+.role-chip.admin { background: #3a2318; color: #fff; }
+.role-chip button { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0 5px; font-size: 13px; line-height: 1; opacity: .7; }
+.role-chip button:hover { opacity: 1; }
+.role-chip.solo { padding-right: 9px; }
+select.role-add-sel { font-size: 12.5px; padding: 2px 4px; width: auto; max-width: 130px; }
+/* Roles: Edit greyed out on report pages; H / V / E when narrow */
+.rp-btn.rp-na { color: #cfc8c2; background: #f6f3f0; cursor: not-allowed; }
+.rp-btn .rp-short { display: none; }
+table.roles-table.compact .rp-btn { min-width: 30px; padding: 4px 8px; }
+table.roles-table.compact .rp-btn .rp-long { display: none; }
+table.roles-table.compact .rp-btn .rp-short { display: inline; }
+table.roles-table.compact th.rp-role { min-width: 120px; }
+table.roles-table.compact td.rp-page { min-width: 160px; }

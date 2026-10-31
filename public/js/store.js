@@ -185,7 +185,9 @@ export async function importSales({ fileName, period, from, to, rows, skipped, n
   const added = [];
   try {
     for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500).map((r) => ({ ...r, import_id: imp.id }));
+      // Each line's finished good, by its product name (inventory and lots go by item number).
+      const fgNo = new Map(state.data.items.filter((x) => x.type === 'Finished Good').map((x) => [x.name, x.item_no]));
+      const chunk = rows.slice(i, i + 500).map((r) => ({ ...r, item_no: r.item_no ?? fgNo.get(r.product) ?? null, import_id: imp.id }));
       added.push(...await run(sb.from('sales').insert(chunk).select()));
     }
   } catch (err) {

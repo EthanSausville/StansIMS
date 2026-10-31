@@ -374,7 +374,8 @@ function pinWideHeaders() {
     if (!float || !float.isConnected) {
       float = document.createElement('div'); float.className = 'float-head'; float.setAttribute('aria-hidden', 'true');
       const copy = document.createElement('table'); copy.className = table.className;
-      const firstRow = table.querySelector(':scope > tbody > tr');
+      // Column widths from the first body row with one cell per column (not a month or group row).
+      const firstRow = [...table.querySelectorAll(':scope > tbody > tr')].find((tr) => ![...tr.children].some((c) => c.colSpan > 1)) || table.querySelector(':scope > tbody > tr');
       const widths = firstRow ? [...firstRow.children].map((td) => td.getBoundingClientRect().width) : [];
       const cols = document.createElement('colgroup');
       for (const wd of widths) { const col = document.createElement('col'); col.style.width = `${wd}px`; cols.append(col); }
@@ -417,7 +418,8 @@ function dockWideFooters() {
       const rows = document.createElement('div'); rows.className = 'ff-rows';
       if (foot) {
         const copy = document.createElement('table'); copy.className = table.className;
-        const firstRow = table.querySelector(':scope > tbody > tr');
+        // Column widths from the first body row with one cell per column (not a month or group row).
+      const firstRow = [...table.querySelectorAll(':scope > tbody > tr')].find((tr) => ![...tr.children].some((c) => c.colSpan > 1)) || table.querySelector(':scope > tbody > tr');
         const cols = document.createElement('colgroup');
         for (const td of firstRow ? firstRow.children : []) { const col = document.createElement('col'); col.style.width = `${td.getBoundingClientRect().width}px`; cols.append(col); }
         copy.append(cols, foot.cloneNode(true));

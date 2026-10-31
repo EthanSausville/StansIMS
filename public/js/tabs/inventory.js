@@ -25,10 +25,14 @@ function belowZero(inv, tracked) {
     negatives.length ? h('div', { class: 'note warn' }, `${negatives.length} item${negatives.length > 1 ? 's are' : ' is'} below zero today (${negatives.map((i) => i.name).join(', ')}). Usually that means deliveries haven’t been entered on Receive, or a count is due.`) : null,
   ];
 }
-// Three header lines, like Production → Daily: finished goods are recipe / size /
-// case; materials and packaging are name / unit / what they come in.
-const headLines = (it) => (it.type === 'Finished Good' ? nameParts(it)
-  : [it.name, C.unitWord(it.unit, 2) || 'each', C.hasReceiving(it) ? `1 ${it.receiving_unit} = ${C.holdsLabel(it)}` : '']);
+// Header: finished goods are recipe / size / case, like Production → Daily;
+// materials and packaging just their name (the unit is in each cell).
+const headLines = (it) => (it.type === 'Finished Good' ? nameParts(it) : [it.name, '', '']);
+const unitOf = (it, v) => (it.type === 'Finished Good' ? (Math.abs(v) === 1 ? 'case' : 'cases') : C.unitWord(it.unit, v) || 'each');
+const whole = (v) => Math.round(v) || 0; // no "-0"
+const amount = (it, v) => `${qty(whole(v), 0)} ${unitOf(it, whole(v))}`;
+const signed = (it, v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${amount(it, Math.abs(v))}`;
+const openDays = new Set(); // days whose detail is showing
 
 function exportDaily(tracked, inv, allDays) {
   const lines = tracked.map(headLines);
@@ -52,37 +56,74 @@ export default {
     const inv = derived.inventory(); const tracked = trackedItems(); const today = todayIso();
     const groupStart = new Set(tracked.filter((it, i) => i > 0 && tracked[i - 1].type !== it.type).map((it) => it.item_no));
     const gcls = (it, c = '') => [c, groupStart.has(it.item_no) ? 'grp-start' : ''].join(' ').trim() || null;
-    const value = (d, it) => inv.byItem.get(it.item_no)?.get(d);
-    const cell = (it, v) => h('td', { class: gcls(it, ['num', v === undefined || v === null ? 'blank' : '', typeof v === 'number' && v < 0 ? 'neg' : ''].join(' ')) }, v === undefined || v === null ? '' : qty(v, 2));
     const countDays = new Map(); // date -> Set of timings
     for (const c of state.data.cycle_counts) { if (!countDays.has(c.date)) countDays.set(c.date, new Set()); countDays.get(c.date).add(C.countTiming(c)); }
-    const countRows = (d, t) => {
+    const timingWord = (t) => (t === 'end' ? 'end of day' : 'start of day');
+
+    // A day's detail: its count (blue) and adjustment, what came in (green, +)
+    // and what went out (red, −). Newest first: an end-of-day count came after
+    // the day (above it); the day's movements and a start-of-day count came
+    // before its closing balance (below it).
+    const detailRow = (d, cls, label, sub, valueOf) => h('tr', { class: `inv-detail ${cls}`, 'data-detail': d },
+      h('td', { class: 'sticky-col flag-col' }), h('td', { class: 'sticky-col date-col' }, h('span', { class: 'row-tag' }, label), sub ? h('span', { class: 'small muted' }, ` ${sub}`) : null),
+      tracked.map((it) => { const r = valueOf(it); return h('td', { class: gcls(it, ['num', r?.cls || ''].join(' ')), title: r?.title || null }, r ? r.text : ''); }));
+    const countBlock = (d, t) => {
       const a = (it) => { const x = inv.adjust.get(`${it.item_no}|${d}`); return x && x.timing === t ? x : null; };
-      const label = t === 'end' ? 'end of day' : 'start of day';
       return [
-        h('tr', { class: 'count-row', 'data-count': `${d}|${t}` }, h('td', { class: 'sticky-col' }, h('span', { class: 'row-tag' }, 'Count'), h('span', { class: 'small muted' }, ` ${label}`)),
-          tracked.map((it) => { const x = a(it); return h('td', { class: gcls(it, 'num') }, x ? qty(x.counted, 2) : ''); })),
-        h('tr', { class: 'adj-row', 'data-adjust': `${d}|${t}` }, h('td', { class: 'sticky-col' }, h('span', { class: 'row-tag' }, 'Adjustment'), h('span', { class: 'small muted' }, ` ${label}`)),
-          tracked.map((it) => { const x = a(it); const v = x?.adj;
-            return h('td', { class: gcls(it, 'num' + (v < 0 ? ' neg' : v > 0 ? ' pos' : '')), title: x && x.adj === null ? 'First count: it starts this item’s inventory' : x ? `Expected ${qty(x.expected, 2)}, counted ${qty(x.counted, 2)}` : null },
-              !x ? '' : v === null ? 'start' : `${v > 0 ? '+' : ''}${qty(v, 2)}`); })),
+        detailRow(d, 'count-row', 'Count', timingWord(t), (it) => { const x = a(it); return x ? { text: amount(it, x.counted), cls: 'counted' } : null; }),
+        detailRow(d, 'adj-row', 'Adjustment', timingWord(t), (it) => { const x = a(it); if (!x) return null;
+          if (x.adj === null) return { text: 'start', cls: 'muted', title: 'First count: it starts this item’s inventory' };
+          const v = whole(x.adj); return { text: signed(it, v), cls: v > 0 ? 'up' : v < 0 ? 'down' : 'muted', title: `Expected ${amount(it, x.expected)}, counted ${amount(it, x.counted)}` }; }),
       ];
     };
-    const head = h('thead', null, h('tr', { class: 'fg-head' }, h('th', { class: 'sticky-col' }, 'Date'),
-      tracked.map((it) => { const [a, b, c] = headLines(it); return h('th', { class: gcls(it, 'num fg-name'), title: `${it.name} · #${it.item_no}` },
-        h('span', { class: 'fg-recipe' }, a), h('span', { class: 'fg-size' }, b), h('span', { class: 'fg-pack' }, c || '\u00a0')); })));
-    const { allDays, list } = endlessDays({ id: 'inv-daily', tableClass: 'prod-table inv-daily', head,
+    const MOVES = [['received', 'Received', 1], ['produced', 'Produced', 1], ['used', 'Used in production', -1], ['sold', 'Sold', -1]];
+    const detailRows = (d) => {
+      const ts = countDays.get(d) || new Set();
+      const above = ts.has('end') ? countBlock(d, 'end') : [];
+      const below = [];
+      for (const [k, label, sign] of MOVES) {
+        const vals = new Map(tracked.map((it) => [it.item_no, inv.moves.get(`${it.item_no}|${d}`)?.[k] || 0]));
+        if (![...vals.values()].some((v) => Math.abs(v) > 1e-9)) continue;
+        below.push(detailRow(d, sign > 0 ? 'in-row' : 'out-row', label, null, (it) => { const v = vals.get(it.item_no); return Math.abs(v) > 1e-9 ? { text: signed(it, sign * v), cls: sign > 0 ? 'up' : 'down' } : null; }));
+      }
+      if (ts.has('start')) below.push(...countBlock(d, 'start'));
+      if (!above.length && !below.length) below.push(h('tr', { class: 'inv-detail none-row', 'data-detail': d }, h('td', { class: 'sticky-col flag-col' }),
+        h('td', { class: 'sticky-col date-col' }, h('span', { class: 'small muted' }, 'Nothing received, made, used, sold or counted')), tracked.map((it) => h('td', { class: gcls(it) }))));
+      return { above, below };
+    };
+    const toggle = (tr, d) => {
+      const body = tr.parentElement;
+      if (openDays.has(d)) { openDays.delete(d); body.querySelectorAll(`tr[data-detail="${d}"]`).forEach((r) => r.remove()); tr.setAttribute('aria-expanded', 'false'); return; }
+      openDays.add(d); const { above, below } = detailRows(d);
+      tr.before(...above); tr.after(...below); tr.setAttribute('aria-expanded', 'true');
+    };
+
+    const cell = (it, v) => h('td', { class: gcls(it, ['num', v === undefined || v === null ? 'blank' : '', typeof v === 'number' && whole(v) < 0 ? 'neg' : ''].join(' ')) }, v === undefined || v === null ? '' : amount(it, v));
+    // Header: a band per kind of item (the yellow lines), then the names.
+    const groups = []; for (const it of tracked) { const g = groups.at(-1); if (g && g.type === it.type) g.n++; else groups.push({ type: it.type, n: 1 }); }
+    const head = h('thead', null,
+      h('tr', { class: 'group' }, h('th', { class: 'sticky-col', colspan: 2 }),
+        groups.map((g) => h('th', { colspan: g.n }, h('span', { class: 'band-label' }, g.type === 'Component' ? 'Packaging' : g.type === 'Raw Material' ? 'Raw Materials' : 'Finished Goods')))),
+      h('tr', { class: 'fg-head' }, h('th', { class: 'sticky-col flag-col', title: 'A cycle count was entered that day' }, ''), h('th', { class: 'sticky-col date-col' }, 'Date'),
+        tracked.map((it) => { const [a, b, c] = headLines(it); return h('th', { class: gcls(it, 'num fg-name'), title: `${it.name} · #${it.item_no}` },
+          h('span', { class: 'fg-recipe' }, a), b ? h('span', { class: 'fg-size' }, b) : null, c ? h('span', { class: 'fg-pack' }, c) : null); })));
+    const { allDays, list } = endlessDays({ id: 'inv-daily', tableClass: 'prod-table inv-daily', head, lead: 2,
       monthCells: () => tracked.map((it) => h('td', { class: gcls(it) })),
       dayRows: (d) => {
-        const ts = countDays.get(d) || new Set();
-        const day = h('tr', { class: dayRowClass(d, today), 'data-day': d }, h('td', { class: 'sticky-col' }, dateLabel(d)), tracked.map((it) => cell(it, value(d, it))));
-        // Newest first: an end-of-day count came after the day (above it), a start-of-day count before it (below).
-        return [ts.has('end') ? countRows(d, 'end') : null, day, ts.has('start') ? countRows(d, 'start') : null];
+        const ts = countDays.get(d);
+        const flag = ts ? h('span', { class: 'count-flag', title: `Cycle count (${[...ts].map(timingWord).join(' and ')})` }, '●') : null;
+        const tr = h('tr', { class: [dayRowClass(d, today), 'inv-day'].filter(Boolean).join(' '), 'data-day': d, 'aria-expanded': String(openDays.has(d)), title: 'Click to see what came in, went out and was counted',
+          onclick: (e) => toggle(e.currentTarget, d) },
+          h('td', { class: 'sticky-col flag-col' }, flag), h('td', { class: 'sticky-col date-col' }, dateLabel(d)), tracked.map((it) => cell(it, inv.byItem.get(it.item_no)?.get(d))));
+        if (!openDays.has(d)) return tr;
+        const { above, below } = detailRows(d);
+        return [above, tr, below];
       } });
     const top = h('div', { class: 'prod-top' },
+      h('span', { class: 'small muted' }, 'Click a day to see its count, what came in and what went out.'),
       h('button', { class: 'btn ghost download', title: 'Download every day’s inventory, and every count with its adjustment, as an Excel workbook', onclick: () => exportDaily(tracked, inv, allDays) }, '⤓ Export to Excel'));
     return h('div', null,
-      pageHead('Daily', 'Running balance for each item, newest day first: the latest cycle count, plus deliveries, minus what production used. Finished goods add cases produced and subtract cases sold. A count shows what was counted and its adjustment: below the day if counted at the start of the day, above it if at the end.'),
+      pageHead('Daily', 'Running balance for each item, newest day first: the latest cycle count, plus deliveries, minus what production used. Finished goods add cases produced and subtract cases sold. Click a day to see its count (blue), what came in (green) and what went out (red).'),
       top, belowZero(inv, tracked), list);
   },
 };

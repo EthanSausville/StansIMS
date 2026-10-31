@@ -477,7 +477,17 @@ export function consumptionByDate(data) {
 //   count, end of day:   inventory = count                (adjustment = count - (yesterday's + movement))
 // result.adjust: `${item_no}|${date}` -> { counted, expected, adj, timing } for
 // every count (adj is null for an item's first count, which starts it).
+// result.moves: `${item_no}|${date}` -> { received, produced, used, sold }.
+// An item that's never been counted starts at 0 the day the company was purchased.
 export const countTiming = (c) => (c?.timing === 'end' ? 'end' : 'start');
+// The finished good a sale line is for: its item number, or (lines loaded from
+// QuickBooks) the finished good with its product name.
+export function saleFg(ix, s) {
+  if (s.item_no && ix.items.get(s.item_no)?.type === 'Finished Good') return s.item_no;
+  if (!s.product || s.product === 'Other') return null;
+  if (!ix._fgByName) ix._fgByName = new Map(ix.byType('Finished Good').map((f) => [f.name, f.item_no]));
+  return ix._fgByName.get(s.product) ?? null;
+}
 export function dailyInventory(data, to) {
   const ix = index(data);
   const tracked = [...ix.byType('Raw Material'), ...ix.byType('Component'), ...ix.byType('Finished Good')];
@@ -488,25 +498,25 @@ export function dailyInventory(data, to) {
     timing.set(key(c.date, c.item_no), countTiming(c));
     if (!firstCount.has(c.item_no) || c.date < firstCount.get(c.item_no)) firstCount.set(c.item_no, c.date);
   }
-  const ins = new Map(); const add = (d, i, q) => ins.set(key(d, i), (ins.get(key(d, i)) || 0) + q);
-  for (const r of data.goods_receipts) add(r.date, r.item_no, n(r.qty));
-  for (const p of data.production) add(p.date, p.item_no, n(p.cases));
-  for (const s of data.sales) if (s.item_no && ix.items.get(s.item_no)?.type === 'Finished Good') add(s.date, s.item_no, -n(s.quantity));
-  const cons = consumptionByDate(data);
+  const moves = new Map();
+  const mv = (d, i) => { const k = `${i}|${d}`; if (!moves.has(k)) moves.set(k, { received: 0, produced: 0, used: 0, sold: 0 }); return moves.get(k); };
+  for (const r of data.goods_receipts) mv(r.date, r.item_no).received += n(r.qty);
+  for (const p of data.production) mv(p.date, p.item_no).produced += n(p.cases);
+  for (const s of data.sales) { const fg = saleFg(ix, s); if (fg) mv(s.date, fg).sold += n(s.quantity); }
+  for (const [d, m] of consumptionByDate(data)) for (const [i, q] of m) mv(d, i).used += q;
   const starts = [...firstCount.values()].sort();
-  const from = starts[0];
-  const result = { from, to, items: tracked, byItem: new Map(), adjust: new Map() };
-  if (!from) return result;
+  const from = starts[0] && starts[0] < COMPANY_START ? starts[0] : COMPANY_START;
+  const result = { from, to, items: tracked, byItem: new Map(), adjust: new Map(), moves };
   for (const item of tracked) {
-    const series = new Map(); const start = firstCount.get(item.item_no);
+    const series = new Map(); const start = firstCount.get(item.item_no) || (COMPANY_START <= to ? COMPANY_START : null);
     if (!start) { result.byItem.set(item.item_no, series); continue; }
     let prev = 0;
     for (const d of eachDay(start, to)) {
       const k = key(d, item.item_no); const counted = counts.get(k);
-      const move = (ins.get(k) || 0) - (cons.get(d)?.get(item.item_no) || 0);
+      const m = moves.get(`${item.item_no}|${d}`); const move = m ? m.received + m.produced - m.used - m.sold : 0;
       let v = prev + move;
       if (counted !== undefined) {
-        const t = timing.get(k); const first = d === start;
+        const t = timing.get(k); const first = d === firstCount.get(item.item_no) && start === d;
         const expected = first ? null : t === 'end' ? prev + move : prev;
         v = t === 'end' ? counted : counted + move;
         result.adjust.set(`${item.item_no}|${d}`, { counted, expected, adj: first ? null : counted - expected, timing: t });
@@ -542,7 +552,7 @@ export function salesRows(data) {
   const cm = costModel(data); const pm = priceModel(data);
   return data.sales.map((s) => {
     const y = yearOf(s.date); const q = n(s.quantity); const ix = cm.ixFor(y);
-    const fg = s.item_no && ix.items.get(s.item_no)?.type === 'Finished Good' ? s.item_no : null;
+    const fg = saleFg(ix, s);
     const oz = fg ? (ix.fgCaseOz.get(fg) || 0) * q : 0;
     const stdPrice = fg ? pm.nearest(fg, y) * q : 0;
     const stdCost = fg ? cm.nearest(fg, y) * q : 0;
@@ -949,7 +959,7 @@ export function productionLots(data) {
   for (const [itemNo, days] of byItem) {
     const list = [...days].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, cases]) => ({ code: lotCode(date, itemNo), item: ix.items.get(itemNo), date, cases, left: cases, shipments: [] }));
     lots.push(...list);
-    const sales = data.sales.filter((s) => s.item_no === itemNo && n(s.quantity) > 0).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const sales = data.sales.filter((s) => saleFg(ix, s) === itemNo && n(s.quantity) > 0).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     for (const s of sales) {
       let need = n(s.quantity);
       for (const lot of list) {

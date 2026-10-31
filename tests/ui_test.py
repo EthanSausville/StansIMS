@@ -120,6 +120,13 @@ def tab(page, label):
             page.get_by_role('tab', name=label, exact=True).click()
     page.wait_for_timeout(150)
 
+def inv_num(text):
+    """A number from an inventory cell: '−1,234 lb', '+380 cases'."""
+    m = re.search(r'([−+-]?)([\d,]+(?:\.\d+)?)', text or '')
+    if not m: return 0.0
+    v = float(m.group(2).replace(',', ''))
+    return -v if m.group(1) in ('−', '-') else v
+
 def acct(text):
     """A number from accounting-style text: '$\n1,250.00' or '$ (30.60)'."""
     t = text.replace('$', '').replace(',', '').replace('\n', '').strip()
@@ -260,7 +267,7 @@ with sync_playwright() as p:
     fh = page.evaluate("(() => { const f = document.querySelector('.float-head'); if (!f) return null; const r = f.getBoundingClientRect(); return [Math.round(r.top), f.textContent.includes('Cheese')]; })()")
     check(fh is not None and abs(fh[0] - bar) <= 1 and fh[1], f'wide tables keep their column names under the site header too ({fh})')
     page.evaluate("document.querySelector('main .tablewrap').scrollLeft = 300"); page.wait_for_timeout(150)
-    off = page.evaluate("(() => { const w = document.querySelector('main .tablewrap'); const real = w.querySelector('thead tr:nth-child(1) th:nth-child(5)').getBoundingClientRect().left; const copy = document.querySelector('.float-head thead tr:nth-child(1) th:nth-child(5)').getBoundingClientRect().left; return Math.round(real - copy); })()")
+    off = page.evaluate("(() => { const w = document.querySelector('main .tablewrap'); const real = w.querySelector('thead tr:nth-child(2) th:nth-child(5)').getBoundingClientRect().left; const copy = document.querySelector('.float-head thead tr:nth-child(2) th:nth-child(5)').getBoundingClientRect().left; return Math.round(real - copy); })()")
     check(abs(off) <= 1, f'the floating header lines up with the columns after scrolling sideways (off by {off}px)')
     page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 0"); page.wait_for_timeout(150)
     dock = page.evaluate("(() => { const f = document.querySelector('.float-foot .ff-scroll'); if (!f) return null; return Math.round(innerHeight - f.getBoundingClientRect().bottom); })()")
@@ -347,12 +354,19 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Undo this delivery').click(); page.wait_for_timeout(400)
     check(rcpt(100001) == b_cheese and rcpt(lid_no) == b_lid, 'Undo takes the delivery back out')
     # A delivery on a past day moves that day's inventory.
-    cheese_on = lambda: float(page.locator('tr[data-day="2026-07-10"] td').nth(1).inner_text().replace(',', '') or 0)
+    cheese_on = lambda: inv_num(page.locator('tr[data-day="2026-07-10"] td').nth(2).inner_text())
     tab(page, 'Inventory/Daily')
     hd = page.locator('table.inv-daily thead tr')
     ch = page.locator('table.inv-daily thead th[title*="#100001"]')
-    check(hd.count() == 1 and page.locator('table.inv-daily .band-label').count() == 0 and [ch.locator(c).inner_text() for c in ('.fg-recipe', '.fg-size', '.fg-pack')] == ['Cheese', 'lb', '1 box = 30 lb'],
-          'Inventory → Daily has Production-style headers: one row, name / unit / what it comes in')
+    check(hd.count() == 2 and page.locator('table.inv-daily .band-label').all_inner_texts() == ['RAW MATERIALS', 'PACKAGING', 'FINISHED GOODS'] and ch.inner_text().strip() == 'Cheese',
+          f'Inventory → Daily headers: the yellow-line bands, then just the name ({ch.inner_text()!r})')
+    c1 = page.locator('tr[data-day="2026-07-10"] td').nth(2).inner_text()
+    check(re.fullmatch(r'−?-?[\d,]+ lb', c1) is not None, f'the unit is in the cell, rounded to a whole number ({c1})')
+    wd_bg = page.locator('tr[data-day="2026-07-10"] td').nth(3).evaluate('e => getComputedStyle(e).backgroundColor')
+    we = page.locator('tr[data-day="2026-07-11"] td').nth(3)
+    check(wd_bg not in ('rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)') and we.evaluate('e => getComputedStyle(e).backgroundColor') == 'rgb(255, 255, 255)'
+          and we.evaluate('e => getComputedStyle(e).color') != page.locator('tr[data-day="2026-07-10"] td').nth(3).evaluate('e => getComputedStyle(e).color'),
+          f'weekdays are light grey; weekends white with lighter text ({wd_bg})')
     fgh = page.locator('table.inv-daily thead th[title*="#500001"]')
     check([fgh.locator(c).inner_text() for c in ('.fg-recipe', '.fg-size', '.fg-pack')] == ['Original', '7 oz', 'Case of 24'], 'finished goods split into recipe / size / case')
     check(page.locator('table.inv-daily tbody tr[data-day]').first.get_attribute('data-day') == TODAY.isoformat() and page.locator('.daily-mode, .seg', has_text='Month-end').count() == 0, 'it starts at today, with no Month-end switch')
@@ -772,24 +786,36 @@ with sync_playwright() as p:
     c = cell(page, f'cs|{fg_no}'); c.fill('500'); c.press('Tab'); page.wait_for_timeout(300)
     check(page.evaluate(f"window.__MOCK_DB__.cycle_counts.find(c => c.item_no === {fg_no} && c.date === '{cday}').timing") == 'start', 'the count is saved as start of day')
     tab(page, 'Inventory/Daily')
-    order = page.locator(f'tr[data-day="{cday}"], tr[data-count^="{cday}"], tr[data-adjust^="{cday}"]').evaluate_all('es => es.map(e => e.dataset.day ? "day" : e.dataset.count ? "count" : "adjust")')
-    check(order == ['day', 'count', 'adjust'], f'a start-of-day count and its adjustment sit below the day ({order})')
-    col = page.locator('table.inv-daily thead tr').nth(0).locator('th').evaluate_all(f'es => es.findIndex(e => (e.title || "").includes("#{fg_no}"))')
-    num = lambda sel: float(page.locator(sel).locator('td').nth(col).inner_text().replace(',', '').replace('+', '') or 'nan')
+    day_tr = page.locator(f'tr[data-day="{cday}"]')
+    check(day_tr.locator('td.flag-col .count-flag').count() == 1 and page.locator('tr[data-day="2026-07-07"] .count-flag').count() == 0, 'the fixed left column flags days with a cycle count')
+    check(page.locator(f'tr[data-detail="{cday}"]').count() == 0, 'a day’s detail is hidden until it’s clicked')
+    if day_tr.get_attribute('aria-expanded') != 'true': day_tr.locator('td.date-col').click(); page.wait_for_timeout(200)
+    rows_of = lambda: page.locator(f'tr[data-day="{cday}"], tr[data-detail="{cday}"]').evaluate_all('es => es.map(e => e.dataset.day ? "day" : e.className.replace("inv-detail ", ""))')
+    order = rows_of()
+    check(order[0] == 'day' and order[-2:] == ['count-row', 'adj-row'] and 'in-row' in order, f'clicking a day shows what came in, then a start-of-day count and its adjustment, below the day ({order})')
+    col = page.locator('table.inv-daily thead tr').nth(1).locator('th').evaluate_all(f'es => es.findIndex(e => (e.title || "").includes("#{fg_no}"))')
+    num = lambda sel: inv_num(page.locator(sel).first.locator('td').nth(col).inner_text())
     made = page.evaluate(f"window.__MOCK_DB__.production.filter(r => r.date === '{cday}' && r.item_no === {fg_no}).reduce((t, r) => t + r.cases, 0)")
     sold = page.evaluate(f"window.__MOCK_DB__.sales.filter(r => r.date === '{cday}' && r.item_no === {fg_no}).reduce((t, r) => t + Number(r.quantity), 0)")
     prev_day = num('tr[data-day="2026-07-05"]')
-    check(num(f'tr[data-count="{cday}|start"]') == 500 and abs(num(f'tr[data-adjust="{cday}|start"]') - (500 - prev_day)) < 0.01 and abs(num(f'tr[data-day="{cday}"]') - (500 + made - sold)) < 0.01,
-          f'start of day: adjustment = count − the day before ({500 - prev_day}), and the day adds its production ({made}) and sales ({sold})')
+    cnt = page.locator(f'tr.count-row[data-detail="{cday}"] td').nth(col)
+    check(num(f'tr.count-row[data-detail="{cday}"]') == 500 and cnt.evaluate('e => getComputedStyle(e).color') == 'rgb(37, 99, 201)', 'the count shows in blue')
+    prod_txt = page.locator(f'tr.in-row[data-detail="{cday}"]', has_text='Produced').locator('td').nth(col).inner_text()
+    check(prod_txt.startswith('+') and abs(inv_num(prod_txt) - made) <= 1 and page.locator(f'tr.in-row[data-detail="{cday}"] td.up').count() > 0, f'production shows as an increase in green with a + ({prod_txt})')
+    check(abs(num(f'tr.adj-row[data-detail="{cday}"]') - (500 - prev_day)) <= 1 and abs(num(f'tr[data-day="{cday}"]') - (500 + made - sold)) <= 1,
+          f'start of day: adjustment = count − the day before ({500 - prev_day}), and the day adds its production ({made}) and takes off its sales ({sold})')
     shot(page, '55-count-start')
     tab(page, 'Count')
     page.locator('.count-timing button', has_text='End of day').click(); page.wait_for_timeout(300)
     check(page.evaluate(f"window.__MOCK_DB__.cycle_counts.find(c => c.item_no === {fg_no} && c.date === '{cday}').timing") == 'end', 'switching to end of day changes the day’s counts')
     tab(page, 'Inventory/Daily')
-    order = page.locator(f'tr[data-day="{cday}"], tr[data-count^="{cday}"], tr[data-adjust^="{cday}"]').evaluate_all('es => es.map(e => e.dataset.day ? "day" : e.dataset.count ? "count" : "adjust")')
-    check(order == ['count', 'adjust', 'day'], f'an end-of-day count sits above the day ({order})')
-    check(num(f'tr[data-day="{cday}"]') == 500 and abs(num(f'tr[data-adjust="{cday}|end"]') - (500 - (prev_day + made - sold))) < 0.01,
+    order = rows_of()
+    check(order[:3] == ['count-row', 'adj-row', 'day'], f'an end-of-day count sits above the day ({order})')
+    check(abs(num(f'tr[data-day="{cday}"]') - 500) <= 1 and abs(num(f'tr.adj-row[data-detail="{cday}"]') - (500 - (prev_day + made - sold))) <= 1,
           'end of day: the day ends at the count, and the adjustment includes the day’s production and sales')
+    page.locator(f'tr[data-day="{cday}"] td.date-col').click(); page.wait_for_timeout(150)
+    check(page.locator(f'tr[data-detail="{cday}"]').count() == 0, 'clicking the day again hides it')
+    page.locator(f'tr[data-day="{cday}"] td.date-col').click(); page.wait_for_timeout(150)
     shot(page, '55-count-end')
     tab(page, 'Count')
     c = cell(page, f'cs|{fg_no}'); c.fill(''); c.press('Tab'); page.wait_for_timeout(300)

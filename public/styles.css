@@ -1470,16 +1470,31 @@ table.prod-table tr.month-row .closed-tag { font-weight: 400; color: var(--muted
 .to-top:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .to-top { transition: none; } }
 
-/* Inventory → Daily: a count day's count and adjustment rows */
-table.inv-daily tr.count-row td, table.inv-daily tr.adj-row td { background: var(--accent-soft); font-size: 12.5px; }
-table.inv-daily tr.count-row td.sticky-col, table.inv-daily tr.adj-row td.sticky-col { background: var(--accent-soft); }
-table.inv-daily tr.count-row td { border-top: 1px solid var(--line-strong); }
-table.inv-daily tr.adj-row td { border-bottom: 1px solid var(--line-strong); }
-table.inv-daily tr.adj-row td.pos { color: var(--good); }
-table.inv-daily .row-tag { font-weight: 650; }
-table.inv-daily tbody tr.count-row:hover td, table.inv-daily tbody tr.adj-row:hover td { background: var(--accent-soft); }
+/* Inventory → Daily */
+table.inv-daily { --flag-w: 30px; }
+table.inv-daily .flag-col { width: var(--flag-w); min-width: var(--flag-w); max-width: var(--flag-w); padding-left: 0; padding-right: 0; text-align: center; }
+table.inv-daily .date-col { left: var(--flag-w); }
+table.inv-daily .count-flag { color: #2563c9; font-size: 11px; }
+/* weekdays light grey; weekends white with lighter text */
+table.inv-daily tbody tr.inv-day:not(.weekend) { --weekday: #f4f2f1; }
+table.inv-daily tbody tr.inv-day:not(.weekend) td { background: var(--weekday); }
+table.inv-daily tbody tr.inv-day.weekend td { background: var(--panel); color: var(--faint); }
+table.inv-daily tbody tr.inv-day.weekend td.neg { color: color-mix(in srgb, var(--bad) 55%, white); }
+table.inv-daily tbody tr.inv-day { cursor: pointer; }
+table.inv-daily tbody tr.inv-day[aria-expanded="true"] td { border-bottom-color: transparent; }
+/* a day's detail: count blue, in green (+), out red (−) */
+table.inv-daily tr.inv-detail td { background: var(--panel); font-size: 12.5px; }
+table.inv-daily tbody tr.inv-detail:hover td { background: var(--panel); }
+table.inv-daily tr.inv-detail td.counted { color: #2563c9; font-weight: 600; }
+table.inv-daily tr.inv-detail td.up { color: var(--good); }
+table.inv-daily tr.inv-detail td.down { color: var(--bad); }
+table.inv-daily tr.inv-detail .row-tag { font-weight: 650; }
+table.inv-daily tr.count-row .row-tag { color: #2563c9; }
+table.inv-daily tr.in-row .row-tag { color: var(--good); }
+table.inv-daily tr.out-row .row-tag { color: var(--bad); }
 table.inv-daily tbody tr.month-row:hover th, table.inv-daily tbody tr.month-row:hover td { background: var(--stans-grey); }
 table.inv-daily tr.month-row th, table.inv-daily tr.month-row td { background: var(--stans-grey); color: var(--ink); font-weight: 600; border-top: 2px solid var(--line-strong); text-align: left; }
 .count-timing { margin-top: 4px; }
 table.inv-daily th.grp-start, table.inv-daily td.grp-start { border-left: 2px solid var(--line-strong); }
 table.inv-daily thead th.grp-start { border-left-color: rgba(255, 255, 255, .35); }
+table.inv-daily tbody tr.inv-day:hover td, table.inv-daily tbody tr.inv-day:hover td.sticky-col { background: var(--accent-soft); }

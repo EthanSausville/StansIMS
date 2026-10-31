@@ -95,7 +95,7 @@ document.addEventListener('scroll', (e) => {
 
 export const dayRowClass = (d, today = todayIso()) => [isWeekend(d) ? 'weekend' : '', d === today ? 'today' : '', isClosed(d) ? 'closed-day' : ''].join(' ').trim() || null;
 
-export function endlessDays({ id, tableClass = '', head, dayRows, monthCells }) {
+export function endlessDays({ id, tableClass = '', head, dayRows, monthCells, lead = 1 }) {
   const today = todayIso();
   const allDays = [...eachDay(COMPANY_START, today)].reverse();
   const n = Math.min(Math.max(shown.get(id) || CHUNK, CHUNK), allDays.length); shown.set(id, n);
@@ -106,7 +106,7 @@ export function endlessDays({ id, tableClass = '', head, dayRows, monthCells }) 
       if (ym !== prev) {
         prev = ym; const closed = isClosed(d);
         out.push(h('tr', { class: 'month-row' + (closed ? ' closed' : ''), 'data-month': ym },
-          h('th', { class: 'sticky-col', scope: 'rowgroup', title: closed ? closedNote(ym) : null }, monthName(ym), closed ? h('span', { class: 'closed-tag' }, ' 🔒 Closed') : null),
+          h('th', { class: 'sticky-col', scope: 'rowgroup', colspan: lead > 1 ? lead : null, title: closed ? closedNote(ym) : null }, monthName(ym), closed ? h('span', { class: 'closed-tag' }, ' 🔒 Closed') : null),
           monthCells(ym)));
       }
       out.push(...[dayRows(d)].flat(Infinity).filter(Boolean));

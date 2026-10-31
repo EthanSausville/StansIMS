@@ -1310,3 +1310,22 @@ table.t td.note-cell input { width: 100%; min-width: 260px; text-align: left; bo
 table.t td.note-cell.suggested input { color: var(--muted); }
 table.t td.note-cell.typed input { color: var(--ink); }
 table.t td.note-cell input:hover { border-color: var(--line-strong); }
+
+/* ---------- Settings → Users ---------- */
+.user-add { max-width: 1100px; margin-bottom: 18px; }
+.user-add .seg { align-self: flex-start; }
+.user-add-fields { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.user-add-fields label.field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+.user-add-fields input[type=email] { min-width: 240px; }
+table.t.users-table td { vertical-align: middle; }
+table.t.users-table td.user-name input { width: 180px; text-align: left; }
+.user-status { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.user-status.on { background: #d6f1dd; color: #1c6b37; }
+.user-status.invited { background: #fbf0b8; color: #6b5600; }
+.user-status.off { background: #efe3dc; color: var(--muted); }
+table.t.users-table tr.user-off td { color: var(--muted); }
+td.user-actions { white-space: nowrap; text-align: right; }
+td.user-actions .btn { margin-left: 4px; }
+.btn.small { padding: 3px 9px; font-size: 12.5px; }
+.btn.warn { border-color: #e8b26a; color: #8a4500; }
+.btn.danger { border-color: #e7a19c; color: #8f1d17; }

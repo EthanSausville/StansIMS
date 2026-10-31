@@ -61,11 +61,25 @@ export async function loadProfile() {
   if (!user) { state.profile = null; return null; }
   const { data, error } = await sb.from('profiles').select('*').eq('user_id', user.id).maybeSingle();
   if (error) throw error;
-  state.profile = data || { role: 'staff', email: user.email };
+  // No profile row means the account was never set up (or was removed).
+  state.profile = data || { role: 'staff', email: user.email, missing: true };
   return state.profile;
 }
 
-export const isAdmin = () => state.profile?.role === 'admin';
+export const isAdmin = () => state.profile?.role === 'admin' && !state.profile?.disabled;
+
+// User management (Settings → Users) goes through the site's Worker, which
+// holds the Supabase secret key; it checks the caller is an enabled admin.
+export async function adminApi(method = 'GET', body) {
+  if (window.__MOCK_ADMIN_API__) return window.__MOCK_ADMIN_API__(method, body);
+  const { data: { session } } = await sb.auth.getSession();
+  const res = await fetch('/api/admin/users', { method, headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'content-type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined, credentials: 'omit', cache: 'no-store' });
+  let data = null; try { data = await res.json(); } catch { /* not JSON */ }
+  if (res.status === 404 && !data) return { configured: false, users: null };
+  if (!res.ok) throw new Error(data?.error || `The server said ${res.status}.`);
+  return data;
+}
 
 // ---------- derived results (recomputed only when data changes) ----------
 const derivedCache = new Map();

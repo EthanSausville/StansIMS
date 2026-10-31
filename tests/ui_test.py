@@ -160,6 +160,8 @@ with sync_playwright() as p:
     page.get_by_role('tab', name='Site Health', exact=True).click(); page.wait_for_timeout(500)
     check(page.locator('table.health-table tbody tr').count() >= 8 and page.locator('.health-summary').count() == 1, f'Site Health lists its checks ({page.locator("table.health-table tbody tr").count()})')
     check(page.locator('table.health-table tr', has_text='pinned to').count() == 1, 'Site Health notes the pinned date')
+    page.wait_for_timeout(300)
+    check(page.locator('table.health-table tr.hc-ok', has_text='Only admins can add people').count() == 1 and page.locator('table.health-table tr.hc-ok', has_text='User management is set up').count() == 1, 'Site Health checks sign-ups and user management')
     page.get_by_role('tab', name='Data', exact=True).click(); page.wait_for_timeout(150)
     with page.expect_download() as dlb: page.get_by_role('button', name='Download a backup').click()
     bk = json.loads(open(dlb.value.path()).read())
@@ -168,6 +170,37 @@ with sync_playwright() as p:
     check(page.get_by_role('button', name='Sign out').count() == 1 and page.get_by_role('button', name='Change password').count() == 1, 'My Account has sign out and change password')
     page.get_by_role('tab', name='Site', exact=True).click(); page.wait_for_timeout(150)
     check(page.locator('.set-card', has_text='Today’s date').count() == 1, 'Site shows the site date')
+    # ---- Settings → Users: full control ----
+    page.get_by_role('tab', name='Users', exact=True).click(); page.wait_for_timeout(300)
+    check(page.locator('table.users-table tbody tr').count() == 2 and page.locator('form.user-add').count() == 1, 'Users lists everyone, with Add a user')
+    page.locator('form.user-add input[type=email]').fill('new.person@stans.test'); page.locator('form.user-add input[aria-label=Name]').fill('New Person')
+    page.locator('form.user-add').get_by_role('button', name='Send invitation').click(); page.wait_for_timeout(400)
+    newp = page.evaluate("window.__MOCK_DB__.profiles.find(p => p.email === 'new.person@stans.test')")
+    check(newp and newp['role'] == 'staff' and not newp['disabled'] and page.locator('table.users-table tbody tr', has_text='new.person@stans.test').locator('.user-status', has_text='Invited').count() == 1, 'admin can invite a user by email')
+    page.locator('form.user-add').get_by_role('button', name='Set a password now').click(); page.wait_for_timeout(150)
+    page.locator('form.user-add input[type=email]').fill('pw.person@stans.test'); page.locator('form.user-add input[type=password]').fill('short')
+    page.locator('form.user-add').get_by_role('button', name='Add user').click(); page.wait_for_timeout(300)
+    check(page.evaluate("window.__MOCK_DB__.profiles.some(p => p.email === 'pw.person@stans.test')") is False, 'a weak password is refused')
+    page.locator('form.user-add input[type=password]').fill('stansims2026'); page.locator('form.user-add').get_by_role('button', name='Add user').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.profiles.some(p => p.email === 'pw.person@stans.test')"), 'admin can add a user with a password')
+    row = page.locator('table.users-table tbody tr', has_text='staff@stans.test')
+    row.locator('select').select_option('admin'); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.profiles.find(p => p.email === 'staff@stans.test').role") == 'admin', 'admin can change a role')
+    row = page.locator('table.users-table tbody tr', has_text='staff@stans.test')
+    row.locator('select').select_option('staff'); page.wait_for_timeout(400)
+    row = page.locator('table.users-table tbody tr', has_text='staff@stans.test')
+    row.get_by_role('button', name='Turn off').click(); page.locator('dialog[open]').get_by_role('button', name='Turn off').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.profiles.find(p => p.email === 'staff@stans.test').disabled") is True and page.locator('table.users-table tbody tr', has_text='staff@stans.test').locator('.user-status', has_text='Turned off').count() == 1, 'admin can turn an account off')
+    page.locator('table.users-table tbody tr', has_text='staff@stans.test').get_by_role('button', name='Turn on').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.profiles.find(p => p.email === 'staff@stans.test').disabled") is False, 'and back on')
+    me = page.locator('table.users-table tbody tr', has_text='owner@stans.test')
+    check(me.get_by_role('button', name='Delete').count() == 0 and me.get_by_role('button', name='Turn off').count() == 0 and me.locator('select').is_disabled(), 'admins can’t delete, turn off or demote themselves')
+    page.locator('table.users-table tbody tr', has_text='pw.person@stans.test').get_by_role('button', name='Delete').click(); page.locator('dialog[open]').get_by_role('button', name='Delete').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.profiles.some(p => p.email === 'pw.person@stans.test')") is False, 'admin can delete a user')
+    page.locator('table.users-table tbody tr', has_text='new.person@stans.test').get_by_role('button', name='Change email').click()
+    page.locator('dialog[open] input').fill('new.person2@stans.test'); page.locator('dialog[open]').get_by_role('button', name='Save').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.profiles.some(p => p.email === 'new.person2@stans.test')"), 'admin can change a user’s email')
+    shot(page, '70-users')
     page.keyboard.press('Escape')
     tabs = ALL_TABS
 
@@ -866,8 +899,9 @@ with sync_playwright() as p:
 
     # ---- Change history, downloads, missing standards ----
     tab(page, 'Change history')
-    hist = page.locator('table.xtable tbody tr')
-    check(hist.count() == 2 and 'cost: 1.9 → 1.937' in hist.first.inner_text() and 'Cheese' in hist.first.inner_text(), f'change history shows who changed what ({hist.first.inner_text()!r})')
+    hist = page.locator('table.xtable tbody tr', has_text='Cheese')
+    check(hist.count() == 1 and 'cost: 1.9 → 1.937' in hist.first.inner_text(), f'change history shows who changed what ({hist.first.inner_text()!r})')
+    check(page.locator('table.xtable tbody tr', has_text='Invited').count() >= 1 and page.locator('table.xtable tbody tr', has_text='Turned off').count() >= 1, 'change history records user management')
     tab(page, 'Master List')
     with page.expect_download() as dl: page.get_by_role('button', name='⤓ Download for Excel').click()
     path = dl.value.path(); csv = open(path, encoding='utf-8-sig').read().splitlines()
@@ -916,6 +950,26 @@ with sync_playwright() as p:
     # ---- sign out ----
     tab(page, 'My Account'); page.get_by_role('button', name='Sign out').click(); page.wait_for_selector('form input[type=email]')
     check(True, 'sign out returns to sign-in')
+    ctx.close()
+
+    # ---- a turned-off account, and an account nobody set up ----
+    for prof, text in ((dict(user_id="u1", email="owner@stans.test", role="staff", disabled=True), 'turned off'), (None, 'hasn’t been set up')):
+        ctx, page, errors = open_app(browser, role='staff')
+        body = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
+            f'window.__MOCK_DB__={json.dumps(dict(mock_db(), profiles=[prof] if prof else []))};'
+            'window.__MOCK_ROLE__="staff";window.__MOCK_SIGNED_IN__=true;')
+        page.route('**/config.js', (lambda b: lambda r: r.fulfill(status=200, content_type='text/javascript', body=b))(body))
+        page.goto(BASE + '/'); page.wait_for_timeout(700)
+        check(page.locator('.auth', has_text=text).count() == 1 and page.locator('.groups').count() == 0, f'an account that’s {text} sees only a message and Sign out')
+        ctx.close()
+
+    # ---- Users before the secret key is set up ----
+    ctx, page, errors = open_app(browser)
+    page.add_init_script('window.__MOCK_NO_ADMIN_API__ = true; window.__MOCK_ADMIN_API__ = async () => ({ configured: false, users: null });')
+    page.goto(BASE + '/#users'); page.wait_for_timeout(600)
+    check(page.locator('.note.warn', has_text='SUPABASE_SERVICE_ROLE_KEY').count() == 1 and page.locator('form.user-add').count() == 0 and page.locator('table.users-table tbody tr').count() == 2, 'without the key, Users explains the setup and still lists everyone')
+    page.locator('table.users-table tbody tr', has_text='staff@stans.test').get_by_role('button', name='Turn off').click(); page.locator('dialog[open]').get_by_role('button', name='Turn off').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.profiles.find(p => p.email === 'staff@stans.test').disabled") is True, 'and can still turn an account off')
     ctx.close()
 
     # ---- staff view ----

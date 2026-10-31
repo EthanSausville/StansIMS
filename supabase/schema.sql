@@ -10,8 +10,10 @@
 --     production, goods receipts, cycle counts and sales.
 --   * Only admins can change the setup: items, standard costs and prices,
 --     recipes, bills of materials, labor settings and purchase settings.
---   * The first account created becomes an admin; everyone after that is staff.
---     Admins can change roles on the Users tab.
+--   * The first account created becomes an admin. Everyone else is added by an
+--     admin (Settings → Users); an account that appears any other way (a
+--     public sign-up) starts disabled and can see nothing until an admin
+--     enables it. A disabled account can see nothing.
 
 -- ---------- helper: who is an admin ----------
 create table if not exists public.profiles (
@@ -21,18 +23,30 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+-- Added later: a name, and a switch to shut an account out.
+alter table public.profiles add column if not exists name     text;
+alter table public.profiles add column if not exists disabled boolean not null default false;
+
 create or replace function public.is_admin() returns boolean
 language sql stable security definer set search_path = '' as $$
-  select exists (select 1 from public.profiles where user_id = auth.uid() and role = 'admin');
+  select exists (select 1 from public.profiles where user_id = auth.uid() and role = 'admin' and not disabled);
+$$;
+-- Signed in with an account that's enabled (staff or admin).
+create or replace function public.is_member() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.profiles where user_id = auth.uid() and not disabled);
 $$;
 
 -- New sign-ins get a profile automatically (first one is admin).
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
-  insert into public.profiles (user_id, email, role)
+  -- The very first account is the admin; any other starts disabled until an
+  -- admin enables it (the admin panel enables the people it adds).
+  insert into public.profiles (user_id, email, role, disabled)
   values (new.id, new.email,
-          case when exists (select 1 from public.profiles where role = 'admin') then 'staff' else 'admin' end)
+          case when exists (select 1 from public.profiles where role = 'admin') then 'staff' else 'admin' end,
+          exists (select 1 from public.profiles where role = 'admin'))
   on conflict (user_id) do nothing;
   return new;
 end $$;
@@ -329,6 +343,7 @@ revoke all on all tables in schema public from anon;
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 grant execute on function public.is_admin() to authenticated;
+grant execute on function public.is_member() to authenticated;
 
 do $$
 declare t text;
@@ -339,14 +354,14 @@ begin
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "read" on public.%I', t);
     execute format('drop policy if exists "admins write" on public.%I', t);
-    execute format('create policy "read" on public.%I for select to authenticated using (true)', t);
+    execute format('create policy "read" on public.%I for select to authenticated using (public.is_member())', t);
     execute format('create policy "admins write" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())', t);
   end loop;
   -- Activity tables: everyone signed in reads and writes.
   foreach t in array array['production', 'goods_receipts', 'cycle_counts', 'sales', 'sales_imports', 'qb_name_map'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "signed in" on public.%I', t);
-    execute format('create policy "signed in" on public.%I for all to authenticated using (true) with check (true)', t);
+    execute format('create policy "signed in" on public.%I for all to authenticated using (public.is_member()) with check (public.is_member())', t);
   end loop;
 end $$;
 
@@ -357,16 +372,21 @@ create policy "see self or admin" on public.profiles for select to authenticated
   using (user_id = auth.uid() or public.is_admin());
 create policy "admins change roles" on public.profiles for update to authenticated
   using (public.is_admin()) with check (public.is_admin());
--- Profiles are created by the sign-up trigger only.
-revoke insert, delete on public.profiles from authenticated;
+-- Profiles are created by the sign-up trigger only, and admins can change
+-- only the name, role and enabled switch (never who a profile belongs to).
+revoke insert, delete, update on public.profiles from authenticated;
+grant update (name, role, disabled) on public.profiles to authenticated;
 
 -- Keeps at least one admin, so nobody can lock everyone out of the setup.
 create or replace function public.keep_an_admin() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
-  if old.role = 'admin' and new.role <> 'admin'
-     and not exists (select 1 from public.profiles where role = 'admin' and user_id <> old.user_id) then
+  if old.role = 'admin' and not old.disabled and (new.role <> 'admin' or new.disabled)
+     and not exists (select 1 from public.profiles where role = 'admin' and not disabled and user_id <> old.user_id) then
     raise exception 'There must be at least one admin.';
+  end if;
+  if new.disabled and not old.disabled and new.user_id = auth.uid() then
+    raise exception 'You can’t disable your own account.';
   end if;
   return new;
 end $$;
@@ -502,7 +522,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['items', 'standard_costs', 'standard_prices', 'boms', 'bom_lines', 'settings', 'year_settings',
-                           'purchase_settings', 'labor_positions', 'production_plan'] loop
+                           'purchase_settings', 'labor_positions', 'production_plan', 'profiles'] loop
     execute format('drop trigger if exists audit on public.%I', t);
     execute format('create trigger audit after insert or update or delete on public.%I for each row execute function public.audit_change()', t);
   end loop;

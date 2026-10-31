@@ -6,8 +6,10 @@ import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton }
 
 let rows = null; let loading = false; let failed = false;
 const TABLES = { items: 'Item', standard_costs: 'Standard cost', standard_prices: 'Standard price', boms: 'BOM', bom_lines: 'BOM line', settings: 'Settings',
-  year_settings: 'Year settings', purchase_settings: 'Purchase settings', labor_positions: 'Labor position', production_plan: 'Production plan' };
-const ACTIONS = { insert: 'Added', update: 'Changed', delete: 'Removed' };
+  year_settings: 'Year settings', purchase_settings: 'Purchase settings', labor_positions: 'Labor position', production_plan: 'Production plan',
+  profiles: 'User', users: 'User' };
+const ACTIONS = { insert: 'Added', update: 'Changed', delete: 'Removed', invite: 'Invited', create: 'Added', disable: 'Turned off', enable: 'Turned on',
+  'password reset email': 'Sent a password reset to', 'set password': 'Set the password for', 'resend invite': 'Re-sent the invitation to' };
 const SKIP = new Set(['id', 'created_at', 'updated_at', 'sort']);
 const fmtVal = (v) => (v === null || v === undefined || v === '' ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));
 
@@ -19,6 +21,7 @@ function subject(r) {
   if (row.item_no) parts.push(name(row.item_no));
   if (row.parent_item_no) parts.push(`${name(row.parent_item_no)} ← ${name(row.item_no)}`);
   if (r.table_name === 'labor_positions' && row.name) parts.push(row.name);
+  if ((r.table_name === 'profiles' || r.table_name === 'users') && row.email) parts.push(row.email);
   if (row.year) parts.push(String(row.year));
   if (row.week) parts.push(`week of ${row.week}`);
   return [...new Set(parts)].filter(Boolean).join(' · ');
@@ -26,6 +29,8 @@ function subject(r) {
 // The fields that changed, as "field: old → new".
 function changes(r) {
   const a = r.old_row || {}; const b = r.new_row || {};
+  // User management (Settings → Users) records what was asked for.
+  if (r.table_name === 'users') return Object.entries(b).filter(([k, v]) => !['action', 'id', 'email', 'password'].includes(k) && v !== null && v !== '' && v !== undefined).map(([k, v]) => `${k}: ${fmtVal(v)}`).join(', ');
   if (r.action === 'insert') return Object.entries(b).filter(([k, v]) => !SKIP.has(k) && v !== null && v !== '').map(([k, v]) => `${k}: ${fmtVal(v)}`).join(', ');
   if (r.action === 'delete') return '';
   return Object.keys({ ...a, ...b }).filter((k) => !SKIP.has(k) && JSON.stringify(a[k]) !== JSON.stringify(b[k])).map((k) => `${k}: ${fmtVal(a[k])} → ${fmtVal(b[k])}`).join(', ');

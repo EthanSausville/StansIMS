@@ -200,4 +200,13 @@ export const itemNoCol = (get) => ({ key: 'item_no', label: 'Item #', sticky: tr
 export const itemNoTh = () => h('th', { class: 'sticky-col itemno' }, 'Item #');
 export const itemNoTd = (it) => h('td', { class: 'sticky-col itemno' }, it?.item_no ?? '');
 
+// Password rules for the whole site (the Worker and Supabase check them too).
+export const MIN_PASSWORD = 10;
+export function passwordProblem(p) {
+  if (!p || p.length < MIN_PASSWORD) return `Use at least ${MIN_PASSWORD} characters.`;
+  if (p.length > 72) return 'Use 72 characters or fewer.';
+  if (!/[a-z]/i.test(p) || !/[0-9]/.test(p)) return 'Use letters and at least one number.';
+  return '';
+}
+
 export const shortName = (name) => name.replace(/\s*\(Case of 24\)/, ' (24)').replace(/\.\s/, ' ');

@@ -29,9 +29,20 @@ On table tabs, the actions (loading a report, month and year pickers, Add item /
 | See everything | ✓ | ✓ |
 | Enter production, goods receipts, cycle counts, sales | ✓ | ✓ |
 | Change items, standard costs and prices, recipes, bills of materials, labor and purchase settings | | ✓ |
-| Change people's roles (Users tab) | | ✓ |
+| Manage users: add (invite or set a password), change name / email / role, turn off and on, reset or set passwords, delete (Settings → Users) | | ✓ |
 
-The first account created becomes an admin; later accounts are staff. There is always at least one admin.
+The first account created becomes an admin. Everyone else is added by an admin on Settings → Users. An account that appears any other way starts turned off and can see nothing until an admin turns it on. There is always at least one enabled admin, and admins can't turn off, demote or delete themselves.
+
+## Security
+
+- **Sign-in only.** Nothing is readable without signing in (`anon` has no access), and every table has row-level security. A signed-in account that's turned off (or was never added by an admin) can read and change nothing (`is_member()`); setup tables are admin-only to change (`is_admin()`).
+- **No public sign-ups.** Every main deploy turns off Supabase sign-ups, requires 10+ character passwords, confirms email changes on both addresses, and makes sign-in refresh tokens single-use (`tools/migrate.mjs`; leaked-password checking too where the Supabase plan has it). The site also asks for 10+ characters with a number.
+- **User management** goes through the Worker (`/api/admin/users`), which holds the Supabase secret key as a Worker secret. Each request must carry an enabled admin's own session (checked with Supabase), come from the site's own pages, and stay under a rate limit; inputs are validated, admins can't lock themselves or the site out, and every change is written to Change history. Turning an account off both blocks it in the database and bans its sign-in.
+- **Profiles** can only have their name, role and on/off changed (column grants), only by admins, and never so that no enabled admin is left.
+- **Change history** (audit log) records changes to setup tables and users; it can't be edited.
+- **Browser protections** (`public/_headers` and the Worker): a strict Content-Security-Policy (scripts only from the site and the Supabase library's CDN, no framing, no plugins), HSTS, no sniffing, same-origin isolation, and no camera / microphone / location access. The page never builds HTML from data, so typed-in text can't run as code.
+- **Sessions** end after 12 hours without activity on that browser.
+- **Secrets**: the Supabase access token lives only in the Cloudflare *build* secrets, the secret key only in the Worker's runtime secrets; neither is in the repository or the website. Company data (the workbook, `seed.sql`, test fixtures) is never committed.
 
 ## Setup
 
@@ -41,7 +52,7 @@ The first account created becomes an admin; later accounts are staff. There is a
 2. **Authentication → Sign In / Providers → Email:** turn off **Allow new users to sign up**, so only people you invite can get in.
 3. **Authentication → URL Configuration:** set **Site URL** to the site's address (e.g. `https://inventory.example.com`) and add it under **Redirect URLs**. Invite and password-reset links go there.
 4. **Authentication → Users → Add user → Create new user:** your own email and a password, with **Auto Confirm User** on. Being first, you're the admin.
-5. To add staff later: **Authentication → Users → Invite user**. They get an email, choose a password, and appear on the Users tab as staff.
+5. Add everyone else on the site: **Settings → Users** (needs the Worker secret below). People added in the Supabase dashboard instead start turned off; turn them on in Settings → Users.
 
 ### 2. Cloudflare Worker
 
@@ -69,7 +80,15 @@ Under **Settings → Variables and Secrets** (runtime variables, type *Text*), a
 | `SUPABASE_URL` | Supabase → Project Settings → Data API → Project URL |
 | `SUPABASE_ANON_KEY` | Supabase → Project Settings → API Keys → Publishable key (`sb_publishable_…`) |
 
-These two values are public by design; the data is protected by sign-in and row-level security. Never use the secret / service_role key here.
+These two values are public by design; the data is protected by sign-in and row-level security.
+
+For **Settings → Users** (adding, deleting, emails and passwords), add one more runtime variable, type **Secret** (never *Text*):
+
+| Name | Value |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API Keys → Secret key (`sb_secret_…`) |
+
+It stays inside the Worker: the browser never sees it, and the Worker only uses it after checking the request comes from a signed-in, enabled admin on this site. Never put it in `wrangler.jsonc`, the code, or a *Text* variable.
 Build variables (such as `VITE_…`) are not visible to the running Worker, so they must be runtime variables.
 
 Custom domain: once the domain's DNS is on Cloudflare, open the Worker → **Settings → Domains & Routes → Add → Custom domain**.

@@ -1,8 +1,33 @@
 \set ON_ERROR_STOP on
--- Two people sign up: the first becomes admin, the second staff.
+-- Two people sign up: the first becomes admin; the second is staff and starts
+-- disabled until an admin enables them.
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000a', 'owner@stans.test');
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000b', 'staff@stans.test');
-select email, role from public.profiles order by email;
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000c', 'stranger@stans.test');
+select email, role, disabled from public.profiles order by email;
+
+\echo '--- a disabled account (a sign-up nobody approved) sees and changes nothing ---'
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000c';
+select (select count(*) from public.items) items, (select count(*) from public.sales) sales, (select count(*) from public.production) production;
+\set ON_ERROR_STOP off
+\echo 'disabled account adding production (should fail):'
+insert into public.production (date, item_no, cases) values ('2026-10-26', 500001, 50);
+\echo 'disabled account enabling itself (should change 0 rows):'
+update public.profiles set disabled = false where user_id = auth.uid();
+\set ON_ERROR_STOP on
+reset role;
+
+\echo '--- the admin enables staff ---'
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+update public.profiles set disabled = false where email = 'staff@stans.test';
+\set ON_ERROR_STOP off
+\echo 'admin changing who a profile belongs to (should fail):'
+update public.profiles set user_id = '00000000-0000-0000-0000-00000000000d' where email = 'stranger@stans.test';
+\echo 'admin disabling themselves (should fail):'
+update public.profiles set disabled = true where email = 'owner@stans.test';
+\set ON_ERROR_STOP on
+reset role;
+select email, role, disabled from public.profiles order by email;
 
 \echo '--- anonymous visitor (not signed in) ---'
 set role anon;

@@ -48,3 +48,22 @@ if (!res.ok) {
   process.exit(1);
 }
 console.log(`Database ${ref} is up to date with supabase/schema.sql.`);
+
+// Sign-in safety settings (Supabase → Authentication). Applied on every main
+// deploy so they can't drift: no public sign-ups (an admin adds everyone, in
+// Settings → Users), passwords of 10+ characters, email changes confirmed on
+// both addresses, and sign-in tokens that can only be used once. Plan-limited
+// extras (leaked-password check) are tried separately and skipped if the plan
+// doesn't have them. Set SKIP_AUTH_SETTINGS=1 to leave these alone.
+if (!process.env.SKIP_AUTH_SETTINGS) {
+  const patch = async (body, label) => {
+    const r = await fetch(`${api}/v1/projects/${ref}/config/auth`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (r.ok) console.log(`Sign-in settings: ${label}.`);
+    else console.warn(`Sign-in settings: couldn’t set ${label} (HTTP ${r.status}): ${(await r.text()).slice(0, 300)}`);
+  };
+  await patch({ disable_signup: true, password_min_length: 10, mailer_secure_email_change_enabled: true, refresh_token_rotation_enabled: true },
+    'no public sign-ups, 10+ character passwords, confirmed email changes, one-time refresh tokens');
+  await patch({ password_hibp_enabled: true }, 'refuse passwords known from data breaches');
+}

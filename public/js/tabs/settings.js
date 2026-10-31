@@ -1,8 +1,8 @@
 // Settings (the gear at the far right): My Account for everyone; for admins
 // also Site (the site's date), Site Health (is everything set up and up to
 // date?), Users, Change history (history.js) and Data (backup, refresh).
-import { h, pageHead, toast, niceError, longDate, todayIso, realTodayIso, siteDateSetting, PRETEND_TODAY, thisYear } from '../ui.js';
-import { sb, state, derived, isAdmin, saveSettings, listProfiles, listAudit } from '../store.js';
+import { h, pageHead, toast, niceError, longDate, todayIso, realTodayIso, siteDateSetting, PRETEND_TODAY, thisYear, passwordProblem, MIN_PASSWORD } from '../ui.js';
+import { sb, state, derived, isAdmin, saveSettings, listProfiles, listAudit, adminApi } from '../store.js';
 import { missingStandards, hasReceiving } from '../calc.js';
 
 const refresh = () => window.dispatchEvent(new Event('stans:refresh'));
@@ -13,11 +13,11 @@ export const account = {
   label: 'My Account',
   render() {
     const p = state.profile || {};
-    const p1 = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, 'aria-label': 'New password' });
-    const p2 = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, 'aria-label': 'New password again' });
+    const p1 = h('input', { type: 'password', autocomplete: 'new-password', minlength: MIN_PASSWORD, maxlength: 72, 'aria-label': 'New password' });
+    const p2 = h('input', { type: 'password', autocomplete: 'new-password', minlength: MIN_PASSWORD, maxlength: 72, 'aria-label': 'New password again' });
     const change = async (e) => {
       e.preventDefault();
-      if (p1.value.length < 8) { toast('Use at least 8 characters.', 'bad'); return; }
+      const bad = passwordProblem(p1.value); if (bad) { toast(bad, 'bad'); return; }
       if (p1.value !== p2.value) { toast('The two passwords don’t match.', 'bad'); return; }
       const { error } = await sb.auth.updateUser({ password: p1.value });
       if (error) toast(niceError(error), 'bad'); else { toast('Password changed.'); p1.value = ''; p2.value = ''; }
@@ -31,7 +31,7 @@ export const account = {
             h('button', { class: 'btn', onclick: () => refresh() }, 'Refresh data'),
             h('button', { class: 'btn', onclick: () => sb.auth.signOut() }, 'Sign out'))),
         h('form', { class: 'set-card', onsubmit: change }, h('h2', null, 'Change password'),
-          h('label', { class: 'field' }, 'New password', p1), h('label', { class: 'field' }, 'Again', p2),
+          h('label', { class: 'field' }, `New password (${MIN_PASSWORD}+ characters, with a number)`, p1), h('label', { class: 'field' }, 'Again', p2),
           h('div', { class: 'set-actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Change password')))));
   },
 };
@@ -73,10 +73,19 @@ const PROBES = [
   ['labor_positions', 'id', 'Labor positions'],
   ['boms', 'item_no,year', 'BOMs by year'],
   ['settings', 'site_date', 'Site date setting'],
+  ['profiles', 'name,disabled', 'Turning accounts off'],
 ];
 let probe = null; // { results, at }
 let probing = false;
 let people = null;
+let security = null; // { signups: true|false|null, adminKey: true|false|null }
+// Supabase's public sign-in settings (no key needed beyond the publishable one).
+async function authSettings() {
+  if (window.__MOCK_AUTH_SETTINGS__) return window.__MOCK_AUTH_SETTINGS__;
+  const cfg = window.STANS_CONFIG || {}; const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 6000);
+  try { const r = await fetch(`${cfg.supabaseUrl}/auth/v1/settings`, { headers: { apikey: cfg.supabaseKey }, signal: ctl.signal }); return r.ok ? await r.json() : null; }
+  catch { return null; } finally { clearTimeout(t); }
+}
 function runProbes(rerender) {
   if (probing) return; probing = true;
   Promise.all([
@@ -85,6 +94,8 @@ function runProbes(rerender) {
   ]).then((results) => { probe = { results, at: new Date() }; })
     .finally(() => { probing = false; rerender(); });
   listProfiles().then((p) => { people = p; rerender(); }).catch(() => {});
+  Promise.all([authSettings(), adminApi('GET').then((r) => !!r.configured).catch(() => null)])
+    .then(([a, key]) => { security = { signups: a ? !a.disable_signup : null, adminKey: key }; rerender(); });
 }
 const daysSince = (iso) => (iso ? Math.round((new Date(todayIso() + 'T00:00:00Z') - new Date(iso + 'T00:00:00Z')) / 864e5) : null);
 const latest = (rows) => rows.reduce((a, r) => (r.date > a ? r.date : a), '');
@@ -145,9 +156,20 @@ export const health = {
     const red = mp.rows.filter((r) => r.status === 'red'); const orange = mp.rows.filter((r) => r.status === 'orange');
     add(red.length ? 'bad' : orange.length ? 'warn' : 'ok', 'Planning', red.length || orange.length ? `${red.length} below safety stock, ${orange.length} overdue to order` : 'Nothing below safety stock or overdue',
       [...red, ...orange].map((r) => r.item.name).join(', '), red.length || orange.length ? '#purchasing' : null);
+    // Security
+    if (security) {
+      add(security.signups === null ? 'warn' : security.signups ? 'bad' : 'ok', 'Security', security.signups === null ? 'Couldn’t check whether anyone can sign up' : security.signups ? 'Anyone can create an account' : 'Only admins can add people',
+        security.signups ? 'New accounts can’t see anything until an admin turns them on, but sign-ups should be off. They’re turned off on the next deploy to main (or in Supabase → Authentication → Sign In / Providers → Allow new users to sign up).' : '');
+      add(security.adminKey ? 'ok' : 'warn', 'Security', security.adminKey ? 'User management is set up' : 'User management needs its key',
+        security.adminKey ? '' : 'Adding, deleting and passwords on Settings → Users need the SUPABASE_SERVICE_ROLE_KEY secret on the Cloudflare Worker.', security.adminKey ? null : '#users');
+    }
+    if (people) {
+      const off = people.filter((p) => p.disabled);
+      if (off.length) add('ok', 'Security', `${off.length} account${off.length > 1 ? 's' : ''} turned off`, off.map((p) => p.email).join(', '), '#users');
+    }
     // Users
     if (people) {
-      const admins = people.filter((p) => p.role === 'admin').length;
+      const admins = people.filter((p) => p.role === 'admin' && !p.disabled).length;
       add(admins < 2 ? 'warn' : 'ok', 'Users', `${people.length} user${people.length === 1 ? '' : 's'}, ${admins} admin${admins === 1 ? '' : 's'}`, admins < 2 ? 'Consider a second admin so you’re never locked out.' : '', '#users');
     }
 
@@ -158,7 +180,7 @@ export const health = {
       pageHead('Site Health', 'A check of everything the site depends on: the database, how up to date the data is, standards, items, inventory and planning. Red needs fixing; yellow is worth a look. Click a row to go fix it.'),
       h('div', { class: 'health-summary' },
         h('span', { class: 'hs bad' }, `${counts.bad} to fix`), h('span', { class: 'hs warn' }, `${counts.warn} to look at`), h('span', { class: 'hs ok' }, `${counts.ok} fine`),
-        h('button', { class: 'btn ghost', onclick: () => { probe = null; people = null; refresh(); } }, 'Check again')),
+        h('button', { class: 'btn ghost', onclick: () => { probe = null; people = null; security = null; refresh(); } }, 'Check again')),
       h('div', { class: 'tablewrap' }, h('table', { class: 't health-table' },
         h('thead', null, h('tr', null, h('th', null, ''), h('th', null, 'Area'), h('th', null, 'Check'), h('th', null, 'Details'), h('th', null, ''))),
         h('tbody', null, [...checks].sort((a, b) => order[a.st] - order[b.st]).map((c) => h('tr', { class: `hc-${c.st}` + (c.href ? ' link' : ''), onclick: c.href ? () => { location.hash = c.href.slice(1); } : null },

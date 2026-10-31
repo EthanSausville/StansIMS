@@ -1,4 +1,4 @@
-import { h, toast, niceError } from './ui.js';
+import { h, toast, niceError, passwordProblem, MIN_PASSWORD } from './ui.js';
 import { sb, configured, state, loadAll, loadProfile, isAdmin, onChange } from './store.js';
 import dashboard from './tabs/dashboard.js';
 import production from './tabs/production.js';
@@ -69,12 +69,13 @@ function signInScreen(message) {
 
 function setPasswordScreen(kind) {
   const msg = h('div', { class: 'msg bad', role: 'alert' });
-  const p1 = h('input', { type: 'password', required: true, minlength: 8, autocomplete: 'new-password', autofocus: true });
-  const p2 = h('input', { type: 'password', required: true, minlength: 8, autocomplete: 'new-password' });
+  const p1 = h('input', { type: 'password', required: true, minlength: MIN_PASSWORD, maxlength: 72, autocomplete: 'new-password', autofocus: true });
+  const p2 = h('input', { type: 'password', required: true, minlength: MIN_PASSWORD, maxlength: 72, autocomplete: 'new-password' });
   const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Save password');
   app.replaceChildren(h('div', { class: 'auth' }, h('form', { onsubmit: async (e) => {
       e.preventDefault();
       if (p1.value !== p2.value) { msg.textContent = 'The passwords don’t match.'; return; }
+      const bad = passwordProblem(p1.value); if (bad) { msg.textContent = bad; return; }
       btn.disabled = true;
       const { error } = await sb.auth.updateUser({ password: p1.value });
       btn.disabled = false;
@@ -85,7 +86,7 @@ function setPasswordScreen(kind) {
     } },
     h('h1', null, kind === 'invite' ? 'Welcome to Stan’s ' : 'New password for Stan’s ', h('span', null, 'IMS')),
     h('p', null, kind === 'invite' ? 'Choose a password to finish setting up your account.' : 'Choose a new password.'),
-    h('label', { class: 'field' }, 'New password (8+ characters)', p1),
+    h('label', { class: 'field' }, `New password (${MIN_PASSWORD}+ characters, with a number)`, p1),
     h('label', { class: 'field' }, 'Type it again', p2),
     btn, msg)));
 }
@@ -243,9 +244,32 @@ async function refresh(manual) {
 }
 
 let started = false;
+// Signed in, but the account isn't allowed in (disabled, or a sign-up no
+// admin has approved): say so, and offer to sign out. The database shows such
+// an account nothing anyway.
+function blockedScreen(p) {
+  app.replaceChildren(h('div', { class: 'auth' }, h('form', null,
+    h('h1', null, 'Stan’s ', h('span', null, 'IMS')),
+    h('p', null, p ? 'This account is turned off. Ask an admin to turn it back on.' : 'This account hasn’t been set up yet. Ask an admin to add you.'),
+    h('p', { class: 'muted' }, state.user?.email || ''),
+    h('button', { class: 'btn primary', type: 'button', onclick: () => sb.auth.signOut() }, 'Sign out'))));
+}
+
+// Signs out after a long time with no activity, so an unattended screen
+// doesn't stay signed in.
+const IDLE_LIMIT = 12 * 60 * 60 * 1000;
+const touchActivity = () => { try { localStorage.setItem('last-active', String(Date.now())); } catch { /* fine */ } };
+const idleTooLong = () => { try { const t = Number(localStorage.getItem('last-active') || 0); return t && Date.now() - t > IDLE_LIMIT; } catch { return false; } };
+let lastTouch = 0;
+for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => { if (Date.now() - lastTouch > 60000) { lastTouch = Date.now(); touchActivity(); } }, { passive: true });
+setInterval(() => { if (started && idleTooLong()) { try { localStorage.removeItem('last-active'); } catch { /* fine */ } sb.auth.signOut(); } }, 60000);
+
 async function start() {
   try {
-    await loadProfile();
+    if (idleTooLong()) { try { localStorage.removeItem('last-active'); } catch { /* fine */ } await sb.auth.signOut(); return; }
+    touchActivity();
+    const p = await loadProfile();
+    if (!p || p.disabled || p.missing) { blockedScreen(p && !p.missing); return; }
     ui = shell();
     ui.content.replaceChildren(h('div', { class: 'boot' }, 'Loading data…'));
     await loadAll();

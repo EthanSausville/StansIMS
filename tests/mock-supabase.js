@@ -9,6 +9,49 @@ const KEYS = {
 };
 const ADMIN_ONLY = new Set(['boms', 'bom_lines', 'items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines', 'settings', 'year_settings', 'purchase_settings', 'labor_positions', 'production_plan']);
 
+// Supabase's public sign-in settings, as Site Health reads them.
+window.__MOCK_AUTH_SETTINGS__ ||= { disable_signup: true };
+
+// Stand-in for the Worker's /api/admin/users (Settings → Users), working on
+// the in-memory profiles. Tests can turn it off (__MOCK_NO_ADMIN_API__) to see
+// the page before the secret key is set up.
+if (!window.__MOCK_NO_ADMIN_API__) window.__MOCK_ADMIN_API__ = async (method, body) => {
+  const db = window.__MOCK_DB__; const ps = (db.profiles ||= []); const me = 'u1';
+  const log = (action, row) => (db.audit_log ||= []).push({ id: (db.audit_log.length + 1), at: new Date().toISOString(), user_id: me, email: 'owner@stans.test', table_name: 'users', action, new_row: row });
+  const find = (id) => { const p = ps.find((x) => x.user_id === id); if (!p) throw new Error('That user wasn’t found.'); return p; };
+  const admins = (id) => ps.filter((p) => p.role === 'admin' && !p.disabled && p.user_id !== id).length;
+  if (method === 'GET') return { configured: true, me, users: ps.map((p) => ({ id: p.user_id, email: p.email, name: p.name || null, role: p.role, disabled: !!p.disabled, created_at: p.created_at,
+    last_sign_in_at: p.last_sign_in_at || null, confirmed: p.confirmed !== false })) };
+  const b = body || {};
+  switch (b.action) {
+    case 'invite': case 'create': {
+      if (!/^\S+@\S+\.\S+$/.test(b.email || '')) throw new Error('Enter a valid email address.');
+      if (ps.some((p) => p.email === b.email.toLowerCase())) throw new Error('A user with this email address has already been registered');
+      ps.push({ user_id: 'u' + (ps.length + 10), email: b.email.toLowerCase(), name: b.name || null, role: b.role || 'staff', disabled: false, created_at: new Date().toISOString(), confirmed: b.action === 'create' });
+      log(b.action, { email: b.email, role: b.role }); return { ok: true, message: b.action === 'invite' ? `Invitation sent to ${b.email}.` : `${b.email} can sign in now with the password you set.` };
+    }
+    case 'update': {
+      const p = find(b.id);
+      if ('role' in b && b.role !== 'admin' && (b.id === me || !admins(b.id))) throw new Error('There must be at least one admin.');
+      for (const k of ['name', 'role', 'email']) if (k in b) p[k] = b[k];
+      log('update', b); return { ok: true, message: 'Saved.' };
+    }
+    case 'disable': case 'enable': {
+      const p = find(b.id);
+      if (b.action === 'disable' && b.id === me) throw new Error('You can’t disable your own account.');
+      if (b.action === 'disable' && !admins(b.id)) throw new Error('There must be at least one admin.');
+      p.disabled = b.action === 'disable'; log(b.action, { email: p.email }); return { ok: true, message: 'Done.' };
+    }
+    case 'reset': case 'resend': case 'password': { const p = find(b.id); p['last_' + b.action] = true; log(b.action, { email: p.email }); return { ok: true, message: 'Done.' }; }
+    case 'delete': {
+      if (b.id === me) throw new Error('You can’t delete your own account.');
+      const i = ps.findIndex((p) => p.user_id === b.id); if (i < 0) throw new Error('That user wasn’t found.');
+      ps.splice(i, 1); log('delete', { id: b.id }); return { ok: true, message: 'Deleted.' };
+    }
+    default: throw new Error('Unknown action.');
+  }
+};
+
 export function createClient() {
   const db = window.__MOCK_DB__;
   const role = () => window.__MOCK_ROLE__ || 'admin';

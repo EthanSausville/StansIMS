@@ -153,7 +153,7 @@ with sync_playwright() as p:
     page.locator('.groups .group', has_text='Dashboard').click(); page.wait_for_timeout(80)
     page.locator('.groups .group', has_text='Standards').click(); page.wait_for_timeout(100)
     check(page.get_by_role('tab', name='Labor', exact=True).get_attribute('aria-selected') == 'true', 'returning to a group reopens the last tab used there')
-    check(page.locator('.page-intro', has_text='standard labor cost per minute').is_visible() and page.locator('.tb-info').count() == 0, 'how to use the page is shown above it, with no (i) button')
+    check(page.locator('.page-intro').count() == 0 and page.locator('.tb-info').count() == 0, 'no description above the page, and no (i) button')
     page.locator('.groups .group', has_text='Accounting').click(); page.wait_for_timeout(100)
     sub = page.locator('.tabs .tab').all_inner_texts()
     check(sub == GROUPS['Accounting'], f'Accounting group shows Journals and T-Accounts ({sub})')
@@ -648,7 +648,7 @@ with sync_playwright() as p:
     # ---- Planning ----
     tab(page, 'Planning/Production')
     check(page.get_by_role('tab', name='Demand Plan').count() == 0 and page.get_by_role('tab', name='Purchase Plan').count() == 0 and page.get_by_role('tab', name='Planning Dashboard').count() == 0, 'old planning tabs are gone')
-    check(page.locator('.page-intro li').count() == 4 and page.locator('table.pd-prod .band-label').count() == 2, 'Production explains how to use it, with labelled groups of weeks')
+    check(page.locator('table.pd-prod .band-label').count() == 2, 'Production has labelled groups of weeks')
     pw = page.evaluate("[Math.round(document.querySelector('table.pd-prod').getBoundingClientRect().width), Math.round(document.querySelector('#app .layout > .content').clientWidth)]")
     check(pw[0] >= pw[1] - 60, f'the Production table is the full width of the page ({pw})')
     check(page.locator('.pd-half h2').count() == 0 and page.locator('table.pd-status').count() == 0 and page.locator('table.pd-prod', has_text='Total').count() == 0, 'Production shows only the production grid, no heading or totals')

@@ -190,12 +190,6 @@ function shell() {
   return { tabBar: bars, main, content, side, sideInner: inner, about, useTab };
 }
 
-// How to use the page, shown above it: a sentence or two, or a list of steps.
-function pageIntro(description) {
-  if (Array.isArray(description)) return h('div', { class: 'page-intro' }, h('ol', null, description.map((d) => h('li', null, d))));
-  return h('div', { class: 'page-intro' }, h('p', null, description));
-}
-
 function renderTabs({ groupBar, tabBar, gearSlot }) {
   const id = routeId();
   const open = groupOf(id);
@@ -240,9 +234,8 @@ function render() {
   ui.sideInner.replaceChildren(...controls);
   ui.side.hidden = !controls.length;
   ui.useTab(tab);
-  const info = bar?._about || content._about;
   ui.about.replaceChildren('');
-  if (info?.description && content.prepend) content.prepend(pageIntro(info.description));
+  // Pages keep their how-to text (pageHead's description) in the code, but it isn't shown.
   ui.content.replaceChildren(content);
   for (const [k, top, left] of scrolls) { const el = ui.main.querySelector(`[data-scroll="${k}"]`); if (el) { el.scrollTop = top; el.scrollLeft = left; } }
   if (current === id) scroller().scrollTop = pageY; else { ui.content.scrollTop = 0; ui.main.scrollTop = 0; }

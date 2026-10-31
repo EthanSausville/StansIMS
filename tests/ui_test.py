@@ -514,7 +514,7 @@ with sync_playwright() as p:
     c = cell(page, f'ly|{nxt}|labor_inflation_pct'); c.click(); c.fill('3'); c.press('Tab'); page.wait_for_timeout(250)
     check(abs(rate_now() - this_rate * 1.03) < 1e-4 and '+3.0% vs.' in page.locator('.labor-cards .stat.key').inner_text(), f'a 3% pay increase raises the {nxt} forecast 3% ({rate_now()})')
     st_fc = page.evaluate("(() => { const c = getComputedStyle(document.querySelector('.labor-cards .stat .value')); return [c.fontStyle, c.fontWeight, c.color]; })()")
-    check(st_fc[0] == 'italic' and int(st_fc[1]) >= 700 and st_fc[2] == 'rgb(107, 63, 196)', f'forecast numbers are bold purple italics ({st_fc})')
+    check(st_fc[0] == 'italic' and int(st_fc[1]) >= 700 and st_fc[2] in ('rgb(107, 63, 196)', 'rgb(217, 198, 255)'), f'forecast numbers are bold purple italics ({st_fc})')
     check(page.locator('table.labor-people.is-forecast').count() == 1 and page.locator('table.labor-people input[data-k*="headcount"]').first.is_disabled(), 'forecast people are shown read-only')
     shot(page, '39-labor-forecast')
     tab(page, 'Master List')

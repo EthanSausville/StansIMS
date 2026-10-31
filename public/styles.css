@@ -1569,3 +1569,29 @@ table.labor-people tfoot td { position: static; background: var(--bg); font-weig
 .labor-summary .sum-op { align-self: center; font-size: 22px; font-weight: 300; color: var(--faint); }
 .labor-summary .stat .value .per { font-size: 13px; font-weight: 500; color: var(--muted); font-style: normal; }
 @media (max-width: 900px) { .labor-summary { grid-template-columns: minmax(0, 1fr); } .labor-summary .sum-op { display: none; } }
+
+/* Labor, take three: the line as a sentence, people full width, the rate worked out along the bottom */
+.labor.labor-page > * + * { margin-top: 14px; }
+.line-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 15px; color: var(--ink); padding: 4px 0 2px; }
+.line-sentence .inline-num { width: 64px; padding: 5px 8px; border: 1px solid #e6d58a; border-radius: 6px; background: var(--entry); font: inherit; font-weight: 650; text-align: right; }
+.line-sentence .inline-num:disabled { background: transparent; border-color: transparent; padding-left: 2px; padding-right: 2px; width: auto; max-width: 64px; }
+.line-sentence .inline-num:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.line-sentence.needs .inline-num:first-of-type { border-color: var(--bad); }
+.line-sentence .ls-gap { margin-left: 10px; }
+.labor.fc-year .line-sentence .inline-num { font-style: italic; color: #6b3fc4; }
+table.labor-people td select { appearance: none; -webkit-appearance: none; border: 0; background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23502b1b' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 6px center; padding: 6px 22px 6px 6px; font: inherit; color: var(--ink); cursor: pointer; border-radius: 6px; }
+table.labor-people td select:hover { background-color: var(--accent-soft); }
+table.labor-people td.row-actions { width: 1%; }
+.labor-page .people-foot { padding: 10px 0 0; }
+/* the strip along the bottom */
+.labor-strip { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; background: var(--stans-brown) !important; color: #fff; border-radius: 10px; padding: 12px 20px !important; box-shadow: 0 -4px 16px rgba(80, 43, 27, .18) !important; }
+.labor-strip .stat { background: none !important; border: 0 !important; padding: 0 !important; margin: 0; display: grid; grid-template-columns: auto; }
+.labor-strip .stat .label { color: var(--stans-cream); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.labor-strip .stat .value { color: #fff !important; font-size: 22px; font-style: normal !important; }
+.labor-strip .stat.key .value { color: var(--stans-yellow) !important; font-size: 28px; }
+.labor-strip .stat .value .per { font-size: 13px; font-weight: 500; color: var(--stans-cream); }
+.labor-strip .ls-sub { font-size: 12px; color: var(--stans-cream); opacity: .9; }
+.labor-strip .ls-op { font-size: 26px; font-weight: 300; color: var(--stans-cream); opacity: .8; }
+.labor-strip.forecast .stat .value { font-style: italic !important; }
+.labor-strip.forecast .stat.key .value { color: #d9c6ff !important; }
+@media (max-width: 700px) { .labor-strip .ls-op { display: none; } .labor-strip { gap: 10px 18px; } }

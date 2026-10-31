@@ -56,14 +56,16 @@ export default {
       can && !own && !empty ? h('button', { class: F.needsReview ? 'btn primary' : 'btn', onclick: confirmForecast }, F.needsReview ? `Confirm ${selYear}’s people` : `Give ${selYear} its own people`) : null);
 
     const change = prevRate && L.rate ? L.rate / prevRate - 1 : null;
-    // The rate and its totals stay pinned to the bottom of the screen.
-    const cards = h('div', { class: 'cards labor-cards pinned-cards labor-summary' },
-      stat(`${selYear} labor rate${isFc ? ' (forecast)' : ''}`, empty ? '—' : h('span', null, perMin(L.rate), h('span', { class: 'per' }, ' a minute')),
-        empty ? 'Add this year’s people' : `${money(L.rate * 60)} an hour${change === null ? '' : ` · ${change >= 0 ? '+' : ''}${fmt(change * 100, 1)}% vs. ${selYear - 1}`}`, 'key' + (isFc ? ' forecast' : '')),
-      h('div', { class: 'sum-op', 'aria-hidden': 'true' }, '='),
-      stat('Labor cost a year', dollars(L.burdened), `${dollars(L.base)} pay + ${dollars(L.tax + L.benefits)} taxes & fringe`),
-      h('div', { class: 'sum-op', 'aria-hidden': 'true' }, '÷'),
-      stat('Minutes on the line a year', fmt(L.minutes), `${fmt(L.lineHours)} hours: ${qty(L.plant.lineHours, 2)} a week × ${qty(L.plant.prodWeeks, 2)} weeks × ${qty(L.crew, 2)} people`));
+    // The rate, worked out, stays along the bottom of the screen.
+    const sub = (t) => h('span', { class: 'ls-sub' }, t);
+    const cards = h('div', { class: 'labor-cards pinned-cards labor-strip' + (isFc ? ' forecast' : '') },
+      h('div', { class: 'stat key' + (isFc ? ' forecast' : '') }, h('div', { class: 'label' }, `${selYear} labor rate${isFc ? ' · forecast' : ''}`),
+        h('div', { class: 'value' }, empty ? '—' : perMin(L.rate), empty ? null : h('span', { class: 'per' }, ' a minute')),
+        empty ? sub('Add this year’s people') : sub(`${money(L.rate * 60)} an hour${change === null ? '' : ` · ${change >= 0 ? '+' : ''}${fmt(change * 100, 1)}% vs. ${selYear - 1}`}`)),
+      h('div', { class: 'ls-op', 'aria-hidden': 'true' }, '='),
+      h('div', { class: 'stat' }, h('div', { class: 'label' }, 'Labor cost a year'), h('div', { class: 'value' }, dollars(L.burdened)), sub(`${dollars(L.base)} pay + ${dollars(L.tax + L.benefits)} taxes & fringe`)),
+      h('div', { class: 'ls-op', 'aria-hidden': 'true' }, '÷'),
+      h('div', { class: 'stat' }, h('div', { class: 'label' }, 'Minutes on the line a year'), h('div', { class: 'value' }, fmt(L.minutes)), sub(`${fmt(L.lineHours)} people-hours`)));
 
     const notes = [
       locked ? h('div', { class: 'note closed-note' }, '🔒 ', lockedNote(selYear)) : null,
@@ -107,16 +109,14 @@ export default {
     // ---------- how the line runs ----------
     const setYear = (k, title, placeholder) => numberCell(ys[k] ?? null, (v) => saveRow('year_settings', { year: selYear }, { [k]: v }), { disabled: !can, key: `ly|${selYear}|${k}`, title,
       placeholder: F.settings[k] !== null && F.settings[k] !== undefined && ys[k] == null ? qty(F.settings[k], 2) : placeholder });
-    const line = h('section', { class: 'panel line-panel' },
-      h('div', { class: 'tablewrap flat' }, h('table', { class: 't batch-table line-table' }, h('thead', null, h('tr', null, h('th', { colspan: 2 }, 'How the line runs'))), h('tbody', null,
-        h('tr', { class: L.plant.lineHours ? null : 'needs' }, h('td', null, 'Hours a week'), setYear('labor_line_hours', 'Hours a week the line runs', 'e.g. 16')),
-        h('tr', null, h('td', null, 'Weeks a year'), setYear('labor_prod_weeks', 'Weeks a year the line runs', '52')),
-        h('tr', null, h('td', null, 'People on the line'), h('td', { class: 'num muted' }, qty(L.crew, 2))),
-        selYear > years[0] && !own ? h('tr', null, h('td', null, `Pay increase from ${selYear - 1} (%)`), setYear('labor_inflation_pct', 'Pay increase %', '0')) : null))),
-      h('p', { class: 'panel-note' }, 'Everyone on the line is on it whenever it runs.'));
+    const inline = (k, title, placeholder) => { const td = setYear(k, title, placeholder); const input = td.querySelector('input'); input.classList.add('inline-num'); return input; };
+    const line = h('div', { class: 'line-sentence' + (L.plant.lineHours ? '' : ' needs') },
+      h('span', null, 'The line runs'), inline('labor_line_hours', 'Hours a week the line runs', '16'), h('span', null, 'hours a week,'),
+      inline('labor_prod_weeks', 'Weeks a year the line runs', '52'), h('span', null, `weeks a year, with ${qty(L.crew, 2)} ${L.crew === 1 ? 'person' : 'people'} on it whenever it runs.`),
+      selYear > years[0] && !own ? [h('span', { class: 'ls-gap' }, 'Pay goes up'), inline('labor_inflation_pct', 'Pay increase %', '0'), h('span', null, `% from ${selYear - 1}.`)] : null);
 
     return h('div', { class: 'labor labor-page' + (isFc ? ' fc-year' : '') },
       pageHead('Labor', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, fringe) divided by the minutes people spend on the line. A new year starts from the year before with a pay increase and is a forecast until it begins; give it its own people to change anything else.' + (admin ? '' : ' Your role can view these but not change them.')),
-      top, notes, h('div', { class: 'labor-grid' }, people, line), cards);
+      top, line, notes, people, cards);
   },
 };

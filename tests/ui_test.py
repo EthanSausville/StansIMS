@@ -76,7 +76,7 @@ def check(cond, label):
     if not cond: failures.append(label)
 
 def open_app(browser, role='admin', signed_in=True, viewport=(1440, 900)):
-    ctx = browser.new_context(viewport={'width': viewport[0], 'height': viewport[1]})
+    ctx = browser.new_context(accept_downloads=True, viewport={'width': viewport[0], 'height': viewport[1]})
     page = ctx.new_page()
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
@@ -783,17 +783,32 @@ with sync_playwright() as p:
     tab(page, 'New Counts')
     tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
 
-    # ---- Production lots ----
+    # ---- Production lots (part of the daily list) and Excel export ----
     tab(page, 'Production')
-    page.get_by_role('button', name='Lots', exact=True).click(); page.wait_for_timeout(200)
-    nl = page.locator('table.xtable tbody tr').count()
-    want_lots = len({(p['date'], p['item_no']) for p in inputs['production'] if p['cases']})
-    check(nl == want_lots, f'one lot per product per production day ({nl} vs {want_lots})')
-    page.locator('table.xtable tbody tr').nth(5).locator('td').first.click(); page.wait_for_timeout(150)
-    code = page.locator('table.xtable tbody tr.selected td').first.inner_text()
-    check(re.match(r'^\d{6}-\d{6}$', code) and f'Lot {code}' in page.locator('.side-detail').inner_text(), f'selecting a lot shows who it shipped to ({code})')
+    check(page.get_by_role('button', name='Lots', exact=True).count() == 0, 'lots are part of the daily list (no Lots switch)')
+    wk = page.locator('table.prod-table tbody tr.weekend').first.locator('td.sticky-col')
+    check(wk.evaluate('e => getComputedStyle(e).backgroundColor') == 'rgb(255, 255, 255)', 'weekends have a white background')
+    tg = page.locator('table.prod-table .lot-toggle').first
+    day = tg.evaluate("e => e.closest('tr').dataset.day")
+    made = page.evaluate(f"window.__MOCK_DB__.production.filter(r => r.date==='{day}' && r.cases > 0).length")
+    tg.click(); page.wait_for_timeout(150)
+    cards = page.locator('tr.lot-detail .lot-card')
+    code = cards.first.locator('.lot-code').inner_text() if cards.count() else ''
+    check(cards.count() == made and re.match(r'^Lot \d{6}-\d{6}$', code), f'▸ shows the day’s lots and who they shipped to ({cards.count()} lots on {day}, {code})')
     shot(page, '57-lots')
-    page.get_by_role('button', name='Daily', exact=True).click(); page.wait_for_timeout(100)
+    tg.click(); page.wait_for_timeout(100)
+    check(page.locator('tr.lot-detail').count() == 0, 'and ▸ again hides them')
+    with page.expect_download() as dl:
+        page.get_by_role('button', name='Export to Excel').click()
+    path = dl.value.path()
+    import openpyxl
+    wb = openpyxl.load_workbook(open(path, 'rb'))
+    want_lots = page.evaluate("new Set(window.__MOCK_DB__.production.filter(r => r.cases > 0).map(r => r.date + '|' + r.item_no)).size")
+    check(wb.sheetnames == ['Production', 'Lots', 'Shipments'] and wb['Lots'].max_row - 1 == want_lots and dl.value.suggested_filename.endswith('.xlsx'),
+          f'Export to Excel downloads a workbook with every day, lot and shipment ({wb.sheetnames}, {wb["Lots"].max_row - 1} lots vs {want_lots})')
+    ws = wb['Production']
+    check(ws['B1'].value == 'Original' and ws['B2'].value == '7 oz' and ws['B3'].value == 'Case of 24' and ws['A4'].value.date().isoformat() == TODAY.isoformat(),
+          f'the Production sheet matches the page: three header lines, newest day first ({ws["B1"].value}/{ws["B2"].value}/{ws["B3"].value}, {ws["A4"].value})')
 
     # ---- BOMs tree ----
     tab(page, 'BOMs')

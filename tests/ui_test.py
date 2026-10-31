@@ -464,7 +464,7 @@ with sync_playwright() as p:
         ha = st['hourly_a_count'] * line_hours * 52; hb = st['hourly_b_count'] * line_hours * 52
         cost = st['salaried_count'] * (salary + sal_fixed) + (ha * st['hourly_a_rate'] + hb * st['hourly_b_rate']) * a_rate_f + st['hourly_a_count'] * a_fringe * 12
         return cost / (heads * line_hours * 52 * 60)
-    rate_now = lambda: float(page.locator('.labor-cards .stat.key .value').inner_text().strip('$'))
+    rate_now = lambda: float(page.locator('.labor-cards .stat.key .value').inner_text().split()[0].strip('$'))
     tab(page, 'Labor')
     check(page.locator('aside.sidebar').is_hidden(), 'Labor has no side bar')
     check(page.locator('.labor-cards').inner_text().count('Production hours a week') == 0, 'production hours are not in the summary cards')

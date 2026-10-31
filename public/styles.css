@@ -1540,3 +1540,32 @@ table.tree-table tr.d0 td.yc:not(.picked) { cursor: pointer; }
   .labor.labor-page { display: flex; flex-direction: column; min-height: calc(100dvh - 60px); }
   .labor.labor-page > .pinned-cards { margin-top: auto; }
 }
+
+/* Labor: people on the left, the line on the right, the rate along the bottom */
+.labor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px 28px; align-items: start; }
+/* the people table runs to the page's left edge, the line table to its right edge */
+#app .content .labor-grid .people-panel .tablewrap { margin-right: 0 !important; width: calc(100% + var(--page-x)) !important; }
+#app .content .labor-grid .line-panel .tablewrap { margin-left: 0 !important; width: calc(100% + var(--page-x)) !important; }
+#app .content .labor-grid .line-panel .tablewrap > table.t > * > tr > :first-child { padding-left: 10px; }
+.labor-grid .line-panel .panel-note { padding-left: 2px; }
+.labor.labor-page > .labor-grid { margin-top: 12px; }
+.labor-grid > .panel { margin: 0; }
+@media (max-width: 1050px) { .labor-grid { grid-template-columns: minmax(0, 1fr); }
+  #app .content .labor-grid .tablewrap { margin-left: calc(-1 * var(--page-x)) !important; margin-right: calc(-1 * var(--page-x)) !important; width: calc(100% + 2 * var(--page-x)) !important; } }
+.people-panel .tablewrap { width: 100%; }
+table.labor-people { width: 100%; }
+table.labor-people th, table.labor-people td { padding: 7px 10px; }
+table.labor-people td.unit-hr, table.labor-people td.unit-yr, table.labor-people td.unit-mo { position: relative; }
+table.labor-people td.unit-hr::after, table.labor-people td.unit-yr::after, table.labor-people td.unit-mo::after { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 11px; color: #a3913c; pointer-events: none; }
+table.labor-people td.unit-hr::after { content: '/hr'; } table.labor-people td.unit-yr::after { content: '/yr'; } table.labor-people td.unit-mo::after { content: '/mo'; }
+table.labor-people td.cell input { min-width: 84px; }
+table.labor-people td.unit-hr input, table.labor-people td.unit-yr input, table.labor-people td.unit-mo input { padding-right: 30px; min-width: 120px; }
+table.labor-people tfoot td { position: static; background: var(--bg); font-weight: 650; border-top: 2px solid var(--line-strong); }
+.people-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 2px 2px; }
+.line-panel table.line-table { width: 100%; max-width: none; }
+.line-panel table.line-table td:last-child { width: 96px; }
+/* the summary along the bottom: rate = cost ÷ minutes */
+.labor-summary { display: grid; grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; gap: 10px; }
+.labor-summary .sum-op { align-self: center; font-size: 22px; font-weight: 300; color: var(--faint); }
+.labor-summary .stat .value .per { font-size: 13px; font-weight: 500; color: var(--muted); font-style: normal; }
+@media (max-width: 900px) { .labor-summary { grid-template-columns: minmax(0, 1fr); } .labor-summary .sum-op { display: none; } }

@@ -53,16 +53,17 @@ export default {
     yearSeg.classList.add('year-seg');
     const top = h('div', { class: 'prod-top top-actions' }, yearSeg,
       isFc ? h('span', { class: 'fc-tag big' }, F.needsReview ? 'forecast · review' : 'forecast') : null,
-      can && (own || empty) ? h('button', { class: 'btn', onclick: addPosition }, '+ Add position') : null,
       can && !own && !empty ? h('button', { class: F.needsReview ? 'btn primary' : 'btn', onclick: confirmForecast }, F.needsReview ? `Confirm ${selYear}’s people` : `Give ${selYear} its own people`) : null);
 
     const change = prevRate && L.rate ? L.rate / prevRate - 1 : null;
     // The rate and its totals stay pinned to the bottom of the screen.
-    const cards = h('div', { class: 'cards labor-cards pinned-cards' },
-      stat(`${selYear} labor rate${isFc ? ' (forecast)' : ''}`, empty ? '—' : perMin(L.rate),
+    const cards = h('div', { class: 'cards labor-cards pinned-cards labor-summary' },
+      stat(`${selYear} labor rate${isFc ? ' (forecast)' : ''}`, empty ? '—' : h('span', null, perMin(L.rate), h('span', { class: 'per' }, ' a minute')),
         empty ? 'Add this year’s people' : `${money(L.rate * 60)} an hour${change === null ? '' : ` · ${change >= 0 ? '+' : ''}${fmt(change * 100, 1)}% vs. ${selYear - 1}`}`, 'key' + (isFc ? ' forecast' : '')),
-      stat('Labor cost a year', dollars(L.burdened), `${dollars(L.base)} pay · ${dollars(L.tax + L.benefits)} taxes & fringe`),
-      stat('Line hours a year', fmt(L.lineHours), `${qty(L.plant.lineHours, 2)} hours a week × ${qty(L.plant.prodWeeks, 2)} weeks × ${qty(L.crew, 2)} people`));
+      h('div', { class: 'sum-op', 'aria-hidden': 'true' }, '='),
+      stat('Labor cost a year', dollars(L.burdened), `${dollars(L.base)} pay + ${dollars(L.tax + L.benefits)} taxes & fringe`),
+      h('div', { class: 'sum-op', 'aria-hidden': 'true' }, '÷'),
+      stat('Minutes on the line a year', fmt(L.minutes), `${fmt(L.lineHours)} hours: ${qty(L.plant.lineHours, 2)} a week × ${qty(L.plant.prodWeeks, 2)} weeks × ${qty(L.crew, 2)} people`));
 
     const notes = [
       locked ? h('div', { class: 'note closed-note' }, '🔒 ', lockedNote(selYear)) : null,
@@ -73,7 +74,7 @@ export default {
     // ---------- people ----------
     const ps = own ? [...d.labor_positions].filter((p) => p.year === selYear).sort((a, b) => n(a.sort) - n(b.sort) || a.id - b.id) : L.rows.map((r) => r.position);
     const costOf = new Map(L.rows.map((r) => [r.position.id, r]));
-    const people = h('section', { class: 'panel' },
+    const people = h('section', { class: 'panel people-panel' },
       ps.length ? h('div', { class: 'tablewrap flat' }, h('table', { class: 't labor-people' + (own ? '' : ' is-forecast') },
         h('thead', null, h('tr', null, h('th', null, 'Position'), h('th', null, 'Paid'), h('th', { class: 'num' }, 'Pay'), h('th', { class: 'num' }, 'Fringe'),
           h('th', { class: 'num' }, 'Payroll tax %'), h('th', { class: 'num' }, 'People'), h('th', null, 'On the line'), h('th', { class: 'num' }, 'Cost a year'), h('th'))),
@@ -96,20 +97,26 @@ export default {
             h('td', { class: 'row-actions' }, edit ? h('button', { class: 'btn icon-btn danger', title: 'Remove', 'aria-label': `Remove ${p.name}`, onclick: async () => {
               if (await confirmDialog(`Remove ${p.name} from ${selYear}?`, 'Remove')) deleteRow('labor_positions', 'id', p.id).catch((err) => toast(niceError(err), 'bad'));
             } }, '×') : null));
-        })))) : h('p', { class: 'panel-note' }, `No one entered for ${selYear} yet.`),
-      h('p', { class: 'panel-note' }, 'Pay and fringe are per person: hourly people per hour and fringe per month, salaried people per year.'));
+        })),
+        h('tfoot', null, h('tr', { class: 'lp-total' }, h('td', null, 'Total'), h('td'), h('td'), h('td'), h('td'),
+          h('td', { class: 'num' }, qty(ps.reduce((t, p) => t + n(p.headcount), 0), 2)), h('td'), h('td', { class: 'num strong' }, dollars(L.burdened)), h('td'))))) : h('p', { class: 'panel-note' }, `No one entered for ${selYear} yet.`),
+      h('div', { class: 'people-foot' },
+        can && (own || empty) ? h('button', { class: 'btn', onclick: addPosition }, '+ Add position') : null,
+        h('span', { class: 'small muted' }, 'Pay and fringe are per person: hourly pay per hour and fringe per month; salaried pay and fringe per year.')));
 
     // ---------- how the line runs ----------
     const setYear = (k, title, placeholder) => numberCell(ys[k] ?? null, (v) => saveRow('year_settings', { year: selYear }, { [k]: v }), { disabled: !can, key: `ly|${selYear}|${k}`, title,
       placeholder: F.settings[k] !== null && F.settings[k] !== undefined && ys[k] == null ? qty(F.settings[k], 2) : placeholder });
-    const line = h('section', { class: 'panel' }, h('h2', null, 'How the line runs'),
-      h('table', { class: 't batch-table line-table' }, h('tbody', null,
+    const line = h('section', { class: 'panel line-panel' },
+      h('div', { class: 'tablewrap flat' }, h('table', { class: 't batch-table line-table' }, h('thead', null, h('tr', null, h('th', { colspan: 2 }, 'How the line runs'))), h('tbody', null,
         h('tr', { class: L.plant.lineHours ? null : 'needs' }, h('td', null, 'Hours a week'), setYear('labor_line_hours', 'Hours a week the line runs', 'e.g. 16')),
         h('tr', null, h('td', null, 'Weeks a year'), setYear('labor_prod_weeks', 'Weeks a year the line runs', '52')),
-        selYear > years[0] && !own ? h('tr', null, h('td', null, `Pay increase from ${selYear - 1} (%)`), setYear('labor_inflation_pct', 'Pay increase %', '0')) : null)));
+        h('tr', null, h('td', null, 'People on the line'), h('td', { class: 'num muted' }, qty(L.crew, 2))),
+        selYear > years[0] && !own ? h('tr', null, h('td', null, `Pay increase from ${selYear - 1} (%)`), setYear('labor_inflation_pct', 'Pay increase %', '0')) : null))),
+      h('p', { class: 'panel-note' }, 'Everyone on the line is on it whenever it runs.'));
 
     return h('div', { class: 'labor labor-page' + (isFc ? ' fc-year' : '') },
       pageHead('Labor', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, fringe) divided by the minutes people spend on the line. A new year starts from the year before with a pay increase and is a forecast until it begins; give it its own people to change anything else.' + (admin ? '' : ' Your role can view these but not change them.')),
-      top, notes, people, line, cards);
+      top, notes, h('div', { class: 'labor-grid' }, people, line), cards);
   },
 };

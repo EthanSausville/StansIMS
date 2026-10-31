@@ -88,7 +88,7 @@ export default {
     };
     const columns = [
       { key: 'item_no', label: 'Item #', sticky: true, value: (it) => it.item_no, cell: (it) => h('td', { class: 'sticky-col itemno' }, it.item_no) },
-      { key: 'name', label: 'Item', sticky2: true, grow: true, value: (it) => it.name, cell: (it) => h('td', { class: 'sticky-col sticky-col2' }, it.name) },
+      { key: 'name', label: 'Item', sticky2: true, value: (it) => it.name, cell: (it) => h('td', { class: 'sticky-col sticky-col2' }, it.name) },
       { key: 'type', label: 'Type', value: (it) => it.type, cell: (it) => h('td', null, typePill(it.type)) },
       { key: 'unit', label: 'Base unit', value: (it) => it.unit || '', cell: (it) => h('td', { class: 'muted' }, it.unit || '') },
       { key: 'receipt', label: 'Receipt', value: (it) => receiptText(it), cell: (it) => (it.type === 'Raw Material' || it.type === 'Component' ? receiptCell(it) : h('td', null, '')) },
@@ -100,6 +100,8 @@ export default {
               placeholder: cm.carriedFrom(it.item_no, y) ? acctText(cm.cost(it.item_no, y)) : ' ',
               title: cm.carriedFrom(it.item_no, y) ? `${it.name} ${y} cost per ${it.unit || 'unit'}: none entered, so the ${cm.carriedFrom(it.item_no, y)} standard is used` : `${it.name} ${y} cost per ${it.unit || 'unit'}` })
           : acctCell(cm.cost(it.item_no, y), { class: 'calc', title: isLaborItem(it.item_no) ? 'From the Labor tab' : isTiedIndirect(state.data, it.item_no) ? 'From the Overhead tab' : 'Calculated' })) })),
+      // Every column fits its contents; this empty one takes the rest of the width.
+      { key: '_fill', label: '', grow: true, filter: false, value: () => '', text: () => null, cell: () => h('td', { class: 'fill-col' }) },
     ];
     const rows = filteredRows({ id: 'costs', columns, rows: items });
     const sel = selected ? items.find((it) => it.item_no === selected) : null;
@@ -113,7 +115,7 @@ export default {
         admin && !editing && sel ? h('button', { class: 'btn primary', title: `Edit ${sel.name}`, onclick: () => { editing = sel.item_no; rerender(); } }, 'Edit item') : null,
         admin && !editing && !sel ? h('span', { class: 'small muted' }, 'Click an item to select it for editing.') : null,
         nFilters ? h('button', { class: 'btn ghost', onclick: () => { clearFilters('costs'); rerender(); } }, `Clear filters (${nFilters})`) : null,
-        downloadButton('master-list', columns, rows)),
+        downloadButton('master-list', columns.filter((c) => c.key !== '_fill'), rows)),
       admin && editing ? h('div', { class: 'top-editor' }, itemForm(editing === 'new' ? null : items.find((it) => it.item_no === editing), (no) => { editing = null; selected = no; rerender(); })) : null,
       // In December, a reminder that next year's standards start from this year's.
       thisMonth() === 12 ? h('div', { class: 'note warn missing-costs' }, `Anything without a ${thisYear() + 1} standard will be set to the ${thisYear()} standard.`) : null,

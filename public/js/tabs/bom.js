@@ -1,10 +1,10 @@
 // BOMs: every bill of materials gets its own top-level row, including ones
 // that are also used inside other BOMs (a recipe inside a product). Click a row to open the
 // next level; anything that has its own BOM opens further, to any depth.
-// Quantities and line costs are for one run of the BOM directly above.
-// BOMs are by year: a year shows its own BOMs, or carries the latest earlier one.
-// Click a BOM to select it; Edit BOM (left) opens it in the editor.
-import { h, pageHead, qty, money, fmt, yearSelect, typePill, thisYear, itemNoTh } from '../ui.js';
+// Each item's unit cost shows for every year, in columns. The tree is the
+// selected year's (click a year); a year carries the latest earlier BOM.
+// Click a BOM to select it; Edit BOM opens it in the editor.
+import { h, pageHead, qty, fmt, typePill, thisYear, itemNoTh } from '../ui.js';
 import { state, derived } from '../store.js';
 import { can, standardsLocked, lockedNote } from '../perms.js';
 import { openInEditor, bomEditor, editorOpen } from './createbom.js';
@@ -15,42 +15,33 @@ let selected = null; // item_no of the selected BOM
 const open = new Set(); // open rows, by path of item numbers ("20001>10021")
 
 const unitCostFmt = (v) => (v ? '$' + fmt(v, Math.abs(v) < 1 ? 5 : 2, 2) : '—');
-const makes = (b, it, ix) => {
-  const base = `${qty(Number(b.yield_qty) || 1, 2)} ${b.yield_unit || it?.unit || ''}`.trim();
-  const usesMin = ix.children(b.item_no).some((l) => l.uses_batch_minutes);
-  return usesMin ? `${base} · ${qty(ix.laborMinutesOf(b.item_no), 2)} labor min` : base;
-};
 
 export default {
   id: 'bom',
   label: 'BOMs',
   render({ rerender }) {
     const cm = derived.costs(); const admin = can('bom', 'edit');
-    if (!cm.years.includes(year)) year = cm.years.includes(THIS_YEAR) ? THIS_YEAR : cm.years[0];
-    const ix = cm.ixFor(year);
+    const years = cm.years;
+    if (!years.includes(year)) year = years.includes(THIS_YEAR) ? THIS_YEAR : years[0];
+    const ix = cm.ixFor(year); // the tree as of the selected year
     const typeOrder = { 'Finished Good': 0, Recipe: 1 };
-    // BOMs that exist in this year (a BOM first made in a later year isn't listed).
-    const inYear = (itemNo) => ix.bom.has(itemNo) && !(ix.bomYear(itemNo) > year);
-    const tops = [...ix.bom.keys()].filter(inYear).map((no) => ix.items.get(no)).filter(Boolean)
+    // A BOM exists in a year from the year it's first made (later years carry it).
+    const inYear = (itemNo, y) => { const i = cm.ixFor(y); return i.bom.has(itemNo) && !(i.bomYear(itemNo) > y); };
+    const tops = [...new Set(years.flatMap((y) => [...cm.ixFor(y).bom.keys()].filter((no) => inYear(no, y))))]
+      .map((no) => cm.ixFor(years.find((y) => inYear(no, y))).items.get(no) || ix.items.get(no)).filter(Boolean)
       .sort((a, b) => (typeOrder[a.type] ?? 2) - (typeOrder[b.type] ?? 2) || a.sort - b.sort);
+    const editing = editorOpen();
+    const pickYear = (y) => { if (editing) return; year = y; rerender(); };
 
-    const usedInText = (itemNo) => {
-      const parents = [...(ix.usedIn.get(itemNo) || [])].map((p) => ix.items.get(p)?.name).filter(Boolean);
-      if (!parents.length) return '';
-      return h('span', { title: parents.join('\n') }, parents.length === 1 ? parents[0] : `${parents.length} BOMs`);
-    };
     const rows = [];
     // guides: for each ancestor level, whether a vertical line continues past this row
-    const walk = (itemNo, path, depth, guides, isLast, line) => {
-      const it = ix.items.get(itemNo) || { name: `#${itemNo}`, type: '' };
-      const b = ix.bom.get(itemNo);
+    const walk = (itemNo, path, depth, guides, isLast) => {
+      const it = ix.items.get(itemNo) || cm.ixFor(years.at(-1)).items.get(itemNo) || { name: `#${itemNo}`, type: '' };
+      const b = ix.bom.get(itemNo) && inYear(itemNo, year);
       const key = path.join('>');
       const isOpen = !!b && open.has(key);
-      const unit = cm.cost(itemNo, year);
-      const blankQty = line && !line.uses_batch_minutes && (line.qty === null || line.qty === undefined);
-      const q = line && !blankQty ? ix.lineQty(line) : null;
       const toggle = () => { if (!b) return; isOpen ? open.delete(key) : open.add(key); rerender(); };
-      const pick = () => { if (!b) return; if (!editorOpen()) selected = itemNo; toggle(); };
+      const pick = () => { if (!b) return; if (!editing) selected = itemNo; toggle(); };
       const nameCell = h('td', { class: 'sticky-col sticky-col2 tree-cell' }, h('div', { class: 'tree' },
         guides.map((cont) => h('span', { class: 'guide ' + (cont ? 'pipe' : 'blank'), 'aria-hidden': 'true' })),
         depth > 0 ? h('span', { class: 'guide ' + (isLast ? 'elbow' : 'tee'), 'aria-hidden': 'true' }) : null,
@@ -61,50 +52,43 @@ export default {
         h('td', { class: 'sticky-col itemno' }, itemNo),
         nameCell,
         h('td', null, typePill(it.type)),
-        h('td', { class: 'small muted used-in' }, depth === 0 && b ? usedInText(itemNo) : ''),
-        h('td', { class: 'num' }, line && q !== null ? (line.uses_batch_minutes ? h('span', { title: 'Labor minutes per run of this BOM' }, qty(q, 4)) : qty(q, 4)) : ''),
-        h('td', { class: 'muted' }, line ? (it.unit || '') : ''),
-        h('td', { class: 'muted' }, b ? makes(b, it, ix) : ''),
-        h('td', { class: 'num' }, unitCostFmt(unit)),
-        h('td', { class: 'num' }, line && q !== null ? money(unit * q, 2) : '')));
+        // Its unit cost each year (blank in years before a top-level BOM existed).
+        years.map((y) => {
+          const exists = depth > 0 || inYear(itemNo, y);
+          return h('td', { class: 'num yc' + (y === year ? ' picked' : ''), 'data-year': y, title: exists ? `${it.name}, ${y}` : `No ${it.name} BOM in ${y}` },
+            exists ? unitCostFmt(cm.cost(itemNo, y)) : '');
+        }),
+        h('td', { class: 'fill-col' })));
       if (!isOpen) return;
       const kids = ix.children(itemNo);
       kids.forEach((l, i) => {
         if (path.includes(l.item_no)) return; // never loop
-        walk(l.item_no, [...path, l.item_no], depth + 1, depth > 0 ? [...guides, !isLast] : [], i === kids.length - 1, l);
+        walk(l.item_no, [...path, l.item_no], depth + 1, depth > 0 ? [...guides, !isLast] : [], i === kids.length - 1);
       });
     };
-    tops.forEach((t, i) => walk(t.item_no, [t.item_no], 0, [], i === tops.length - 1, null));
+    tops.filter((t) => inYear(t.item_no, year)).forEach((t, i, all) => walk(t.item_no, [t.item_no], 0, [], i === all.length - 1));
 
-    if (selected && !inYear(selected)) selected = null;
+    if (selected && !inYear(selected, year)) selected = null;
     const sel = selected ? ix.items.get(selected) : null;
-    const carried = tops.filter((t) => ix.bomYear(t.item_no) < year).length;
-    const firstYear = Math.min(...tops.map((t) => ix.bomYear(t.item_no)).filter(Number.isFinite));
-    const yearSel = yearSelect(cm.years, year, (y) => { year = y; rerender(); }, 'Year');
-    if (editorOpen()) { yearSel.querySelector('select').disabled = true; yearSel.title = 'Close the editor to change the year'; }
 
     // Always handed rerender, so New BOM / Edit can open it.
     const editor = admin && !standardsLocked(year) ? bomEditor({ rerender }) : null;
+    const yearHead = (y) => h('th', { class: 'num yc' + (y === year ? ' picked' : '') },
+      h('button', { type: 'button', class: 'year-pick', 'aria-pressed': String(y === year), disabled: editing && y !== year, title: editing ? 'Close the editor to change the year' : `Show ${y}’s BOMs and edit them`, onclick: () => pickYear(y) }, String(y)),
+      h('div', { class: 'yc-note' }, y > THIS_YEAR ? 'future' : y === THIS_YEAR ? 'current' : 'past'));
     return h('div', null,
-      pageHead('BOMs', 'Every bill of materials for the year, including recipes used inside products. Click one to select it and open the next level. Quantities and line costs are for one run of the BOM directly above (one case, one batch). BOMs are by year: a year without its own BOM for an item carries the latest earlier one. Change next year’s BOMs freely; changing the current or a past year recalculates its costs and inventory. Nothing is saved until you click Save.',
-      ),
+      pageHead('BOMs', 'Every bill of materials, including recipes used inside products, with its unit cost each year. Click a BOM to select it and open the next level; click a year to show and edit that year’s BOMs. BOMs are by year: a year without its own BOM for an item carries the latest earlier one. Change next year’s BOMs freely; changing the current or a past year recalculates its costs and inventory. Nothing is saved until you click Save.'),
       // Buttons above the table; the editor opens under them.
       h('div', { class: 'prod-top top-actions' },
-        yearSel,
-        admin && !editorOpen() ? h('button', { class: 'btn primary', onclick: () => openInEditor(null, year) }, 'New BOM') : null,
-        admin && !editorOpen() && sel ? h('button', { class: 'btn', title: `Edit the ${sel.name} BOM`, onclick: () => openInEditor(selected, year) }, 'Edit BOM') : null,
-        admin && !editorOpen() ? h('span', { class: 'small muted' }, sel ? `Selected: ${sel.name}` : 'Click a BOM to select it for editing.') : null,
+        admin && !editing ? h('button', { class: 'btn primary', title: `A new BOM for ${year}`, onclick: () => openInEditor(null, year) }, 'New BOM') : null,
+        admin && !editing && sel ? h('button', { class: 'btn', title: `Edit the ${year} ${sel.name} BOM`, onclick: () => openInEditor(selected, year) }, 'Edit BOM') : null,
+        admin && !editing ? h('span', { class: 'small muted' }, sel ? `Selected: ${sel.name}, ${year}` : 'Click a BOM to select it for editing.') : null,
         !admin ? h('span', { class: 'small muted' }, 'Your role can view BOMs but not change them.') : standardsLocked(year) ? h('span', { class: 'small muted' }, lockedNote(year)) : null),
-      editor && editorOpen() ? h('div', { class: 'top-editor wide' }, editor) : null,
-      h('div', { class: 'bom-year-head' }, h('h2', null, `${year} BOMs`),
-        year > THIS_YEAR ? h('span', { class: 'chip' }, 'Future year: safe to change') : year === THIS_YEAR ? h('span', { class: 'chip' }, 'Current year') : h('span', { class: 'chip' }, 'Past year'),
-        carried && Number.isFinite(firstYear) && carried === tops.length && firstYear < year ? h('span', { class: 'small muted' }, `Same as ${firstYear} until changed`)
-          : carried ? h('span', { class: 'small muted' }, `${carried} of ${tops.length} carried over from earlier years`) : null),
+      editor && editing ? h('div', { class: 'top-editor wide' }, editor) : null,
       tops.length ? h('div', { class: 'tablewrap', 'data-scroll': 'bomtree' }, h('table', { class: 't tree-table' },
-        h('thead', null, h('tr', null, itemNoTh(), h('th', { class: 'sticky-col sticky-col2' }, 'Item'), h('th', null, 'Type'), h('th', null, 'Used in'),
-          h('th', { class: 'num' }, 'Qty'), h('th', null, 'Unit'), h('th', null, 'One run makes'),
-          h('th', { class: 'num' }, `Unit cost (${year})`), h('th', { class: 'num' }, 'Line cost'))),
+        h('thead', null, h('tr', null, itemNoTh(), h('th', { class: 'sticky-col sticky-col2' }, 'Item'), h('th', null, 'Type'),
+          years.map(yearHead), h('th', { class: 'grow' }))),
         h('tbody', null, rows)))
-        : h('div', { class: 'panel empty' }, `No BOMs in ${year} yet.`, admin ? h('div', null, h('button', { class: 'btn primary', style: { marginTop: '10px' }, onclick: () => openInEditor(null, year) }, 'New BOM')) : null));
+        : h('div', { class: 'panel empty' }, 'No BOMs yet.', admin ? h('div', null, h('button', { class: 'btn primary', style: { marginTop: '10px' }, onclick: () => openInEditor(null, year) }, 'New BOM')) : null));
   },
 };

@@ -1521,3 +1521,22 @@ table.whatif tr.current td { font-weight: 650; background: var(--accent-soft); }
 .oh-formula { font-size: 16px; margin: 4px 0 12px; }
 table.oh-lines td .pos-input, table.oh-lines td input { width: 100%; }
 table.oh-lines tfoot td { position: static; }
+
+/* Standards → BOMs: a unit-cost column per year; the picked year is the tree's */
+table.tree-table th.yc { text-align: right; min-width: 96px; }
+table.tree-table .year-pick { background: none; border: 1px solid transparent; border-radius: 6px; color: inherit; font: inherit; font-weight: 700; padding: 2px 8px; cursor: pointer; }
+table.tree-table .year-pick[aria-pressed="true"] { background: var(--stans-yellow); color: var(--stans-brown); }
+table.tree-table .year-pick:not([aria-pressed="true"]):hover { border-color: var(--stans-cream); }
+table.tree-table .year-pick:disabled { opacity: .5; cursor: default; }
+table.tree-table .yc-note { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; opacity: .75; padding-right: 8px; }
+table.tree-table td.yc.picked { background: color-mix(in srgb, var(--stans-yellow) 14%, transparent); font-weight: 600; }
+table.tree-table tr.d0 td.yc:not(.picked) { cursor: pointer; }
+
+/* Labor: the rate cards stay at the bottom of the screen (not on short or narrow screens) */
+.labor-cards.pinned-cards { position: sticky; bottom: 0; z-index: 4; background: var(--panel); padding: 10px 0 12px; margin: 0; box-shadow: 0 -6px 12px -8px rgba(80, 43, 27, .25); }
+@media (max-height: 620px), (max-width: 700px) { .labor-cards.pinned-cards { position: static; box-shadow: none; } }
+/* the page fills the screen so the cards sit at its bottom even when there's little above them */
+@media (min-height: 621px) and (min-width: 701px) {
+  .labor.labor-page { display: flex; flex-direction: column; min-height: calc(100dvh - 60px); }
+  .labor.labor-page > .pinned-cards { margin-top: auto; }
+}

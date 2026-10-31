@@ -1,12 +1,12 @@
 // Standards → Labor: the standard direct labor cost per minute for each year
 // (laborRate in calc.js): each position's paid cost for the year (wages or
 // salary, payroll taxes, fringe) divided by the minutes people spend on the
-// line. One page, no side bar: the year, its rate, its people, how the line
-// runs, and what more hours a week would do to the rate.
+// line. One page, no side bar: the year, its people and how the line runs,
+// with the rate pinned to the bottom of the screen.
 import { h, pageHead, numberCell, money, qty, fmt, toast, niceError, confirmDialog, thisYear, seg } from '../ui.js';
 import { state, saveRow, insertRow, updateRow, deleteRow } from '../store.js';
 import { can as canArea, standardsLocked, lockedNote } from '../perms.js';
-import { laborRate, laborYears, FULL_WEEK, OVERTIME } from '../calc.js';
+import { laborRate, laborYears } from '../calc.js';
 
 const n = (v) => Number(v) || 0;
 const perMin = (v) => (v ? '$' + qty(v, 4) : '—');
@@ -57,7 +57,8 @@ export default {
       can && !own && !empty ? h('button', { class: F.needsReview ? 'btn primary' : 'btn', onclick: confirmForecast }, F.needsReview ? `Confirm ${selYear}’s people` : `Give ${selYear} its own people`) : null);
 
     const change = prevRate && L.rate ? L.rate / prevRate - 1 : null;
-    const cards = h('div', { class: 'cards labor-cards' },
+    // The rate and its totals stay pinned to the bottom of the screen.
+    const cards = h('div', { class: 'cards labor-cards pinned-cards' },
       stat(`${selYear} labor rate${isFc ? ' (forecast)' : ''}`, empty ? '—' : perMin(L.rate),
         empty ? 'Add this year’s people' : `${money(L.rate * 60)} an hour${change === null ? '' : ` · ${change >= 0 ? '+' : ''}${fmt(change * 100, 1)}% vs. ${selYear - 1}`}`, 'key' + (isFc ? ' forecast' : '')),
       stat('Labor cost a year', dollars(L.burdened), `${dollars(L.base)} pay · ${dollars(L.tax + L.benefits)} taxes & fringe`),
@@ -72,7 +73,7 @@ export default {
     // ---------- people ----------
     const ps = own ? [...d.labor_positions].filter((p) => p.year === selYear).sort((a, b) => n(a.sort) - n(b.sort) || a.id - b.id) : L.rows.map((r) => r.position);
     const costOf = new Map(L.rows.map((r) => [r.position.id, r]));
-    const people = h('section', { class: 'panel' }, h('h2', null, `${selYear} people`),
+    const people = h('section', { class: 'panel' },
       ps.length ? h('div', { class: 'tablewrap flat' }, h('table', { class: 't labor-people' + (own ? '' : ' is-forecast') },
         h('thead', null, h('tr', null, h('th', null, 'Position'), h('th', null, 'Paid'), h('th', { class: 'num' }, 'Pay'), h('th', { class: 'num' }, 'Fringe'),
           h('th', { class: 'num' }, 'Payroll tax %'), h('th', { class: 'num' }, 'People'), h('th', null, 'On the line'), h('th', { class: 'num' }, 'Cost a year'), h('th'))),
@@ -101,41 +102,14 @@ export default {
     // ---------- how the line runs ----------
     const setYear = (k, title, placeholder) => numberCell(ys[k] ?? null, (v) => saveRow('year_settings', { year: selYear }, { [k]: v }), { disabled: !can, key: `ly|${selYear}|${k}`, title,
       placeholder: F.settings[k] !== null && F.settings[k] !== undefined && ys[k] == null ? qty(F.settings[k], 2) : placeholder });
-    const over40 = L.plant.over40;
-    const over40Seg = seg([['overtime', 'Overtime'], ['shift', 'Another shift']], over40, (v) => { if (can) saveRow('year_settings', { year: selYear }, { labor_over40: v }).catch((err) => toast(niceError(err), 'bad')); });
-    over40Seg.classList.add('over40-seg'); if (!can) over40Seg.querySelectorAll('button').forEach((b) => { b.disabled = true; });
     const line = h('section', { class: 'panel' }, h('h2', null, 'How the line runs'),
       h('table', { class: 't batch-table line-table' }, h('tbody', null,
         h('tr', { class: L.plant.lineHours ? null : 'needs' }, h('td', null, 'Hours a week'), setYear('labor_line_hours', 'Hours a week the line runs', 'e.g. 16')),
         h('tr', null, h('td', null, 'Weeks a year'), setYear('labor_prod_weeks', 'Weeks a year the line runs', '52')),
-        h('tr', null, h('td', null, `Past ${FULL_WEEK} hours a week`, h('div', { class: 'small muted' }, 'Hourly people work overtime, or another shift is hired.')), h('td', { class: 'seg-cell' }, over40Seg)),
-        selYear > years[0] && !own ? h('tr', null, h('td', null, `Pay increase from ${selYear - 1} (%)`), setYear('labor_inflation_pct', 'Pay increase %', '0')) : null)),
-      h('p', { class: 'panel-note' }, `Hourly people on the line are paid for the hours it runs. Salaried people are on the line up to ${FULL_WEEK} hours a week and paid the same whatever it runs.`));
-
-    // ---------- more hours a week ----------
-    const cur = L.plant.lineHours;
-    const steps = [...new Set([16, 24, 32, 40, 48, 60, 80, 120, cur].filter((x) => x > 0))].sort((a, b) => a - b);
-    const what = steps.map((hrs) => ({ hrs, ot: laborRate(d, { year: selYear, lineHours: hrs, over40: 'overtime' }), sh: laborRate(d, { year: selYear, lineHours: hrs, over40: 'shift' }) }));
-    const vs = (r) => h('td', { class: 'num' + (r > L.rate * 1.0005 ? ' up' : r < L.rate * 0.9995 ? ' down' : '') }, L.rate ? `${fmt((r / L.rate) * 100, 0)}%` : '');
-    const whatIf = empty || !cur ? null : h('section', { class: 'panel' },
-      h('h2', null, 'If the line ran more hours a week'),
-      h('p', { class: 'panel-note' }, `Up to ${FULL_WEEK} hours, hourly people are paid for the extra hours at their rate. Past ${FULL_WEEK}, either the same people work overtime (time and a half, ×${OVERTIME}) or another shift is hired (more people, each with their own fringe). Salaried pay stays the same.`),
-      h('div', { class: 'tablewrap flat' }, h('table', { class: 't whatif' },
-        h('thead', null,
-          h('tr', { class: 'whatif-band' }, h('th'), h('th', { colspan: 3, class: 'band' }, 'Overtime'), h('th', { colspan: 4, class: 'band' }, 'Another shift')),
-          h('tr', null, h('th', null, 'Hours a week'), h('th', { class: 'num' }, 'Labor rate'), h('th', { class: 'num' }, 'vs. now'), h('th', { class: 'num' }, 'Labor cost'),
-            h('th', { class: 'num' }, 'Labor rate'), h('th', { class: 'num' }, 'vs. now'), h('th', { class: 'num' }, 'Labor cost'), h('th', { class: 'num' }, 'People paid'))),
-        h('tbody', null, what.map(({ hrs, ot, sh }) => {
-          const same = hrs <= FULL_WEEK;
-          return h('tr', { class: [hrs === cur ? 'current' : '', same ? 'same' : ''].join(' ').trim() || null, 'data-hours': hrs },
-            h('td', null, `${qty(hrs, 2)} hours${hrs === cur ? ' (now)' : ''}`),
-            h('td', { class: 'num strong' }, perMin(ot.rate)), vs(ot.rate), h('td', { class: 'num' }, dollars(ot.burdened)),
-            same ? h('td', { class: 'num muted', colspan: 3 }, 'Same: no overtime yet') : [h('td', { class: 'num strong' }, perMin(sh.rate)), vs(sh.rate), h('td', { class: 'num' }, dollars(sh.burdened))],
-            h('td', { class: 'num' }, qty(sh.paidPeople, 2)));
-        })))));
+        selYear > years[0] && !own ? h('tr', null, h('td', null, `Pay increase from ${selYear - 1} (%)`), setYear('labor_inflation_pct', 'Pay increase %', '0')) : null)));
 
     return h('div', { class: 'labor labor-page' + (isFc ? ' fc-year' : '') },
       pageHead('Labor', 'The standard labor cost per minute for each year: each position’s paid cost for the year (wages or salary, payroll taxes, fringe) divided by the minutes people spend on the line. A new year starts from the year before with a pay increase and is a forecast until it begins; give it its own people to change anything else.' + (admin ? '' : ' Your role can view these but not change them.')),
-      top, notes, cards, people, line, whatIf);
+      top, notes, people, line, cards);
   },
 };

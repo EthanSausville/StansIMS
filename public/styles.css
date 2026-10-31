@@ -1402,7 +1402,9 @@ table.roles-table th.role-col .role-name input { color: var(--stans-brown); }
 table.roles-table th.role-col .role-name input:disabled { color: inherit; }
 table.roles-table th .icon-btn { color: #fff; border-color: rgba(255,255,255,.55); background: transparent; }
 /* Settings → Periods: years, with their months tabbed in under them */
-.pr-intro { margin: 0 0 12px; max-width: 100ch; }
+.pr-intro { margin: 0 0 14px; padding-left: 18px; display: grid; gap: 4px; font-size: 13.5px; color: var(--stans-brown); }
+.pr-intro strong { color: var(--stans-orange, #e4560f); }
+table.t.periods-table td.num.neg { color: var(--bad); }
 table.t.periods-table tr.pr-year td { font-weight: 800; color: var(--stans-brown); border-top: 2px solid var(--line); }
 table.t.periods-table tr.pr-year td.pr-name { font-size: 16px; }
 table.t.periods-table tr.pr-year.foldable { cursor: pointer; }

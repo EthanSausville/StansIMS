@@ -25,8 +25,10 @@ const nextYm = (ym) => { const [y, m] = ym.split('-').map(Number); return m === 
 const pref = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* fine */ } } };
 const num = (v) => Number(v) || 0;
 
-// Each month's figures: ending inventory $, sales $, purchases $ (deliveries
-// at standard cost), production oz, cycle count lines, working (production) days.
+// Each month's figures: ending inventory $, sales $, standard margin $ (sales
+// less cases sold at standard cost), purchases $ (deliveries at standard
+// cost), production oz, cycle count lines, and working hours (the labor hours
+// production took: each batch's BOM labor minutes).
 function inventoryValue(date, year) {
   const cm = derived.costs(); const inv = derived.inventory();
   if (!inv.from || date < inv.from) return null;
@@ -37,12 +39,16 @@ function inventoryValue(date, year) {
 function monthFigures(d, months, today) {
   const cm = derived.costs(); const inv = derived.inventory(); const days = derived.production();
   const std = (itemNo, y) => cm.cost(itemNo, y) || cm.latest(itemNo);
-  const out = new Map(months.map((ym) => [ym, { inventory: null, sales: 0, purchases: 0, oz: 0, counts: 0, days: 0, any: false }]));
+  const out = new Map(months.map((ym) => [ym, { inventory: null, sales: 0, margin: 0, purchases: 0, oz: 0, counts: 0, hours: 0, any: false }]));
   const at = (date) => out.get(ymOf(date));
-  for (const s of d.sales) { const f = at(s.date); if (f) { f.sales += num(s.amount); f.any = true; } }
+  for (const s of derived.sales()) { const f = at(s.date); if (f) { f.sales += num(s.amount); f.margin += num(s.amount) - num(s.stdCost); f.any = true; } }
   for (const r of d.goods_receipts) { const f = at(r.date); if (f && num(r.qty)) { f.purchases += num(r.qty) * std(r.item_no, Number(r.date.slice(0, 4))); f.any = true; } }
   for (const c of d.cycle_counts) { const f = at(c.date); if (f && c.qty !== null && c.qty !== undefined) { f.counts++; f.any = true; } }
-  for (const p of days) { const f = at(p.date); if (f && num(p.oz)) { f.oz += num(p.oz); f.days++; f.any = true; } }
+  for (const p of days) {
+    const f = at(p.date); if (!f || !num(p.oz)) continue;
+    const ix = cm.ixFor(Number(p.date.slice(0, 4)));
+    f.oz += num(p.oz); f.hours += p.recipes.reduce((t, r) => t + r.batches * ix.laborMinutesOf(r.item_no), 0) / 60; f.any = true;
+  }
   // Ending inventory: everything on hand at the month's end (or today, for this month), at standard cost.
   if (inv.from) {
     for (const ym of months) {
@@ -113,10 +119,11 @@ export default {
     const cells = (f) => [
       h('td', { class: 'num' }, f.inventory === null ? '—' : money(f.inventory, 0)),
       h('td', { class: 'num' }, dash(f.sales, (v) => money(v, 0))),
+      h('td', { class: 'num' + (f.margin < 0 ? ' neg' : '') }, dash(f.margin, (v) => money(v, 0))),
       h('td', { class: 'num' }, dash(f.purchases, (v) => money(v, 0))),
       h('td', { class: 'num' }, dash(f.oz, (v) => fmt(v))),
       h('td', { class: 'num' }, dash(f.counts, (v) => v.toLocaleString())),
-      h('td', { class: 'num' }, dash(f.days, (v) => v.toLocaleString())),
+      h('td', { class: 'num' }, dash(f.hours, (v) => fmt(v))),
     ];
     const who = (c) => (c ? `Closed ${c.closed_at ? longDate(String(c.closed_at).slice(0, 10)) : ''}${c.closed_by_email ? ` by ${c.closed_by_email}` : ''}`.trim() : null);
     const monthRow = (ym) => {
@@ -130,7 +137,7 @@ export default {
             : c ? h('button', { class: 'btn small', onclick: () => reopenMonth(ym) }, 'Reopen')
               : h('button', { class: 'btn small primary', onclick: () => closeMonth(ym) }, 'Close')));
     };
-    const blankRow = { inventory: null, sales: 0, purchases: 0, oz: 0, counts: 0, days: 0 };
+    const blankRow = { inventory: null, sales: 0, margin: 0, purchases: 0, oz: 0, counts: 0, hours: 0 };
     // Beginning: Jan 1 inventory at the year's standards; closing it locks them.
     const beginningRow = (y) => {
       const c = closedBeginnings.get(y); const prevEnding = closedYears.has(y - 1);
@@ -162,33 +169,32 @@ export default {
       // Clicking a year folds it up; the current year folds up only its months still ahead.
       const isOpen = pref.get(key) ? pref.get(key) === '1' : !done;
       const partial = !done && !future; // the current year
-      const yc = closedYears.get(y);
-      const nClosed = yms.filter((ym) => closed.has(ym)).length;
       const toggle = () => { pref.set(key, isOpen ? '0' : '1'); rerender(); };
       const fs = yms.map((ym) => figs.get(ym));
       const sum = (k) => fs.reduce((t, f) => t + f[k], 0);
       const lastInv = [...fs].reverse().find((f) => f.inventory !== null)?.inventory ?? null;
-      const total = { inventory: lastInv, sales: sum('sales'), purchases: sum('purchases'), oz: sum('oz'), counts: sum('counts'), days: sum('days') };
-      const status = future ? (closedBeginnings.has(y) ? '🔒 Standards locked' : 'Not started')
-        : yc ? '🔒 Closed' : nClosed === yms.length ? '🔒 All months closed' : done ? `${nClosed} of ${yms.length} months closed`
-          : `${nClosed} closed · ${yms.filter((ym) => ym <= nowYm && !closed.has(ym)).length} open`;
+      const total = { inventory: lastInv, sales: sum('sales'), margin: sum('margin'), purchases: sum('purchases'), oz: sum('oz'), counts: sum('counts'), hours: sum('hours') };
       const head = h('tr', { class: 'pr-year foldable', onclick: toggle, 'aria-expanded': String(isOpen),
-          title: partial ? (isOpen ? `Hide ${y}’s months still ahead` : `Show ${y}’s months still ahead`) : isOpen ? `Hide ${y}’s months` : `Show ${y}’s months` },
+          title: partial ? (isOpen ? `Hide ${y}’s Ending and months still ahead` : `Show ${y}’s Ending and months still ahead`) : isOpen ? `Hide ${y}’s months` : `Show ${y}’s months` },
         h('td', { class: 'pr-name' }, String(y)),
-        h('td', null, h('span', { class: `user-status ${yc || (!future && nClosed === yms.length) || (future && closedBeginnings.has(y)) ? 'off' : done ? 'on' : 'invited'}`, title: who(yc) }, status)),
-        cells(future ? blankRow : total), h('td'));
+        h('td'), cells(future ? blankRow : total), h('td'));
       return h('tbody', { class: 'pr-group' }, head,
         isOpen ? [endingRow(y, yms), [...yms].reverse().map(monthRow), beginningRow(y)]
-          : partial ? [endingRow(y, yms), [...yms].reverse().filter((ym) => ym <= nowYm).map(monthRow), beginningRow(y)] : null);
+          : partial ? [[...yms].reverse().filter((ym) => ym <= nowYm).map(monthRow), beginningRow(y)] : null);
     };
 
     return h('div', null,
       pageHead('Periods', 'Close a month once its books are final.'),
-      h('p', { class: 'small muted pr-intro' }, 'Closing a month locks its production, deliveries, counts and sales for everyone, admins included, until it’s reopened here. Closing a year’s Beginning locks its standards (costs, prices, BOMs, labor, overhead). Closing a finished year’s Ending closes all its months and rolls its standards over to the next year’s, revaluing Dec 31 inventory (journal entry H in January); the next year’s Beginning has to be closed first. Reopening an Ending leaves its months closed. Inventory and purchases are at standard cost; working days are days with production.'),
+      h('ul', { class: 'pr-intro' },
+        h('li', null, h('strong', null, 'Months: '), 'closing one locks its production, deliveries, counts and sales for everyone, admins included, until it’s reopened here.'),
+        h('li', null, h('strong', null, 'Beginning: '), 'closing it locks that year’s standards: costs, prices, BOMs, labor and overhead.'),
+        h('li', null, h('strong', null, 'Ending: '), 'once the year is over, closing it closes every month in the year and rolls the standards over to next year’s, revaluing Dec 31 inventory (journal entry H in January). Next year’s Beginning has to be closed first. Reopening an Ending leaves the months closed.'),
+        h('li', null, h('strong', null, 'Figures: '), 'inventory and purchases are at standard cost; Std margin is sales less cases sold at standard cost; working hours are the labor hours production took (each batch’s BOM labor minutes).'),
+        h('li', null, h('strong', null, 'Years: '), 'click a year to fold it up; this year folds up its Ending and the months still ahead.')),
       !live ? h('div', { class: 'note warn' }, 'Closing months starts working after the next deploy to main.') : null,
       h('div', { class: 'tablewrap' }, h('table', { class: 't periods-table' },
-        h('thead', null, h('tr', null, h('th', null, 'Month'), h('th', null, 'Status'), h('th', { class: 'num' }, 'Ending inventory'), h('th', { class: 'num' }, 'Sales'),
-          h('th', { class: 'num' }, 'Purchases'), h('th', { class: 'num' }, 'Production (oz)'), h('th', { class: 'num' }, 'Cycle counts'), h('th', { class: 'num' }, 'Working days'), h('th'))),
+        h('thead', null, h('tr', null, h('th', null, 'Month'), h('th', null, 'Status'), h('th', { class: 'num' }, 'Ending inventory'), h('th', { class: 'num' }, 'Sales'), h('th', { class: 'num' }, 'Std margin'),
+          h('th', { class: 'num' }, 'Purchases'), h('th', { class: 'num' }, 'Production (oz)'), h('th', { class: 'num' }, 'Cycle counts'), h('th', { class: 'num' }, 'Working hours'), h('th'))),
         years.map(yearGroup))));
   },
 };

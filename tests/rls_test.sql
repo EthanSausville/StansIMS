@@ -210,3 +210,21 @@ select role, roles from public.profiles where email = 'staff@stans.test';
 update public.profiles set roles = array['staff'] where email = 'staff@stans.test';
 delete from public.production where date = '2026-07-22'; delete from public.goods_receipts where date = '2026-07-22';
 reset role;
+
+\echo '--- closing a year ---'
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+insert into public.closed_periods (month) values ('2026-05-01');
+insert into public.closed_years (year) values (2026);
+\set ON_ERROR_STOP off
+\echo 'an open month in a closed year is locked too (should fail):'
+insert into public.production (date, item_no, cases) values ('2026-04-15', 500005, 1);
+\echo 'reopening a month while its year is closed (should fail):'
+delete from public.closed_periods where month = '2026-05-01';
+\set ON_ERROR_STOP on
+delete from public.closed_years where year = 2026;
+\echo 'reopening the year leaves its months closed:'
+select month from public.closed_periods;
+insert into public.production (date, item_no, cases) values ('2026-04-15', 500005, 1);
+delete from public.production where date = '2026-04-15' and item_no = 500005;
+delete from public.closed_periods where month = '2026-05-01';
+reset role;

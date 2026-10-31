@@ -28,7 +28,7 @@ Everyone has a **role** (Settings → Roles). **Admin** can do everything, inclu
 
 The database enforces the same rules (`public.can(area, 'view'|'edit')` in every table's row-level security), so a role that can't edit an area can't change it from anywhere, and sales lines and prices aren't sent at all to a role that can't see Sales, Standard prices, the Dashboard or Accounting.
 
-**Closed periods** (Settings → Periods): an admin closes a month once its books are final; its production, receipts, counts and sales can't then be added to, changed or removed by anyone, admins included (`public.period_guard`), until an admin reopens it. Closing and reopening are recorded in Change history.
+**Closed periods** (Settings → Periods): an admin closes a month once its books are final; its production, receipts, counts and sales can't then be added to, changed or removed by anyone, admins included (`public.period_guard`), until an admin reopens it. A finished year can be closed as a whole (`public.closed_years`): all its months close with it and can't be reopened until the year is; reopening the year leaves its months closed. Each month shows its ending inventory and purchases (at standard cost), sales, production oz, cycle count lines and working days. Closing and reopening are recorded in Change history.
 
 The first account created becomes an admin. Everyone else is added by an admin on Settings → Users. An account that appears any other way starts turned off and can see nothing until an admin turns it on. There is always at least one enabled admin, and admins can't turn off, demote or delete themselves.
 

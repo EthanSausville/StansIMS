@@ -485,12 +485,35 @@ end $$;
 drop trigger if exists closed_periods_who on public.closed_periods;
 create trigger closed_periods_who before insert on public.closed_periods for each row execute function public.closed_periods_who();
 
+-- A whole year can be closed too (Settings → Periods → Close year). Its months
+-- are closed with it and can't be reopened one by one until the year is
+-- reopened; reopening the year leaves its months closed.
+create table if not exists public.closed_years (
+  year            int primary key,
+  closed_at       timestamptz not null default now(),
+  closed_by       uuid default auth.uid(),
+  closed_by_email text
+);
+drop trigger if exists closed_years_who on public.closed_years;
+create trigger closed_years_who before insert on public.closed_years for each row execute function public.closed_periods_who();
+create or replace function public.month_in_closed_year() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (select 1 from public.closed_years y where y.year = extract(year from old.month)::int) then
+    raise exception '% is closed as a year. Reopen the year first, then the month.', extract(year from old.month)::int;
+  end if;
+  return old;
+end $$;
+drop trigger if exists month_in_closed_year on public.closed_periods;
+create trigger month_in_closed_year before delete on public.closed_periods for each row execute function public.month_in_closed_year();
+
 create or replace function public.period_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare d date;
 begin
   foreach d in array array[case when tg_op <> 'INSERT' then old.date end, case when tg_op <> 'DELETE' then new.date end] loop
-    if d is not null and exists (select 1 from public.closed_periods c where c.month = date_trunc('month', d)::date) then
+    if d is not null and (exists (select 1 from public.closed_periods c where c.month = date_trunc('month', d)::date)
+                          or exists (select 1 from public.closed_years y where y.year = extract(year from d)::int)) then
       raise exception '% is closed, so entries dated % can’t be changed. An admin can reopen it in Settings → Periods.', to_char(d, 'FMMonth YYYY'), to_char(d, 'FMMM/FMDD/YYYY');
     end if;
   end loop;
@@ -518,6 +541,8 @@ grant insert (id, name, description, permissions, sort), update (name, descripti
 -- Closing a month: only which month and a note; who and when are filled in.
 revoke insert, update on public.closed_periods from authenticated;
 grant insert (month, note), update (note) on public.closed_periods to authenticated;
+revoke insert, update on public.closed_years from authenticated;
+grant insert (year) on public.closed_years to authenticated;
 grant execute on function public.can(text, text) to authenticated;
 grant execute on function public.can_see_sales() to authenticated;
 grant execute on function public.can_any(text[], text) to authenticated;
@@ -534,7 +559,7 @@ begin
       ('production_plan', '{planning}'), ('purchase_settings', '{safety}'),
       ('items', '{costs}'), ('standard_costs', '{costs}'), ('boms', '{bom}'), ('bom_lines', '{bom}'),
       ('labor_positions', '{labor}'), ('overhead_costs', '{overhead}'), ('year_settings', '{costs,labor,overhead}'),
-      ('settings', null), ('recipes', null), ('recipe_lines', null), ('fg_lines', null), ('roles', null), ('closed_periods', null)) as x(t, a) loop
+      ('settings', null), ('recipes', null), ('recipe_lines', null), ('fg_lines', null), ('roles', null), ('closed_periods', null), ('closed_years', null)) as x(t, a) loop
     rd := case when t in ('sales', 'sales_imports', 'qb_name_map', 'standard_prices') then 'public.can_see_sales()' else 'public.is_member()' end;
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "read" on public.%I', t);
@@ -705,7 +730,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['items', 'standard_costs', 'standard_prices', 'boms', 'bom_lines', 'settings', 'year_settings',
-                           'purchase_settings', 'labor_positions', 'overhead_costs', 'production_plan', 'profiles', 'roles', 'closed_periods'] loop
+                           'purchase_settings', 'labor_positions', 'overhead_costs', 'production_plan', 'profiles', 'roles', 'closed_periods', 'closed_years'] loop
     execute format('drop trigger if exists audit on public.%I', t);
     execute format('create trigger audit after insert or update or delete on public.%I for each row execute function public.audit_change()', t);
   end loop;

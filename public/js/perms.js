@@ -80,6 +80,7 @@ export const stopViewingAs = () => window.dispatchEvent(new CustomEvent('stans:s
 
 // Closed months (Settings → Periods): 'YYYY-MM' of every closed month.
 export function closedMonths() { return new Set((state.data?.closed_periods || []).map((c) => String(c.month).slice(0, 7))); }
-export const isClosed = (date) => !!date && closedMonths().has(String(date).slice(0, 7));
+export const yearClosed = (year) => (state.data?.closed_years || []).some((y) => Number(y.year) === Number(year));
+export const isClosed = (date) => !!date && (closedMonths().has(String(date).slice(0, 7)) || yearClosed(String(date).slice(0, 4)));
 export const monthName = (ym) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 export const closedNote = (ym) => `${monthName(ym)} is closed, so its entries can’t be changed.${state.profile?.role === 'admin' ? ' Reopen it in Settings → Periods.' : ' An admin can reopen it.'}`;

@@ -6,7 +6,7 @@ import { xtable, filteredRows, activeFilterCount, clearFilters, downloadButton }
 
 let rows = null; let loading = false; let failed = false;
 const TABLES = { items: 'Item', standard_costs: 'Standard cost', standard_prices: 'Standard price', boms: 'BOM', bom_lines: 'BOM line', settings: 'Settings',
-  year_settings: 'Year settings', purchase_settings: 'Purchase settings', labor_positions: 'Labor position', overhead_costs: 'Overhead cost', roles: 'Role', closed_periods: 'Closed month', production_plan: 'Production plan',
+  year_settings: 'Year settings', purchase_settings: 'Purchase settings', labor_positions: 'Labor position', overhead_costs: 'Overhead cost', roles: 'Role', closed_periods: 'Closed month', closed_years: 'Closed year', production_plan: 'Production plan',
   profiles: 'User', users: 'User' };
 const ACTIONS = { insert: 'Added', update: 'Changed', delete: 'Removed', invite: 'Invited', create: 'Added', disable: 'Turned off', enable: 'Turned on',
   'password reset email': 'Sent a password reset to', 'set password': 'Set the password for', 'resend invite': 'Re-sent the invitation to' };

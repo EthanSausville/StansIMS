@@ -54,6 +54,7 @@ def mock_db():
                         ['dashboard', 'journals', 'taccounts', 'sales', 'sales-customers', 'sales-products', 'prices', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts',
                          'inventory', 'consumption', 'planning', 'purchasing', 'safety', 'costs', 'bom', 'labor', 'overhead']})]
     db['closed_periods'] = []
+    db['closed_years'] = []
     db['security_answers'] = [dict(user_id='u1', slot=1, question='pet', answer_hash='plain:rexthebeagle'),
                               dict(user_id='u1', slot=2, question='car', answer_hash='plain:hondacivic98'),
                               dict(user_id='u1', slot=3, question='city', answer_hash='plain:detroitmi')]
@@ -1059,6 +1060,14 @@ with sync_playwright() as p:
     page.goto(BASE + '/#periods'); page.wait_for_timeout(300)
     page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='June').get_by_role('button', name='Reopen').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen').click(); page.wait_for_timeout(300)
     check(page.evaluate("window.__MOCK_DB__.closed_periods.length") == 0, 'and reopen it')
+    check(page.locator('table.periods-table thead th').all_inner_texts()[2:8] == ['Ending inventory', 'Sales', 'Purchases', 'Production (oz)', 'Cycle counts', 'Working days'], 'each month shows its key figures')
+    jul = page.locator('tbody.pr-group').first.locator('tr.pr-month', has_text='July').locator('td')
+    check(jul.nth(2).inner_text().startswith('$') and jul.nth(3).inner_text().startswith('$'), f'with ending inventory and sales in dollars ({jul.nth(2).inner_text()}, {jul.nth(3).inner_text()})')
+    page.locator('tr.pr-year', has_text='2025').get_by_role('button', name='Close year').click(); page.locator('dialog[open]').get_by_role('button', name='Close year').click(); page.wait_for_timeout(600)
+    check(page.evaluate("window.__MOCK_DB__.closed_years.map(y => y.year).join()") == '2025' and page.evaluate("window.__MOCK_DB__.closed_periods.length") == 12, 'Close year closes the year and all its months')
+    page.locator('tr.pr-year', has_text='2025').get_by_role('button', name='Reopen year').click(); page.locator('dialog[open]').get_by_role('button', name='Reopen year').click(); page.wait_for_timeout(400)
+    check(page.evaluate("window.__MOCK_DB__.closed_years.length") == 0 and page.evaluate("window.__MOCK_DB__.closed_periods.length") == 12, 'Reopen year leaves its months closed')
+    shot(page, '45-periods-figures')
     check(not errors, 'no browser errors on Roles and Periods' + (f': {errors[:3]}' if errors else ''))
     ctx.close()
 

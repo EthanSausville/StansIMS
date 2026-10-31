@@ -16,9 +16,9 @@ import { state, derived, insertRow, deleteRow } from '../store.js';
 import { monthName } from '../perms.js';
 import { monthEnd, rolloverLines } from '../calc.js';
 
-// TEMPORARY: show 2025 too (no data), to see how a finished year looks. Remove
-// this line (or set it to null) to start at the first month with entries again.
-const SHOW_FROM = '2025-01';
+// Every month from January 2026 through December of this year; from October,
+// next year too, so its Beginning (standards) can be closed ahead of time.
+const FIRST_MONTH = '2026-01';
 
 const ymOf = (d) => String(d).slice(0, 7);
 const nextYm = (ym) => { const [y, m] = ym.split('-').map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; };
@@ -68,9 +68,10 @@ export default {
     const closedYears = new Map((d.closed_years || []).map((c) => [Number(c.year), c]));
     const today = todayIso(); const nowYm = ymOf(today); const nowYear = Number(nowYm.slice(0, 4));
     const dataMonths = [...d.production, ...d.goods_receipts, ...d.cycle_counts, ...d.sales].map((r) => ymOf(r.date));
-    const first = [...dataMonths, ...closed.keys(), ...(SHOW_FROM ? [SHOW_FROM] : [])].sort()[0] || nowYm;
-    const months = []; for (let ym = first; ym <= nowYm; ym = nextYm(ym)) months.push(ym);
-    const years = [...new Set([...months.map((ym) => Number(ym.slice(0, 4))), nowYear + 1])].sort((a, b) => b - a);
+    const first = [FIRST_MONTH, ...dataMonths, ...closed.keys()].sort()[0];
+    const lastYear = Number(nowYm.slice(5, 7)) >= 10 ? nowYear + 1 : nowYear;
+    const months = []; for (let ym = first; ym <= `${lastYear}-12`; ym = nextYm(ym)) months.push(ym);
+    const years = [...new Set(months.map((ym) => Number(ym.slice(0, 4))))].sort((a, b) => b - a);
     const figs = monthFigures(d, months, today);
 
     const closeMonth = async (ym) => {
@@ -119,12 +120,12 @@ export default {
     ];
     const who = (c) => (c ? `Closed ${c.closed_at ? longDate(String(c.closed_at).slice(0, 10)) : ''}${c.closed_by_email ? ` by ${c.closed_by_email}` : ''}`.trim() : null);
     const monthRow = (ym) => {
-      const c = closed.get(ym); const current = ym >= nowYm; const yc = closedYears.has(Number(ym.slice(0, 4)));
-      return h('tr', { class: 'pr-month' },
+      const c = closed.get(ym); const current = ym === nowYm; const future = ym > nowYm; const yc = closedYears.has(Number(ym.slice(0, 4)));
+      return h('tr', { class: 'pr-month' + (future ? ' pr-future' : '') },
         h('td', { class: 'pr-name' }, monthName(ym).replace(/ \d{4}$/, '')),
-        h('td', null, h('span', { class: `user-status ${c || yc ? 'off' : current ? 'invited' : 'on'}`, title: who(c) }, c || yc ? '🔒 Closed' : current ? 'Current month' : 'Open')),
-        cells(figs.get(ym)),
-        h('td', { class: 'user-actions' }, !live || current ? null
+        h('td', null, h('span', { class: `user-status ${c || yc ? 'off' : current || future ? 'invited' : 'on'}`, title: who(c) }, c || yc ? '🔒 Closed' : future ? 'Future month' : current ? 'Current month' : 'Open')),
+        future ? cells(blankRow) : cells(figs.get(ym)),
+        h('td', { class: 'user-actions' }, !live || current || future ? null
           : yc ? h('span', { class: 'small muted', title: 'Reopen the year’s Ending first' }, 'Ending closed')
             : c ? h('button', { class: 'btn small', onclick: () => reopenMonth(ym) }, 'Reopen')
               : h('button', { class: 'btn small primary', onclick: () => closeMonth(ym) }, 'Close')));
@@ -155,7 +156,7 @@ export default {
     };
     const yearGroup = (y) => {
       const yms = months.filter((ym) => ym.startsWith(`${y}-`));
-      const future = y > nowYear; // next year: only its Beginning, to lock its standards ahead of time
+      const future = y > nowYear; // next year (from October): its months are all ahead
       const done = y < nowYear; // a finished year folds up
       const key = `periods:open:${y}`;
       const isOpen = !done || pref.get(key) === '1';
@@ -167,14 +168,15 @@ export default {
       const lastInv = [...fs].reverse().find((f) => f.inventory !== null)?.inventory ?? null;
       const total = { inventory: lastInv, sales: sum('sales'), purchases: sum('purchases'), oz: sum('oz'), counts: sum('counts'), days: sum('days') };
       const status = future ? (closedBeginnings.has(y) ? '🔒 Standards locked' : 'Not started')
-        : yc ? '🔒 Closed' : nClosed === yms.length ? '🔒 All months closed' : done ? `${nClosed} of ${yms.length} months closed` : `${nClosed} closed · ${yms.length - nClosed} open`;
+        : yc ? '🔒 Closed' : nClosed === yms.length ? '🔒 All months closed' : done ? `${nClosed} of ${yms.length} months closed`
+          : `${nClosed} closed · ${yms.filter((ym) => ym <= nowYm && !closed.has(ym)).length} open`;
       const head = h('tr', { class: 'pr-year' + (done ? ' foldable' : ''), onclick: done ? toggle : null,
           title: done ? (isOpen ? `Hide ${y}’s months` : `Show ${y}’s months`) : null, 'aria-expanded': done ? String(isOpen) : null },
         h('td', { class: 'pr-name' }, String(y)),
         h('td', null, h('span', { class: `user-status ${yc || (!future && nClosed === yms.length) || (future && closedBeginnings.has(y)) ? 'off' : done ? 'on' : 'invited'}`, title: who(yc) }, status)),
         cells(future ? blankRow : total), h('td'));
       return h('tbody', { class: 'pr-group' }, head,
-        isOpen ? [future ? null : endingRow(y, yms), [...yms].reverse().map(monthRow), beginningRow(y)] : null);
+        isOpen ? [endingRow(y, yms), [...yms].reverse().map(monthRow), beginningRow(y)] : null);
     };
 
     return h('div', null,

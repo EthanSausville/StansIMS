@@ -1438,3 +1438,21 @@ table.t.periods-table tr.pr-current td { background: #f1efec; }
 .user-status.future { background: #eeebe8; color: #9a918a; font-weight: 600; }
 table.t.periods-table tr.pr-future td { color: #b3aba4; }
 table.t.periods-table tr.pr-future td.pr-name { font-weight: 500; }
+
+/* Inventory → Production (daily): newest day first, endless scroll back */
+.prod-top { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+table.prod-table tr.fg-head th.fg-name { vertical-align: bottom; line-height: 1.25; }
+table.prod-table th.fg-name span { display: block; white-space: nowrap; }
+table.prod-table th.fg-name .fg-recipe { font-weight: 700; }
+table.prod-table th.fg-name .fg-size { font-weight: 600; }
+table.prod-table th.fg-name .fg-pack { font-weight: 400; color: var(--stans-cream); }
+table.prod-table tr.month-row th, table.prod-table tr.month-row td { background: var(--stans-grey); color: var(--ink); font-weight: 600; border-top: 2px solid var(--line-strong); text-align: left; }
+table.prod-table tr.month-row td { text-align: right; color: var(--muted); font-weight: 500; }
+table.prod-table tr.month-row .closed-tag { font-weight: 400; color: var(--muted); }
+.load-more { text-align: center; padding: 14px 0 28px; }
+.to-top { position: fixed; right: 22px; bottom: 22px; z-index: 30; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-strong);
+  background: var(--panel); color: var(--ink); font-size: 20px; box-shadow: var(--shadow); cursor: pointer;
+  opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity .18s, transform .18s; }
+.to-top.show { opacity: 1; transform: none; pointer-events: auto; }
+.to-top:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .to-top { transition: none; } }

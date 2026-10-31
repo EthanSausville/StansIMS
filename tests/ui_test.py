@@ -791,15 +791,7 @@ with sync_playwright() as p:
     check(bgs == {'rgb(255, 255, 255)'}, f'weekend rows are white all the way across ({bgs})')
     wd = page.locator('table.prod-table tbody tr:not(.weekend):not(.month-row)').first.locator('td.cell.entry').first
     check(wd.evaluate('e => getComputedStyle(e).backgroundColor') != 'rgb(255, 255, 255)', 'weekdays keep the entry colour')
-    tg = page.locator('table.prod-table .lot-toggle').first
-    day = tg.evaluate("e => e.closest('tr').dataset.day")
-    made = page.evaluate(f"window.__MOCK_DB__.production.filter(r => r.date==='{day}' && r.cases > 0).length")
-    tg.click(); page.wait_for_timeout(150)
-    cards = page.locator('tr.lot-detail .lot-card')
-    code = cards.first.locator('.lot-code').inner_text() if cards.count() else ''
-    check(cards.count() == made and re.match(r'^Lot \d{6}-\d{6}$', code), f'▸ shows the day’s lots and who they shipped to ({cards.count()} lots on {day}, {code})')
-    tg.click(); page.wait_for_timeout(100)
-    check(page.locator('tr.lot-detail').count() == 0, 'and ▸ again hides them')
+    check(page.locator('table.prod-table .lot-toggle, tr.lot-detail').count() == 0 and 'shipped' not in ' '.join(page.locator('table.prod-table thead th').all_inner_texts()).lower(), 'Daily has no lots in it')
 
     tab(page, 'Lots')
     nl = page.locator('table.xtable tbody tr').count()
@@ -809,6 +801,11 @@ with sync_playwright() as p:
     code = page.locator('table.xtable tbody tr.selected td').first.inner_text()
     check(re.match(r'^\d{6}-\d{6}$', code) and f'Lot {code}' in page.locator('.side-detail').inner_text(), f'selecting a lot shows who it shipped to ({code})')
     shot(page, '57-lots')
+    with page.expect_download() as dl2:
+        page.get_by_role('button', name='Export to Excel').click()
+    import openpyxl
+    wb2 = openpyxl.load_workbook(open(dl2.value.path(), 'rb'))
+    check(wb2.sheetnames == ['Lots', 'Shipments'] and wb2['Lots'].max_row - 1 == want_lots, f'Lots exports its lots and shipments to Excel ({wb2.sheetnames}, {wb2["Lots"].max_row - 1} lots)')
 
     tab(page, 'New Lots')
     page.locator('input.big-date').fill('2026-07-08'); page.locator('input.big-date').dispatch_event('change'); page.wait_for_timeout(200)
@@ -836,8 +833,8 @@ with sync_playwright() as p:
     import openpyxl
     wb = openpyxl.load_workbook(open(path, 'rb'))
     want_lots = page.evaluate("new Set(window.__MOCK_DB__.production.filter(r => r.cases > 0).map(r => r.date + '|' + r.item_no)).size")
-    check(wb.sheetnames == ['Production', 'Lots', 'Shipments'] and wb['Lots'].max_row - 1 == want_lots and dl.value.suggested_filename.endswith('.xlsx'),
-          f'Export to Excel downloads a workbook with every day, lot and shipment ({wb.sheetnames}, {wb["Lots"].max_row - 1} lots vs {want_lots})')
+    check(wb.sheetnames == ['Production'] and wb['Production'].max_row > 100 and dl.value.suggested_filename.endswith('.xlsx'),
+          f'Export to Excel downloads a workbook with every day ({wb.sheetnames}, {wb["Production"].max_row} rows)')
     ws = wb['Production']
     check(ws['B1'].value == 'Original' and ws['B2'].value == '7 oz' and ws['B3'].value == 'Case of 24' and ws['A4'].value.date().isoformat() == TODAY.isoformat(),
           f'the Production sheet matches the page: three header lines, newest day first ({ws["B1"].value}/{ws["B2"].value}/{ws["B3"].value}, {ws["A4"].value})')

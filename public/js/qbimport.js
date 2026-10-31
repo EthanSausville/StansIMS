@@ -134,7 +134,12 @@ export function guessProduct(qbName, finishedGoods) {
   const w = words(qbName); const size = sizeOf(qbName);
   if (!size) return 'Other';
   const hits = finishedGoods.filter((fg) => sizeOf(fg.name) === size && w.includes(words(fg.name).split(' ')[0]));
-  return hits.length === 1 ? hits[0].name : 'Other';
+  if (hits.length <= 1) return hits.length ? hits[0].name : 'Other';
+  // Several case sizes of the same product (Case of 24, 12, 6): the count in
+  // the QuickBooks name, like "(12)", picks one; otherwise the case of 24.
+  const n = /\((\d+)\)/.exec(String(qbName))?.[1];
+  const byCount = n && hits.find((fg) => new RegExp(`case of ${n}\\b`, 'i').test(fg.name));
+  return (byCount || hits.find((fg) => /case of 24\b/i.test(fg.name)) || hits[0]).name;
 }
 
 // Best guess for a QuickBooks customer: the last part of "Parent:Customer".

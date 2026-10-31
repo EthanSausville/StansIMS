@@ -107,3 +107,11 @@ test('duplicate lines in a report are left out', () => {
   const again = newSales([r, { ...r }], [r]);
   assert.equal(again.add.length, 0); assert.equal(again.skipped, 1); assert.equal(again.duplicates.length, 1);
 });
+
+test('several case sizes of a product: the count in the QuickBooks name picks one', () => {
+  const fgs = ['Original 7 oz. (Case of 24)', 'Original 7 oz. (Case of 12)', 'Original 14 oz. (Case of 24)', 'Original 14 oz. (Case of 6)', 'Jalapeños 7 oz. (Case of 24)', 'Jalapeños 7 oz. (Case of 12)'].map((name) => ({ name }));
+  assert.equal(guessProduct('7 oz Case - Original Pimento Cheese (12)', fgs), 'Original 7 oz. (Case of 12)');
+  assert.equal(guessProduct('7 oz Case - Original Pimento Cheese (24)', fgs), 'Original 7 oz. (Case of 24)');
+  assert.equal(guessProduct('14 oz Case - Original Pimento Cheese (6)', fgs), 'Original 14 oz. (Case of 6)');
+  assert.equal(guessProduct('7 oz - Jalapeno Pimento Cheese (1/1)', fgs), 'Jalapeños 7 oz. (Case of 24)');
+});

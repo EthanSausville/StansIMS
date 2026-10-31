@@ -18,6 +18,7 @@ import journals from './tabs/journals.js';
 import users from './tabs/users.js';
 import history from './tabs/history.js';
 import { account, security } from './tabs/settings.js';
+import { myQuestions, setupScreen, answerBoxes, changeMyPassword } from './security.js';
 
 // Groups across the top; the open group's tabs show in the row beneath.
 // Settings is the gear at the far right; staff see only My Account there.
@@ -49,6 +50,7 @@ function signInScreen(message) {
       e.preventDefault(); btn.disabled = true; msg.textContent = '';
       const { error } = await sb.auth.signInWithPassword({ email: email.value.trim(), password: pass.value });
       btn.disabled = false;
+      if (!error) { try { localStorage.removeItem('pw-recovery'); } catch { /* fine */ } }
       if (error) { msg.className = 'msg bad'; msg.textContent = /invalid/i.test(error.message) ? 'That email and password don’t match.' : error.message; }
     } },
     h('h1', null, 'Stan’s ', h('span', null, 'IMS')),
@@ -67,28 +69,45 @@ function signInScreen(message) {
   app.replaceChildren(h('div', { class: 'auth' }, form));
 }
 
-function setPasswordScreen(kind) {
+// After an invitation: choose a first password. After a "forgot password"
+// email: choose a new one, and, if security questions are set, answer them
+// first (the email alone isn't enough). Until that's done the site stays on
+// this screen, even after a reload.
+const RECOVERY = 'pw-recovery';
+const recoveryPending = () => { try { return localStorage.getItem(RECOVERY) === (state.user?.id || '?'); } catch { return false; } };
+async function setPasswordScreen(kind) {
+  const { data: { user } } = await sb.auth.getUser(); state.user = user;
+  if (kind === 'recovery') { try { localStorage.setItem(RECOVERY, user?.id || '?'); } catch { /* fine */ } }
+  const questions = kind === 'recovery' ? await myQuestions() : null;
+  const answers = questions?.length ? answerBoxes(questions) : null;
   const msg = h('div', { class: 'msg bad', role: 'alert' });
-  const p1 = h('input', { type: 'password', required: true, minlength: MIN_PASSWORD, maxlength: 72, autocomplete: 'new-password', autofocus: true });
+  const p1 = h('input', { type: 'password', required: true, minlength: MIN_PASSWORD, maxlength: 72, autocomplete: 'new-password', autofocus: !answers });
   const p2 = h('input', { type: 'password', required: true, minlength: MIN_PASSWORD, maxlength: 72, autocomplete: 'new-password' });
   const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Save password');
   app.replaceChildren(h('div', { class: 'auth' }, h('form', { onsubmit: async (e) => {
-      e.preventDefault();
+      e.preventDefault(); msg.textContent = '';
       if (p1.value !== p2.value) { msg.textContent = 'The passwords don’t match.'; return; }
       const bad = passwordProblem(p1.value); if (bad) { msg.textContent = bad; return; }
+      let body = null;
+      if (answers) { try { body = { password: p1.value, answers: answers.read() }; } catch (err) { msg.textContent = err.message; return; } }
       btn.disabled = true;
-      const { error } = await sb.auth.updateUser({ password: p1.value });
+      try {
+        if (body) await changeMyPassword(body);
+        else { const { error } = await sb.auth.updateUser({ password: p1.value }); if (error) throw error; }
+      } catch (err) { btn.disabled = false; msg.textContent = niceError(err); return; }
       btn.disabled = false;
-      if (error) { msg.textContent = error.message; return; }
-      history.replaceState(null, '', location.pathname);
+      try { localStorage.removeItem(RECOVERY); } catch { /* fine */ }
+      window.history.replaceState(null, '', location.pathname);
       window.STANS_AUTH_TYPE = null; toast('Password saved.');
-      if (!started) { started = true; start(); }
+      started = true; start();
     } },
     h('h1', null, kind === 'invite' ? 'Welcome to Stan’s ' : 'New password for Stan’s ', h('span', null, 'IMS')),
-    h('p', null, kind === 'invite' ? 'Choose a password to finish setting up your account.' : 'Choose a new password.'),
+    h('p', null, kind === 'invite' ? 'Choose a password to finish setting up your account.' : answers ? 'Answer your security questions, then choose a new password.' : 'Choose a new password.'),
+    answers ? answers.el : null,
     h('label', { class: 'field' }, `New password (${PASSWORD_RULE})`, p1),
     h('label', { class: 'field' }, 'Type it again', p2),
-    btn, msg)));
+    btn, msg,
+    h('div', { class: 'links' }, h('button', { type: 'button', onclick: () => { try { localStorage.removeItem(RECOVERY); } catch { /* fine */ } sb.auth.signOut(); } }, 'Cancel and sign out')))));
 }
 
 function notConfigured() {
@@ -270,6 +289,10 @@ async function start() {
     touchActivity();
     const p = await loadProfile();
     if (!p || p.disabled || p.missing) { blockedScreen(p && !p.missing); return; }
+    if (recoveryPending()) { setPasswordScreen('recovery'); return; }
+    // Everyone sets security questions before using the site.
+    const qs = await myQuestions();
+    if (qs && !qs.length) { setupScreen(app, () => start()); return; }
     ui = shell();
     ui.content.replaceChildren(h('div', { class: 'boot' }, 'Loading data…'));
     await loadAll();

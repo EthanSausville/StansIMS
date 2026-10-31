@@ -9,14 +9,17 @@
 import { h, pageHead, toast, niceError, longDate, confirmDialog, passwordProblem, MIN_PASSWORD, PASSWORD_RULE } from '../ui.js';
 import { sb, state, adminApi, listProfiles } from '../store.js';
 import { xtable, filteredRows } from '../xtable.js';
+import { questionsByUser, resetAnswers } from '../security.js';
 
 let users = null;      // rows shown
 let configured = null; // does the Worker have the secret key?
 let loading = false;
 let mode = 'invite';   // add form: 'invite' or 'password'
+let sq = null;         // user id → how many security questions they've set (null: not available)
 
 function load(rerender) {
   if (loading) return; loading = true;
+  questionsByUser().then((m) => { sq = m; rerender(); });
   adminApi('GET')
     .then(async (r) => {
       configured = !!r.configured;
@@ -122,6 +125,8 @@ export default {
         onchange: async (e) => { const ok = await act({ action: 'update', id: u.id, role: e.target.value }, rerender); if (!ok) e.target.value = u.role; } },
         ['staff', 'admin'].map((r) => h('option', { value: r, selected: u.role === r }, r === 'admin' ? 'Admin' : 'Staff')))) },
       { key: 'status', label: 'Status', value: (u) => status(u)[0], cell: (u) => h('td', null, h('span', { class: `user-status ${status(u)[1]}` }, status(u)[0])) },
+      { key: 'sq', label: 'Security questions', value: (u) => (sq?.get(u.id) ? 'Set' : 'Not set'),
+        cell: (u) => h('td', null, sq === null ? '' : sq.get(u.id) ? h('span', { class: 'user-status on' }, 'Set') : h('span', { class: 'user-status invited' }, 'Not set')) },
       { key: 'last', label: 'Last sign-in', value: (u) => u.last_sign_in_at || '', text: (u) => when(u.last_sign_in_at), cell: (u) => h('td', { class: 'muted' }, configured ? when(u.last_sign_in_at) || 'Never' : '') },
       { key: 'added', label: 'Added', value: (u) => u.created_at || '', text: (u) => when(u.created_at), cell: (u) => h('td', { class: 'muted' }, when(u.created_at)) },
       { key: 'do', label: '', filter: false, value: () => '', cell: (u) => {
@@ -134,6 +139,10 @@ export default {
           configured ? b('Change email', async () => {
             const v = await askText(`Change the email for ${u.email}`, 'New email (they sign in with it from now on)', u.email, 'email'); if (v && v !== u.email) act({ action: 'update', id: u.id, email: v }, rerender);
           }) : null,
+          !self && sq?.get(u.id) ? b('Reset questions', async () => {
+            if (!(await confirmDialog(`Clear ${u.email}’s security questions? They’ll have to pick new ones the next time they sign in.`, 'Clear'))) return;
+            try { await resetAnswers(u.id); toast('Security questions cleared.'); reload(rerender); } catch (e) { toast(niceError(e), 'bad'); }
+          }, '', 'For someone who forgot their answers') : null,
           self ? null : u.disabled
             ? b('Turn on', () => act({ action: 'enable', id: u.id }, rerender))
             : b('Turn off', async () => { if (await confirmDialog(`Turn off ${u.email}? They’ll be signed out and can’t sign in until you turn them back on. What they entered stays.`, 'Turn off')) act({ action: 'disable', id: u.id }, rerender); }, 'warn'),

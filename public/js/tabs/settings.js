@@ -1,7 +1,8 @@
 // Settings (the gear at the far right): My Account for everyone; for admins
 // also Users (users.js), Security, and Change history (history.js).
-import { h, pageHead, toast, niceError, longDate, passwordProblem, MIN_PASSWORD, PASSWORD_RULE, IDLE_MINUTES } from '../ui.js';
+import { h, pageHead, toast, niceError, longDate, MIN_PASSWORD, IDLE_MINUTES } from '../ui.js';
 import { sb, state, listAudit, adminApi, listProfiles } from '../store.js';
+import { accountSecurityCards, questionsByUser } from '../security.js';
 
 const refresh = () => window.dispatchEvent(new Event('stans:refresh'));
 
@@ -9,19 +10,10 @@ const refresh = () => window.dispatchEvent(new Event('stans:refresh'));
 export const account = {
   id: 'account',
   label: 'My Account',
-  render() {
+  render({ rerender }) {
     const p = state.profile || {};
-    const p1 = h('input', { type: 'password', autocomplete: 'new-password', minlength: MIN_PASSWORD, maxlength: 72, 'aria-label': 'New password' });
-    const p2 = h('input', { type: 'password', autocomplete: 'new-password', minlength: MIN_PASSWORD, maxlength: 72, 'aria-label': 'New password again' });
-    const change = async (e) => {
-      e.preventDefault();
-      const bad = passwordProblem(p1.value); if (bad) { toast(bad, 'bad'); return; }
-      if (p1.value !== p2.value) { toast('The two passwords don’t match.', 'bad'); return; }
-      const { error } = await sb.auth.updateUser({ password: p1.value });
-      if (error) toast(niceError(error), 'bad'); else { toast('Password changed.'); p1.value = ''; p2.value = ''; }
-    };
     return h('div', null,
-      pageHead('My Account', 'Who you’re signed in as, and your password. Staff can enter production, deliveries, counts and sales; admins can also change costs, prices, BOMs, planning settings and users.'),
+      pageHead('My Account', 'Who you’re signed in as, your password and your security questions. Staff can enter production, deliveries, counts and sales; admins can also change costs, prices, BOMs, planning settings and users.'),
       h('div', { class: 'set-grid' },
         h('section', { class: 'set-card' }, h('h2', null, 'Signed in as'),
           h('dl', { class: 'kv' }, h('dt', null, 'Email'), h('dd', null, p.email || state.user?.email || ''), h('dt', null, 'Role'), h('dd', null, h('span', { class: 'role' }, p.role || 'staff'))),
@@ -31,9 +23,7 @@ export const account = {
             h('button', { class: 'btn', title: 'Signs you out on every computer and phone, e.g. after using a shared one', onclick: async () => {
               const { error } = await sb.auth.signOut({ scope: 'global' }); if (error) toast(niceError(error), 'bad');
             } }, 'Sign out everywhere'))),
-        h('form', { class: 'set-card', onsubmit: change }, h('h2', null, 'Change password'),
-          h('label', { class: 'field' }, `New password (${PASSWORD_RULE})`, p1), h('label', { class: 'field' }, 'Again', p2),
-          h('div', { class: 'set-actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Change password')))));
+        ...accountSecurityCards(rerender)));
   },
 };
 
@@ -57,14 +47,16 @@ function runChecks(rerender) {
     soft(adminApi('GET')),
     soft(listProfiles()),
     soft(listAudit(300)),
+    soft(questionsByUser()),
     Promise.resolve().then(() => sb.from('profiles').select('name,disabled').range(0, 0)).then(({ error }) => !error).catch(() => false),
-  ]).then(([auth, api, people, audit, db]) => {
-    checked = { signups: auth ? !auth.disable_signup : null, key: api ? !!api.configured : null, users: api?.configured ? api.users : null, people: people || [], audit, db };
+    Promise.resolve().then(() => sb.from('security_answers').select('slot').range(0, 0)).then(({ error }) => !error).catch(() => false),
+  ]).then(([auth, api, people, audit, sq, db, sqDb]) => {
+    checked = { signups: auth ? !auth.disable_signup : null, key: api ? !!api.configured : null, users: api?.configured ? api.users : null, people: people || [], audit, sq, db, sqDb };
   }).finally(() => { checking = false; rerender(); });
 }
 const daysAgo = (iso) => (iso ? Math.floor((Date.now() - new Date(iso)) / 864e5) : null);
 const ACTION_WORDS = { invite: 'Invited', create: 'Added', update: 'Changed', disable: 'Turned off', enable: 'Turned on', delete: 'Deleted', reset: 'Sent a password reset',
-  'password reset email': 'Sent a password reset', password: 'Set a password', 'set password': 'Set a password', resend: 'Re-sent the invitation', 'resend invite': 'Re-sent the invitation', insert: 'Added' };
+  'password reset email': 'Sent a password reset', password: 'Set a password', 'set password': 'Set a password', resend: 'Re-sent the invitation', 'security questions': 'Set security questions', 'reset security questions': 'Reset the security questions of', 'changed own password': 'Changed their password', 'resend invite': 'Re-sent the invitation', insert: 'Added' };
 
 export const security = {
   id: 'security',
@@ -96,6 +88,12 @@ export const security = {
         if (waiting.length) add((daysAgo(waiting[0].invited_at || waiting[0].created_at) ?? 0) > 14 ? 'warn' : 'ok', `${waiting.length} invitation${waiting.length > 1 ? 's' : ''} not accepted yet`,
           `${waiting.map((u) => u.email).join(', ')}. Re-send or delete invitations that aren’t needed.`, '#users');
       }
+      if (!c.sqDb) add('bad', 'Security questions start after the next deploy to main', 'Until then nobody is asked for them.');
+      else if (c.sq) {
+        const none = people.filter((p) => !p.disabled && !c.sq.get(p.user_id));
+        add(none.length ? 'warn' : 'ok', none.length ? `${none.length} account${none.length > 1 ? 's' : ''} without security questions` : 'Everyone has security questions',
+          none.length ? `${none.map((p) => p.email).join(', ')}. They’ll be asked to set them the next time they sign in.` : '', none.length ? '#users' : null);
+      }
       add(c.audit ? 'ok' : 'warn', c.audit ? 'Changes are being recorded' : 'Change history isn’t recording yet', c.audit ? 'Users, standards, settings and the production plan.' : 'It starts after the next deploy to main.', c.audit ? '#history' : null);
     }
     const counts = { ok: 0, warn: 0, bad: 0 }; for (const x of checks) counts[x.st]++;
@@ -106,6 +104,8 @@ export const security = {
     const protections = [
       ['Only admins add people', 'Nobody can create their own account. Anyone added another way starts turned off.'],
       ['Strong passwords', `${MIN_PASSWORD}+ characters with a letter, a number and a symbol.`],
+      ['Proving it’s you', 'Changing a password needs the current password or all three security answers. Five wrong tries locks that for 15 minutes.'],
+      ['Security questions', 'Everyone sets three before using the site. Answers are stored scrambled, so nobody can read them, admins included.'],
       ['Automatic sign-out', `After ${IDLE_MINUTES >= 60 ? `${IDLE_MINUTES / 60} hour${IDLE_MINUTES === 60 ? '' : 's'}` : `${IDLE_MINUTES} minutes`} without use.`],
       ['Locked at the database', 'Each account only reaches what its role allows; turned-off accounts reach nothing.'],
       ['Protected admin actions', 'User changes are checked on the server, only from this site, and slowed down if repeated too fast.'],

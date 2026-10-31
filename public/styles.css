@@ -1335,3 +1335,15 @@ td.user-actions .btn { margin-left: 4px; }
 .set-card .kv.sec-list { gap: 8px 18px; align-items: start; font-size: 13.5px; }
 .set-card .kv.sec-list dt { font-weight: 600; color: var(--stans-brown); white-space: nowrap; }
 .set-card .kv.sec-list dd { color: var(--text, inherit); }
+
+/* Security questions */
+.auth .msg.warn { color: #8a6a00; }
+.auth form.sq-setup { max-width: 560px; width: 100%; }
+.sq-list { display: flex; flex-direction: column; gap: 14px; }
+.sq-row { display: grid; grid-template-columns: 1fr; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.sq-row select, .sq-row input { width: 100%; }
+.sq-note { font-size: 12.5px; min-height: 0; }
+.sq-note.bad { color: var(--bad); }
+.sq-note.warn { color: #8a5a00; background: #fff4d1; border-left: 3px solid #e0a800; padding: 6px 8px; border-radius: 3px; }
+.sq-mine { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.set-card .sq-list label.field { max-width: 420px; }

@@ -66,4 +66,5 @@ if (!process.env.SKIP_AUTH_SETTINGS) {
   await patch({ disable_signup: true, password_min_length: 10, mailer_secure_email_change_enabled: true, refresh_token_rotation_enabled: true },
     'no public sign-ups, 10+ character passwords, confirmed email changes, one-time refresh tokens');
   await patch({ password_hibp_enabled: true }, 'refuse passwords known from data breaches');
+  await patch({ security_update_password_require_reauthentication: true }, 'password changes straight from the browser need a recent sign-in (the site changes passwords through the Worker after checking the current password or security answers)');
 }

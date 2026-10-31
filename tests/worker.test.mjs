@@ -23,6 +23,11 @@ function fakeSupabase() {
     db.calls.push({ method, path: path + url.search, body, hdr });
     const ok = (data, status = 200) => new Response(JSON.stringify(data), { status });
     const service = hdr.apikey === 'sb_secret_y';
+    if (path === '/rest/v1/rpc/check_identity') {
+      const id = db.sessions[(hdr.Authorization || '').slice(7)]; if (!id || hdr.apikey !== 'sb_publishable_x') return ok({ message: 'JWT' }, 401);
+      if (db.locked) return ok({ message: 'Too many wrong tries. Wait 15 minutes and try again.' }, 400);
+      return ok(body.p_password ? body.p_password === 'Current-pass1' : (body.p_answers || []).every((a) => a.answer === 'right') && body.p_answers?.length === 3);
+    }
     if (path === '/auth/v1/user') { const id = db.sessions[(hdr.Authorization || '').slice(7)]; return id ? ok({ id }) : ok({ msg: 'invalid JWT' }, 401); }
     if (!service && path !== '/auth/v1/recover') return ok({ msg: 'needs the secret key' }, 401);
     if (path === '/rest/v1/profiles') {
@@ -123,4 +128,29 @@ test('too many requests are slowed down', async () => {
   let last;
   for (let i = 0; i < 45; i++) last = await call(env(), { method: 'GET' });
   assert.equal(last.status, 429);
+});
+
+const pw = (e, body, { token = 'tok-staff', origin = ORIGIN } = {}) => worker.fetch(new Request(`${ORIGIN}/api/account/password`, {
+  method: 'POST', headers: { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' }, body: JSON.stringify(body) }), e);
+
+test('changing your own password needs your current password or security answers', async () => {
+  const db = fakeSupabase();
+  const changed = () => db.calls.filter((c) => c.method === 'PUT' && c.path === `/auth/v1/admin/users/${STAFF}`).length;
+  assert.equal((await pw(env(), { password: 'New-password9' })).status, 400, 'nothing to confirm with');
+  assert.equal((await pw(env(), { password: 'New-password9', current_password: 'guess' })).status, 400, 'wrong current password');
+  assert.equal((await pw(env(), { password: 'New-password9', answers: [{ slot: 1, answer: 'right' }, { slot: 2, answer: 'wrong' }, { slot: 3, answer: 'right' }] })).status, 400, 'a wrong answer');
+  assert.equal(changed(), 0);
+  assert.equal((await pw(env(), { password: 'weak', current_password: 'Current-pass1' })).status, 400, 'the new one must be strong');
+  assert.equal((await pw(env(), { password: 'New-password9', current_password: 'Current-pass1' }, { origin: 'https://evil.example' })).status, 403);
+  let r = await pw(env(), { password: 'New-password9', current_password: 'Current-pass1' });
+  assert.equal(r.status, 200, await r.clone().text()); assert.equal(changed(), 1);
+  r = await pw(env(), { password: 'New-password9', answers: [1, 2, 3].map((slot) => ({ slot, answer: 'right' })) });
+  assert.equal(r.status, 200); assert.equal(changed(), 2);
+  assert.equal(db.audit.at(-1).action, 'changed own password');
+  db.locked = true;
+  r = await pw(env(), { password: 'New-password9', current_password: 'Current-pass1' });
+  assert.match((await r.json()).error, /Too many/);
+  db.profiles[1].disabled = true;
+  assert.equal((await pw(env(), { password: 'New-password9', current_password: 'Current-pass1' })).status, 403, 'a turned-off account can’t');
+  assert.equal((await pw(env({ SUPABASE_SERVICE_ROLE_KEY: '' }), { password: 'New-password9', current_password: 'x' })).status, 200);
 });

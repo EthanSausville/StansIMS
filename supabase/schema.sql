@@ -533,3 +533,132 @@ drop policy if exists "admins read" on public.audit_log;
 create policy "admins read" on public.audit_log for select to authenticated using (public.is_admin());
 grant select on public.audit_log to authenticated;
 revoke insert, update, delete on public.audit_log from authenticated;
+
+-- ---------- Security questions ----------
+-- Everyone picks three questions from a fixed list. Answers are stored only as
+-- bcrypt hashes of a normalized form (lower case, no spaces or punctuation), so
+-- "Rex the Beagle" and "rex-the beagle" match, and nobody, admins included,
+-- can read them back. They're checked only by check_identity() below, which
+-- also takes the current password and allows 5 wrong tries per 15 minutes.
+create extension if not exists pgcrypto with schema extensions;
+
+create table if not exists public.security_answers (
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  slot        smallint not null check (slot between 1 and 3),
+  question    text not null,
+  answer_hash text not null,
+  updated_at  timestamptz not null default now(),
+  primary key (user_id, slot)
+);
+alter table public.security_answers enable row level security;
+drop policy if exists "see own or admin" on public.security_answers;
+create policy "see own or admin" on public.security_answers for select to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+revoke all on public.security_answers from anon, authenticated;
+-- Which questions someone picked, never the answers.
+grant select (user_id, slot, question, updated_at) on public.security_answers to authenticated;
+
+-- Every identity check, to slow down guessing.
+create table if not exists public.identity_checks (
+  user_id uuid not null,
+  at      timestamptz not null default now(),
+  ok      boolean not null
+);
+create index if not exists identity_checks_user_at on public.identity_checks (user_id, at desc);
+alter table public.identity_checks enable row level security;
+revoke all on public.identity_checks from anon, authenticated;
+
+create or replace function public.normalize_answer(a text) returns text
+language sql immutable set search_path = '' as
+$$ select lower(regexp_replace(coalesce(a, ''), '[[:space:][:punct:]]', '', 'g')) $$;
+
+-- Is this really the signed-in person? Checks their current password, or else
+-- all of their security answers. Wrong tries are counted (5 per 15 minutes).
+create or replace function public.check_identity(p_password text default null, p_answers jsonb default null) returns boolean
+language plpgsql security definer set search_path = '' as $$
+declare me uuid := auth.uid(); v_ok boolean := false; v_fails int; v_need int; v_hit int;
+begin
+  if me is null then raise exception 'Sign in again.'; end if;
+  select count(*) into v_fails from public.identity_checks c
+   where c.user_id = me and not c.ok and c.at > now() - interval '15 minutes'
+     and c.at > coalesce((select max(c2.at) from public.identity_checks c2 where c2.user_id = me and c2.ok), '-infinity'::timestamptz);
+  if v_fails >= 5 then raise exception 'Too many wrong tries. Wait 15 minutes and try again.'; end if;
+  if coalesce(p_password, '') <> '' then
+    select coalesce(u.encrypted_password = extensions.crypt(p_password, u.encrypted_password), false) into v_ok
+      from auth.users u where u.id = me;
+  elsif jsonb_typeof(p_answers) = 'array' then
+    select count(*) into v_need from public.security_answers s where s.user_id = me;
+    select count(*) into v_hit from public.security_answers s
+      join jsonb_to_recordset(p_answers) as a(slot int, answer text) on a.slot = s.slot
+     where s.user_id = me and s.answer_hash = extensions.crypt(public.normalize_answer(a.answer), s.answer_hash);
+    v_ok := v_need > 0 and v_hit = v_need;
+  end if;
+  v_ok := coalesce(v_ok, false);
+  insert into public.identity_checks (user_id, ok) values (me, v_ok);
+  delete from public.identity_checks c where c.at < now() - interval '1 day';
+  return v_ok;
+end $$;
+
+-- Sets the signed-in person's three questions and answers. Changing ones
+-- already set needs the current password. Returns '' when saved, otherwise
+-- what to fix (a wrong password is returned rather than raised, so the wrong
+-- try still counts).
+create or replace function public.set_security_answers(p_items jsonb, p_password text default null) returns text
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid(); em text; r record; norm text; i int := 0;
+  seen text[] := '{}'; qs text[] := '{}';
+  allowed text[] := array['pet', 'street', 'car', 'city', 'school', 'nickname', 'friend', 'parents', 'job', 'sibling', 'teacher', 'food'];
+  weak text[] := array['none', 'null', 'nothing', 'na', 'idk', 'dontknow', 'unknown', 'test', 'testing', 'password', 'asdf', 'qwerty',
+                       'abcd', 'abc123', 'yes', 'nope', 'same', 'secret', 'answer', 'stans', 'stansims'];
+begin
+  if me is null or not public.is_member() then raise exception 'Sign in again.'; end if;
+  if jsonb_typeof(p_items) is distinct from 'array' or jsonb_array_length(p_items) <> 3 then return 'Answer three questions.'; end if;
+  select u.email into em from auth.users u where u.id = me;
+  for r in select * from jsonb_to_recordset(p_items) as x(question text, answer text) loop
+    norm := public.normalize_answer(r.answer);
+    if r.question is null or not (r.question = any(allowed)) then return 'Pick each question from the list.'; end if;
+    if r.question = any(qs) then return 'Pick three different questions.'; end if;
+    if length(norm) < 4 then return 'Each answer needs at least 4 letters or numbers.'; end if;
+    if length(norm) > 100 then return 'Answers can be up to 100 characters.'; end if;
+    if norm = any(weak) or norm ~ '^(.)\1*$' or norm ~ '^[0-9]+$' and length(norm) < 6 or norm in ('1234', '12345', '123456', '0000') then
+      return 'One of the answers is too easy to guess.';
+    end if;
+    if norm = any(seen) then return 'Use a different answer for each question.'; end if;
+    if norm = public.normalize_answer(split_part(coalesce(em, ''), '@', 1)) then return 'Don’t use your email as an answer.'; end if;
+    qs := qs || r.question; seen := seen || norm;
+  end loop;
+  if exists (select 1 from public.security_answers s where s.user_id = me) and not public.check_identity(p_password, null) then
+    return 'Your current password isn’t right.';
+  end if;
+  delete from public.security_answers s where s.user_id = me;
+  for r in select * from jsonb_to_recordset(p_items) as x(question text, answer text) loop
+    i := i + 1;
+    insert into public.security_answers (user_id, slot, question, answer_hash)
+    values (me, i, r.question, extensions.crypt(public.normalize_answer(r.answer), extensions.gen_salt('bf', 8)));
+  end loop;
+  insert into public.audit_log (user_id, email, table_name, action, new_row)
+  values (me, em, 'users', 'security questions', jsonb_build_object('email', em, 'questions', to_jsonb(qs)));
+  return '';
+end $$;
+
+-- Admins: clear someone's questions; they're asked to pick new ones when they
+-- next sign in.
+create or replace function public.reset_security_answers(p_user uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare em text; them text;
+begin
+  if not public.is_admin() then raise exception 'Only admins can do that.'; end if;
+  select p.email into em from public.profiles p where p.user_id = auth.uid();
+  select p.email into them from public.profiles p where p.user_id = p_user;
+  delete from public.security_answers s where s.user_id = p_user;
+  insert into public.audit_log (user_id, email, table_name, action, new_row)
+  values (auth.uid(), em, 'users', 'reset security questions', jsonb_build_object('email', them));
+end $$;
+
+revoke all on function public.check_identity(text, jsonb) from public, anon;
+revoke all on function public.set_security_answers(jsonb, text) from public, anon;
+revoke all on function public.reset_security_answers(uuid) from public, anon;
+grant execute on function public.check_identity(text, jsonb) to authenticated;
+grant execute on function public.set_security_answers(jsonb, text) to authenticated;
+grant execute on function public.reset_security_answers(uuid) to authenticated;

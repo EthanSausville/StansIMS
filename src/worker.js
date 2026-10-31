@@ -10,6 +10,10 @@
 //                     it with Supabase and checks the account is an enabled admin
 //                     before doing anything, and records what it did in the
 //                     Change history.
+//   /api/account/password  changes the signed-in person's own password, only
+//                     after the database confirms their current password or
+//                     their security answers (public.check_identity, which
+//                     also limits wrong tries). Needs the same secret key.
 //   everything else   the static site in ./public (security headers: public/_headers).
 
 const SECURITY_HEADERS = {
@@ -63,8 +67,9 @@ function supa(env) {
   return { url, anon, secret, call };
 }
 
-// The person asking: their session must be valid, and they must be an enabled admin.
-async function caller(request, s) {
+// The person asking: their session must be valid, and they must be an enabled
+// admin (or, with { admin: false }, any enabled account).
+async function caller(request, s, { admin = true } = {}) {
   const auth = request.headers.get('authorization') || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   if (!token || token.length > 4096) throw new Fail(401, 'Sign in again.');
@@ -74,8 +79,9 @@ async function caller(request, s) {
   if (!user?.id) throw new Fail(401, 'Sign in again.');
   const rows = await s.call(`/rest/v1/profiles?user_id=eq.${user.id}&select=role,disabled,email`);
   const p = rows?.[0];
-  if (!p || p.role !== 'admin' || p.disabled) throw new Fail(403, 'Only admins can manage users.');
-  return { id: user.id, email: p.email || user.email };
+  if (!p || p.disabled) throw new Fail(403, 'This account is turned off.');
+  if (admin && p.role !== 'admin') throw new Fail(403, 'Only admins can manage users.');
+  return { id: user.id, email: p.email || user.email, token };
 }
 
 async function audit(s, who, action, row) {
@@ -222,6 +228,34 @@ async function handleAdmin(request, env, url) {
   }
 }
 
+// Your own password: confirmed by your current password or your security
+// answers, checked by the database as you (so wrong tries count against you).
+async function handlePassword(request, env, url) {
+  const s = supa(env);
+  if (!s.url || !s.anon) throw new Fail(500, 'The site isn’t connected to Supabase.');
+  if (request.method !== 'POST') throw new Fail(405, 'Not allowed.');
+  if (request.headers.get('origin') !== url.origin) throw new Fail(403, 'Not allowed.');
+  if (!s.secret) return json(200, { configured: false });
+  const who = await caller(request, s, { admin: false });
+  if (tooMany(`pw:${who.id}`, 10)) throw new Fail(429, 'Too many requests. Wait a minute and try again.');
+  const raw = await request.text();
+  if (raw.length > 5_000) throw new Fail(413, 'Too much.');
+  let b; try { b = JSON.parse(raw); } catch { throw new Fail(400, 'Bad request.'); }
+  const password = clean.password(b.password);
+  const current = typeof b.current_password === 'string' ? b.current_password.slice(0, 200) : null;
+  const answers = Array.isArray(b.answers) ? b.answers.slice(0, 3).map((a) => ({ slot: Number(a?.slot) | 0, answer: String(a?.answer ?? '').slice(0, 200) })) : null;
+  if (!current && !answers) throw new Fail(400, 'Enter your current password or answer your security questions.');
+  let ok;
+  try {
+    ok = await s.call('/rest/v1/rpc/check_identity', { method: 'POST', headers: { apikey: s.anon, Authorization: `Bearer ${who.token}` },
+      body: { p_password: current || null, p_answers: current ? null : answers } });
+  } catch (e) { throw new Fail(400, /too many/i.test(e.message) ? e.message : 'Couldn’t check that. Try again.'); }
+  if (ok !== true) throw new Fail(400, current ? 'Your current password isn’t right.' : 'Those answers aren’t right.');
+  await s.call(`/auth/v1/admin/users/${who.id}`, { method: 'PUT', body: { password } });
+  await audit(s, who, 'changed own password', { email: who.email, confirmed_with: current ? 'password' : 'security questions' });
+  return json(200, { ok: true });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -236,6 +270,10 @@ export default {
     }
     if (url.pathname === '/api/admin/users') {
       try { return await handleAdmin(request, env, url); }
+      catch (e) { return json(e instanceof Fail ? e.status : 500, { error: e instanceof Fail ? e.message : 'Something went wrong.' }); }
+    }
+    if (url.pathname === '/api/account/password') {
+      try { return await handlePassword(request, env, url); }
       catch (e) { return json(e instanceof Fail ? e.status : 500, { error: e instanceof Fail ? e.message : 'Something went wrong.' }); }
     }
     if (url.pathname.startsWith('/api/')) return json(404, { error: 'Not found.' });

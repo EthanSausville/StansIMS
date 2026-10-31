@@ -48,6 +48,10 @@ def mock_db():
                             old_row=None, new_row=dict(item_no=300003, name='Marketing', type='Indirect Cost'))]
     db['profiles'] = [dict(user_id='u1', email='owner@stans.test', role='admin', created_at='2026-10-27T12:00:00Z'),
                       dict(user_id='u2', email='staff@stans.test', role='staff', created_at='2026-10-27T12:00:00Z')]
+    # u1 has set their security questions (answers kept as 'plain:<normalized>' by the mock).
+    db['security_answers'] = [dict(user_id='u1', slot=1, question='pet', answer_hash='plain:rexthebeagle'),
+                              dict(user_id='u1', slot=2, question='car', answer_hash='plain:hondacivic98'),
+                              dict(user_id='u1', slot=3, question='city', answer_hash='plain:detroitmi')]
     return db
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -73,6 +77,7 @@ def open_app(browser, role='admin', signed_in=True, viewport=(1440, 900)):
     cfg = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"sb_publishable_test"};'
            f'window.__MOCK_DB__={json.dumps(mock_db())};window.__MOCK_ROLE__="{role}";window.__MOCK_SIGNED_IN__={str(signed_in).lower()};')
     page.route('**/config.js', lambda r: r.fulfill(status=200, content_type='text/javascript', body=cfg))
+    page.route('**/api/account/password', lambda r: r.fulfill(status=200, content_type='application/json', body='{"configured":false}'))
     page.route('https://cdn.jsdelivr.net/**', lambda r: r.fulfill(status=200, content_type='text/javascript', body=(ROOT / 'tests/mock-supabase.js').read_text()))
     return ctx, page, errors
 
@@ -966,6 +971,78 @@ with sync_playwright() as p:
     check(page.locator('.note.warn', has_text='SUPABASE_SERVICE_ROLE_KEY').count() == 1 and page.locator('form.user-add').count() == 0 and page.locator('table.users-table tbody tr').count() == 2, 'without the key, Users explains the setup and still lists everyone')
     page.locator('table.users-table tbody tr', has_text='staff@stans.test').get_by_role('button', name='Turn off').click(); page.locator('dialog[open]').get_by_role('button', name='Turn off').click(); page.wait_for_timeout(400)
     check(page.evaluate("window.__MOCK_DB__.profiles.find(p => p.email === 'staff@stans.test').disabled") is True, 'and can still turn an account off')
+    ctx.close()
+
+    # ---- security questions: required before using the site ----
+    ctx, page, errors = open_app(browser)
+    body = ('window.STANS_CONFIG={supabaseUrl:"https://test.supabase.co",supabaseKey:"k"};'
+        f'window.__MOCK_DB__={json.dumps(dict(mock_db(), security_answers=[]))};window.__MOCK_ROLE__="admin";window.__MOCK_SIGNED_IN__=true;')
+    page.route('**/config.js', lambda r: r.fulfill(status=200, content_type='text/javascript', body=body))
+    page.goto(BASE + '/'); page.wait_for_selector('form.sq-setup')
+    check(page.locator('.groups').count() == 0, 'without security questions the site asks for them before anything else')
+    shot(page, '40-security-setup')
+    rows = page.locator('.sq-row')
+    rows.nth(0).locator('input').fill('Bella')
+    check('most common answers' in rows.nth(0).locator('.sq-note').inner_text(), 'a common answer gets a warning as you type')
+    rows.nth(1).locator('input').fill('abc')
+    check('at least 4' in rows.nth(1).locator('.sq-note').inner_text(), 'a too-short answer is flagged')
+    rows.nth(1).locator('input').fill('BELLA!')
+    check('different answer' in rows.nth(1).locator('.sq-note').inner_text(), 'the same answer twice is flagged (not case sensitive)')
+    rows.nth(1).locator('input').fill('Honda Civic 98'); rows.nth(2).locator('input').fill('Detroit, MI')
+    opts = page.evaluate("[...document.querySelectorAll('.sq-row')[1].querySelectorAll('option')].filter(o => o.disabled).map(o => o.value)")
+    check(sorted(opts) == ['pet', 'school'], f'a question picked once can’t be picked again ({opts})')
+    page.get_by_role('button', name='Save and continue').click(); page.wait_for_timeout(300)
+    check(page.locator('form.sq-setup').count() == 1 and 'save again' in page.locator('.sq-setup .msg').inner_text(), 'saving with a common answer warns first')
+    rows.nth(0).locator('input').fill('Bella the beagle')
+    page.get_by_role('button', name='Save and continue').click(); page.wait_for_selector('.groups .group')
+    check(page.evaluate("window.__MOCK_DB__.security_answers.filter(r => r.user_id === 'u1').map(r => r.answer_hash).join()") == 'plain:bellathebeagle,plain:hondacivic98,plain:detroitmi', 'answers are saved (not case sensitive) and the site opens')
+    # change password: needs the current password or the answers
+    page.goto(BASE + '/#account'); page.wait_for_timeout(500)
+    card = page.locator('form.set-card', has_text='Change password')
+    card.get_by_label('Current password').fill('wrong-one'); card.get_by_label('New password', exact=True).fill('Brand-new-pass1'); card.get_by_label('New password again').fill('Brand-new-pass1')
+    card.get_by_role('button', name='Change password').click(); page.wait_for_timeout(400)
+    check(page.evaluate('window.__MOCK_PASSWORD_SET__ || null') is None and page.locator('.toast', has_text='current password').count() >= 1, 'a wrong current password is refused')
+    card.get_by_label('Current password').fill('correct-horse'); card.get_by_role('button', name='Change password').click(); page.wait_for_timeout(400)
+    check(page.evaluate('window.__MOCK_PASSWORD_SET__') == 'Brand-new-pass1', 'the right current password changes it')
+    page.evaluate('window.__MOCK_PASSWORD_SET__ = null')
+    card.get_by_role('button', name='Security questions').click(); page.wait_for_timeout(150)
+    card = page.locator('form.set-card', has_text='Change password')
+    boxes = card.locator('.sq-list input')
+    check(boxes.count() == 3 and card.get_by_text('What was the name of your first pet?').count() == 1, 'or confirm with your three questions')
+    boxes.nth(0).fill('bella THE beagle'); boxes.nth(1).fill('nope'); boxes.nth(2).fill('detroit mi')
+    card.get_by_label('New password', exact=True).fill('Brand-new-pass2'); card.get_by_label('New password again').fill('Brand-new-pass2')
+    card.get_by_role('button', name='Change password').click(); page.wait_for_timeout(400)
+    check(page.evaluate('window.__MOCK_PASSWORD_SET__ || null') is None, 'a wrong answer is refused')
+    boxes.nth(1).fill('honda civic 98'); card.get_by_role('button', name='Change password').click(); page.wait_for_timeout(400)
+    check(page.evaluate('window.__MOCK_PASSWORD_SET__') == 'Brand-new-pass2', 'the right answers change it')
+    shot(page, '41-account-security')
+    # changing the questions needs the password
+    page.get_by_role('button', name='Change security questions').click(); page.wait_for_timeout(150)
+    ed = page.locator('form.sq-edit')
+    ed.locator('.sq-row').nth(0).locator('input').fill('Rex the beagle'); ed.locator('.sq-row').nth(1).locator('input').fill('Honda Civic 98'); ed.locator('.sq-row').nth(2).locator('input').fill('Detroit MI')
+    ed.get_by_role('button', name='Save').click(); page.wait_for_timeout(300)
+    check(page.locator('.toast', has_text='current password').count() >= 1, 'changing the questions asks for the current password')
+    ed.get_by_label('Current password').fill('correct-horse'); ed.get_by_role('button', name='Save').click(); page.wait_for_timeout(500)
+    check(page.evaluate("window.__MOCK_DB__.security_answers.find(r => r.user_id === 'u1' && r.slot === 1).answer_hash") == 'plain:rexthebeagle', 'and saves them with it')
+    page.goto(BASE + '/#users'); page.wait_for_timeout(600)
+    check(page.locator('table.users-table tr', has_text='owner@stans.test').locator('.user-status', has_text='Set').count() == 1
+          and page.locator('table.users-table tr', has_text='staff@stans.test').locator('.user-status', has_text='Not set').count() == 1, 'Users shows who has set security questions')
+    check(not errors, 'no browser errors with security questions' + (f': {errors[:3]}' if errors else ''))
+    ctx.close()
+
+    # ---- forgot password: the email link also needs the security answers ----
+    ctx, page, errors = open_app(browser)
+    page.add_init_script("try { localStorage.setItem('pw-recovery', 'u1') } catch (e) {}")
+    page.goto(BASE + '/'); page.wait_for_timeout(800)
+    form = page.locator('.auth form')
+    check(form.locator('.sq-list input').count() == 3 and page.locator('.groups').count() == 0, 'after a reset link, the answers are asked before a new password')
+    ins = form.locator('.sq-list input')
+    ins.nth(0).fill('rex'); ins.nth(1).fill('honda civic 98'); ins.nth(2).fill('detroit mi')
+    form.locator('input[type=password]').nth(0).fill('Reset-pass-123'); form.locator('input[type=password]').nth(1).fill('Reset-pass-123')
+    form.get_by_role('button', name='Save password').click(); page.wait_for_timeout(400)
+    check(page.evaluate('window.__MOCK_PASSWORD_SET__ || null') is None and 'aren’t right' in form.locator('.msg').inner_text(), 'wrong answers keep the old password')
+    ins.nth(0).fill('Rex the Beagle'); form.get_by_role('button', name='Save password').click(); page.wait_for_selector('.groups .group')
+    check(page.evaluate('window.__MOCK_PASSWORD_SET__') == 'Reset-pass-123' and page.evaluate("localStorage.getItem('pw-recovery')") is None, 'right answers set the new password and open the site')
     ctx.close()
 
     # ---- staff view ----

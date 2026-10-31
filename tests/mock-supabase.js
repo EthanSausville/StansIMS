@@ -4,7 +4,7 @@
 const KEYS = {
   items: ['item_no'], standard_costs: ['item_no', 'year'], standard_prices: ['item_no', 'year'], recipes: ['item_no'],
   recipe_lines: ['id'], fg_lines: ['id'], boms: ['item_no', 'year'], bom_lines: ['id'], settings: ['id'], year_settings: ['year'], purchase_settings: ['item_no'],
-  production: ['date', 'item_no'], goods_receipts: ['date', 'item_no'], cycle_counts: ['date', 'item_no'], sales: ['id'], profiles: ['user_id'], sales_imports: ['id'], qb_name_map: ['kind', 'qb_name'],
+  production: ['date', 'item_no'], goods_receipts: ['date', 'item_no'], cycle_counts: ['date', 'item_no'], sales: ['id'], profiles: ['user_id'], security_answers: ['user_id', 'slot'], sales_imports: ['id'], qb_name_map: ['kind', 'qb_name'],
   labor_positions: ['id'], audit_log: ['id'], production_plan: ['item_no', 'week'],
 };
 const ADMIN_ONLY = new Set(['boms', 'bom_lines', 'items', 'standard_costs', 'standard_prices', 'recipes', 'recipe_lines', 'fg_lines', 'settings', 'year_settings', 'purchase_settings', 'labor_positions', 'production_plan']);
@@ -119,6 +119,38 @@ export function createClient() {
 
   return {
     from: (t) => new Query(t),
+    // The security-question functions (public.check_identity etc.). Answers are
+    // kept as 'plain:<normalized>' here instead of a bcrypt hash.
+    async rpc(name, args = {}) {
+      const me = session?.user?.id; const sa = (db.security_answers ||= []);
+      const norm = (a) => String(a || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+      const fails = (window.__MOCK_FAILS__ ||= []);
+      const check = (pw, answers) => {
+        if (fails.filter((t) => Date.now() - t < 9e5).length >= 5) return { error: { message: 'Too many wrong tries. Wait 15 minutes and try again.' } };
+        const mine = sa.filter((r) => r.user_id === me);
+        const ok = pw ? pw === 'correct-horse' : Array.isArray(answers) && mine.length > 0
+          && mine.every((r) => answers.some((a) => a.slot === r.slot && 'plain:' + norm(a.answer) === r.answer_hash));
+        if (ok) fails.length = 0; else fails.push(Date.now());
+        return { data: ok, error: null };
+      };
+      if (name === 'check_identity') return check(args.p_password, args.p_answers);
+      if (name === 'set_security_answers') {
+        const items = args.p_items || [];
+        if (items.length !== 3 || new Set(items.map((i) => i.question)).size !== 3) return { data: 'Pick three different questions.', error: null };
+        if (items.some((i) => norm(i.answer).length < 4)) return { data: 'Each answer needs at least 4 letters or numbers.', error: null };
+        if (sa.some((r) => r.user_id === me)) { const c = check(args.p_password); if (c.error) return c; if (!c.data) return { data: 'Your current password isn’t right.', error: null }; }
+        for (let i = sa.length - 1; i >= 0; i--) if (sa[i].user_id === me) sa.splice(i, 1);
+        items.forEach((it, i) => sa.push({ user_id: me, slot: i + 1, question: it.question, answer_hash: 'plain:' + norm(it.answer), updated_at: new Date().toISOString() }));
+        (db.audit_log ||= []).push({ id: db.audit_log.length + 100, at: new Date().toISOString(), user_id: me, email: session.user.email, table_name: 'users', action: 'security questions', new_row: { email: session.user.email } });
+        return { data: '', error: null };
+      }
+      if (name === 'reset_security_answers') {
+        if (role() !== 'admin') return { data: null, error: { message: 'Only admins can do that.' } };
+        for (let i = sa.length - 1; i >= 0; i--) if (sa[i].user_id === args.p_user) sa.splice(i, 1);
+        return { data: null, error: null };
+      }
+      return { data: null, error: { message: `Unknown function ${name}` } };
+    },
     auth: {
       async getSession() { return { data: { session } }; },
       async getUser() { return { data: { user: session?.user || null } }; },
@@ -129,7 +161,7 @@ export function createClient() {
       },
       async signOut() { session = null; setTimeout(() => emit('SIGNED_OUT')); return { error: null }; },
       async resetPasswordForEmail() { return { error: null }; },
-      async updateUser() { return { data: {}, error: null }; },
+      async updateUser(u) { window.__MOCK_PASSWORD_SET__ = u?.password || null; return { data: {}, error: null }; },
     },
   };
 }

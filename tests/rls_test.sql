@@ -70,3 +70,48 @@ update public.profiles set role = 'staff' where email = 'owner@stans.test';
 reset role;
 select email, role from public.profiles order by email;
 select cost from public.standard_costs where item_no = 100001 and year = 2026;
+
+\echo '--- security questions ---'
+update auth.users set encrypted_password = extensions.crypt('Right-pass1!', extensions.gen_salt('bf', 4)) where email = 'staff@stans.test';
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+\echo 'too-easy answers are refused:'
+select public.set_security_answers('[{"question":"pet","answer":"n/a"},{"question":"car","answer":"Honda Civic"},{"question":"city","answer":"Detroit MI"}]');
+select public.set_security_answers('[{"question":"pet","answer":"Rex the beagle"},{"question":"pet","answer":"Honda Civic"},{"question":"city","answer":"Detroit MI"}]');
+select public.set_security_answers('[{"question":"pet","answer":"Rex the beagle"},{"question":"car","answer":"rex THE beagle"},{"question":"city","answer":"Detroit MI"}]');
+\echo 'first time, no password needed (empty = saved):'
+select public.set_security_answers('[{"question":"pet","answer":"Rex the Beagle"},{"question":"car","answer":"Honda Civic 98"},{"question":"city","answer":"Detroit, MI"}]') = '' as saved;
+select slot, question from public.security_answers order by slot;
+\set ON_ERROR_STOP off
+\echo 'reading the answers back (should fail):'
+select answer_hash from public.security_answers;
+\set ON_ERROR_STOP on
+\echo 'answers match without case, spaces or punctuation (t), a wrong one fails (f):'
+select public.check_identity(null, '[{"slot":1,"answer":"rex-the beagle"},{"slot":2,"answer":"HONDA civic 98"},{"slot":3,"answer":"detroit mi"}]');
+select public.check_identity(null, '[{"slot":1,"answer":"rex"},{"slot":2,"answer":"honda civic 98"},{"slot":3,"answer":"detroit mi"}]');
+select public.check_identity(null, '[{"slot":1,"answer":"rex the beagle"}]');
+\echo 'password: right (t), wrong (f):'
+select public.check_identity('Right-pass1!'), public.check_identity('wrong');
+\echo 'changing them needs the password:'
+select public.set_security_answers('[{"question":"job","answer":"Paper route 1999"},{"question":"car","answer":"Honda Civic 98"},{"question":"city","answer":"Detroit, MI"}]', 'wrong');
+select public.set_security_answers('[{"question":"job","answer":"Paper route 1999"},{"question":"car","answer":"Honda Civic 98"},{"question":"city","answer":"Detroit, MI"}]', 'Right-pass1!') = '' as saved;
+\echo 'five wrong tries lock it for 15 minutes:'
+select public.check_identity('nope1'), public.check_identity('nope2'), public.check_identity('nope3'), public.check_identity('nope4'), public.check_identity('nope5');
+\echo 'even the right password is refused now (should fail):'
+\set ON_ERROR_STOP off
+select public.check_identity('Right-pass1!');
+\echo 'staff resetting someone''s questions (should fail):'
+select public.reset_security_answers('00000000-0000-0000-0000-00000000000a');
+\set ON_ERROR_STOP on
+reset role;
+set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+select count(*) as admin_sees_staff_questions from public.security_answers where user_id = '00000000-0000-0000-0000-00000000000b';
+select public.reset_security_answers('00000000-0000-0000-0000-00000000000b');
+select count(*) as after_reset from public.security_answers where user_id = '00000000-0000-0000-0000-00000000000b';
+reset role;
+set role anon;
+\set ON_ERROR_STOP off
+\echo 'anonymous checking (should fail):'
+select public.check_identity('x');
+\set ON_ERROR_STOP on
+reset role;
+select action, new_row->>'email' as who from public.audit_log where table_name = 'users' order by at;

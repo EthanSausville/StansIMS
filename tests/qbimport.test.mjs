@@ -76,8 +76,10 @@ test('the workbook SalesReport is the baseline: the Feb-Jul report adds only wha
   for (const n of names.filter((x) => x.kind === 'product')) assert.equal(guessProduct(n.qb_name, fgs), n.name, n.qb_name);
   const { rows, zero } = convertLines(lines, maps, stdPrice);
   assert.equal(zero, 19);
-  const { add, skipped } = newSales(rows, data.sales);
-  assert.equal(skipped, 293);
+  const { add, skipped, duplicates } = newSales(rows, data.sales);
+  // One gallon line is listed twice on invoice 14630 (it's in the books twice too): left out as a duplicate.
+  assert.equal(duplicates.length, 1); assert.equal(duplicates[0].row.invoice, '14630');
+  assert.equal(skipped, 292);
   assert.equal(add.length, 1);                                   // the one line not on SalesReport:
   assert.ok(add[0].amount < 0); assert.equal(add[0].txn_type, 'Credit Memo'); assert.equal(add[0].product, 'Other');
   // Every non-zero SalesReport row is accounted for by the report.
@@ -90,4 +92,18 @@ test('the workbook SalesReport is the baseline: the Feb-Jul report adds only wha
 test('suggested names for new QuickBooks customers', () => {
   assert.equal(guessCustomer('Grocer Corporate:Grocer, Inc  - Springfield'), 'Grocer, Inc - Springfield');
   assert.equal(guessCustomer('Shop'), 'Shop');
+});
+
+test('duplicate lines in a report are left out', () => {
+  const r = { date: '2026-07-01', invoice: '1001', customer: 'Shop', product: 'Original 7 oz.', quantity: 2, price: 30, amount: 60, txn_type: 'Invoice', qb_product: '7 oz', qb_customer: 'Shop', description: '' };
+  const other = { ...r, invoice: '1002' };
+  const res = newSales([r, { ...r }, other, { ...r }], []);
+  assert.equal(res.add.length, 2); assert.equal(res.duplicates.length, 2); assert.deepEqual(res.duplicates.map((d) => d.index), [1, 3]);
+  // ...unless kept (an invoice can list the same item twice)
+  assert.equal(newSales([r, { ...r }, other, { ...r }], [], new Set([1])).add.length, 3);
+  // a line differing in any detail isn't a duplicate
+  assert.equal(newSales([r, { ...r, description: 'promo' }], []).duplicates.length, 0);
+  // and duplicates aren't double-counted against what's already loaded
+  const again = newSales([r, { ...r }], [r]);
+  assert.equal(again.add.length, 0); assert.equal(again.skipped, 1); assert.equal(again.duplicates.length, 1);
 });

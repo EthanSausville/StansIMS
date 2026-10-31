@@ -170,10 +170,21 @@ const cents = (v) => Math.round(Number(v || 0) * 100);
 export const saleKey = (s) => [s.date, String(s.invoice ?? '').trim().toLowerCase(), String(s.customer ?? '').trim().toLowerCase(),
   String(s.product ?? '').trim().toLowerCase(), cents(s.amount)].join('|');
 
-export function newSales(rows, existing) {
+// A line repeated in the report itself: every field the same, including the
+// QuickBooks item, description, quantity and price.
+const exactKey = (r) => [saleKey(r), r.txn_type, r.qb_customer, r.qb_product, r.description, money(r.quantity), money(r.price)]
+  .map((v) => String(v ?? '').trim().toLowerCase()).join('|');
+
+// The rows to add: duplicate lines within the report are left out (only the
+// first is kept, unless its index is in `keep`: an invoice can really list the
+// same item twice), and then anything already in Sales Detail is skipped.
+// duplicates: [{ index, row }].
+export function newSales(rows, existing, keep = new Set()) {
+  const seen = new Set(); const unique = []; const duplicates = [];
+  rows.forEach((r, index) => { const k = exactKey(r); if (seen.has(k) && !keep.has(index)) duplicates.push({ index, row: r }); else { seen.add(k); unique.push(r); } });
   const have = new Map();
   for (const s of existing) { const k = saleKey(s); have.set(k, (have.get(k) || 0) + 1); }
   const add = []; let skipped = 0;
-  for (const r of rows) { const k = saleKey(r); const n = have.get(k) || 0; if (n > 0) { have.set(k, n - 1); skipped++; } else add.push(r); }
-  return { add, skipped };
+  for (const r of unique) { const k = saleKey(r); const n = have.get(k) || 0; if (n > 0) { have.set(k, n - 1); skipped++; } else add.push(r); }
+  return { add, skipped, duplicates };
 }

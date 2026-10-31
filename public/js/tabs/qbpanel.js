@@ -40,8 +40,11 @@ function convert(p) {
   const ix = derived.ix(); const pm = derived.prices();
   const stdPrice = (name, date) => { const fg = ix.byType('Finished Good').find((f) => f.name === name); return fg ? pm.nearest(fg.item_no, yearOf(date)) : 0; };
   const { rows, zero } = convertLines(p.lines, maps, stdPrice);
-  const { add, skipped } = newSales(rows, state.data.sales);
-  return { rows, zero, add, skipped };
+  // Duplicates are left out unless kept (an invoice can really list the same item twice).
+  const all = newSales(rows, state.data.sales).duplicates;
+  const { add, skipped } = newSales(rows, state.data.sales, p.keepDup);
+  const duplicates = all.map((d) => ({ ...d, kept: p.keepDup.has(d.index) }));
+  return { rows, zero, add, skipped, duplicates };
 }
 
 async function loadFile(file, rerender) {
@@ -50,7 +53,7 @@ async function loadFile(file, rerender) {
   try {
     const parsed = parseQuickBooksSales(await readSpreadsheet(file));
     if (!parsed.lines.length) throw new Error('No transaction lines were found in this report.');
-    pending = { fileName: file.name, ...parsed, chosen: unknownNames(parsed.lines) };
+    pending = { fileName: file.name, ...parsed, chosen: unknownNames(parsed.lines), keepDup: new Set() };
   } catch (err) {
     toast(err.message || 'Couldn’t read that file.', 'bad');
   } finally { busy = false; rerender(); }
@@ -86,7 +89,7 @@ export function pendingPreview(rerender) {
     try {
       const names = [...[...p.chosen.customer].map(([qb_name, name]) => ({ kind: 'customer', qb_name, name: name.trim() || guessCustomer(qb_name) })),
         ...[...p.chosen.product].map(([qb_name, name]) => ({ kind: 'product', qb_name, name }))];
-      const { added } = await importSales({ fileName: p.fileName, period: p.report.period, from: p.from, to: p.to, rows: c.add, skipped: c.skipped, names });
+      const { added } = await importSales({ fileName: p.fileName, period: p.report.period, from: p.from, to: p.to, rows: c.add, skipped: c.skipped + c.duplicates.filter((d) => !d.kept).length, names });
       toast(`Added ${added} line${added === 1 ? '' : 's'} from ${p.fileName}.`);
       pending = null;
     } catch (err) { toast(niceError(err), 'bad'); } finally { busy = false; rerender(); }
@@ -99,6 +102,7 @@ export function pendingPreview(rerender) {
       h('div', { class: 'cards' },
         stat('Lines in report', p.lines.length, p.from ? `${longDate(p.from)} – ${longDate(p.to)}` : ''),
         stat('$0 lines left out', c.zero, 'Voided, notes, no charge'),
+        stat('Duplicate lines', c.duplicates.filter((d) => !d.kept).length, c.duplicates.length ? `Repeated in the report; left out${c.duplicates.some((d) => d.kept) ? ` (${c.duplicates.filter((d) => d.kept).length} kept)` : ''}` : 'None'),
         stat('Already in Sales Detail', c.skipped, c.skipped ? 'Will be skipped' : ''),
         stat('New lines to add', c.add.length, c.add.length ? money(addTotal) : 'Nothing new')),
       toConfirm ? h('div', { class: 'confirm-names' },
@@ -115,6 +119,15 @@ export function pendingPreview(rerender) {
               h('td', { class: 'cell entry wide-cell' }, h('select', { 'aria-label': `Product for ${qb}`, onchange: (e) => { p.chosen.product.set(qb, e.target.value); rerender(); } },
                 fgs.map((fg) => h('option', { value: fg.name, selected: fg.name === name }, fg.name)),
                 h('option', { value: 'Other', selected: name === 'Other' }, 'Other (fees, credits, promos)'))))))))) : null,
+      c.duplicates.length ? h('details', { class: 'new-lines dup-lines' },
+        h('summary', null, `Show the ${c.duplicates.length} duplicate line${c.duplicates.length === 1 ? '' : 's'}`),
+        h('p', { class: 'small muted' }, 'Each of these appears more than once in the report with everything the same (date, invoice, customer, item, description, quantity, price and amount), so only the first copy is added. If an invoice really lists the same item twice, tick Keep to add it too.'),
+        h('div', { class: 'tablewrap' }, h('table', { class: 't' },
+          h('thead', null, h('tr', null, h('th', null, 'Keep'), ['Date', 'Inv Num', 'Customer', 'Product', 'QuickBooks item'].map((x) => h('th', null, x)), h('th', { class: 'num' }, 'Qty'), h('th', { class: 'num' }, 'Amount'))),
+          h('tbody', null, c.duplicates.slice(0, 200).map(({ index, row: r, kept }) => h('tr', null,
+            h('td', null, h('input', { type: 'checkbox', checked: kept, 'aria-label': `Keep the duplicate line ${r.invoice || ''} ${r.qb_product || ''}`, onchange: (e) => { if (e.target.checked) p.keepDup.add(index); else p.keepDup.delete(index); rerender(); } })), h('td', null, `${r.date.slice(5, 7)}/${r.date.slice(8, 10)}/${r.date.slice(0, 4)}`), h('td', null, r.invoice || ''),
+            h('td', null, r.customer), h('td', null, r.product), h('td', { class: 'muted' }, r.qb_product),
+            h('td', { class: 'num' }, r.quantity === null || r.quantity === undefined ? '' : qty(r.quantity)), h('td', { class: 'num' + (r.amount < 0 ? ' neg' : '') }, money(r.amount)))))))) : null,
       c.add.length ? h('details', { class: 'new-lines', open: c.add.length <= 25 },
         h('summary', null, `Show the ${c.add.length} new line${c.add.length === 1 ? '' : 's'}`),
         h('div', { class: 'tablewrap' }, h('table', { class: 't' },
@@ -122,7 +135,7 @@ export function pendingPreview(rerender) {
           h('tbody', null, c.add.slice(0, 200).map((r) => h('tr', null, h('td', null, `${r.date.slice(5, 7)}/${r.date.slice(8, 10)}/${r.date.slice(0, 4)}`), h('td', null, r.invoice || ''),
             h('td', null, r.customer), h('td', null, r.product), h('td', { class: 'muted' }, r.qb_product),
             h('td', { class: 'num' }, r.quantity === null || r.quantity === undefined ? '' : qty(r.quantity)), h('td', { class: 'num' + (r.amount < 0 ? ' neg' : '') }, money(r.amount))))))))
-        : h('div', { class: 'note info' }, 'Everything in this report is already in Sales Detail. Nothing to add.'),
+        : h('div', { class: 'note info' }, c.duplicates.length ? 'Everything else in this report is already in Sales Detail. Nothing to add.' : 'Everything in this report is already in Sales Detail. Nothing to add.'),
       h('div', { class: 'controls', style: { marginTop: '12px', justifyContent: 'flex-end' } },
         h('button', { class: 'btn', onclick: () => { pending = null; rerender(); } }, 'Cancel'),
         c.add.length ? h('button', { class: 'btn primary', disabled: busy, onclick: commit }, busy ? 'Adding…' : `Add ${c.add.length} line${c.add.length === 1 ? '' : 's'}`) : null)));

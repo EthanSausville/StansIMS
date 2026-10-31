@@ -13,8 +13,11 @@ export const SECTIONS = [
     { id: 'sales', label: 'Sales Detail', edit: true, note: 'Edit: add and change sales, load QuickBooks reports' },
     { id: 'sales-customers', label: 'By Customer', edit: false }, { id: 'sales-products', label: 'By Product', edit: false },
     { id: 'prices', label: 'Standard Price', edit: true }] },
+  { label: 'Production', tabs: [
+    { id: 'production', label: 'Daily', edit: true, note: 'Edit: cases made each day' },
+    { id: 'lots', label: 'Lots', edit: false },
+    { id: 'newlots', label: 'New Lots', edit: true, note: 'Edit: enter a day’s production' }] },
   { label: 'Inventory', tabs: [
-    { id: 'production', label: 'Production', edit: true },
     { id: 'newreceipts', label: 'New Receipts', edit: true, note: 'Edit: enter deliveries' }, { id: 'receipts', label: 'All Receipts', edit: true, note: 'Edit: fix past deliveries' },
     { id: 'newcounts', label: 'New Counts', edit: true, note: 'Edit: enter counts' }, { id: 'counts', label: 'All Counts', edit: true, note: 'Edit: fix past counts' },
     { id: 'inventory', label: 'Daily Inventory', edit: false }, { id: 'consumption', label: 'Consumption', edit: false }] },

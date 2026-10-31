@@ -382,11 +382,17 @@ create table if not exists public.roles (
 insert into public.roles (id, name, description, permissions, builtin, sort) values
   ('admin', 'Admin', null, '{}'::jsonb, true, 0),
   ('staff', 'Accountant', null,
-   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"edit","production":"edit","newreceipts":"edit","receipts":"edit","newcounts":"edit","counts":"edit","inventory":"view","consumption":"view","planning":"edit","purchasing":"view","safety":"edit","costs":"edit","bom":"edit","labor":"edit","overhead":"edit","periods":"edit"}'::jsonb, true, 1)
+   '{"dashboard":"view","journals":"view","taccounts":"view","sales":"edit","sales-customers":"view","sales-products":"view","prices":"edit","production":"edit","lots":"view","newlots":"edit","newreceipts":"edit","receipts":"edit","newcounts":"edit","counts":"edit","inventory":"view","consumption":"view","planning":"edit","purchasing":"view","safety":"edit","costs":"edit","bom":"edit","labor":"edit","overhead":"edit","periods":"edit"}'::jsonb, true, 1)
 on conflict (id) do nothing;
 -- The built-in staff role is called Accountant; roles no longer have descriptions.
 update public.roles set name = 'Accountant' where id = 'staff' and name = 'Staff';
 update public.roles set description = null where description is not null;
+-- Production became its own module (Daily, Lots, New Lots): a role keeps what it
+-- had on Production for Daily and gets the same on New Lots, and can see Lots.
+update public.roles set permissions = permissions
+  || jsonb_build_object('newlots', permissions->>'production')
+  || jsonb_build_object('lots', case when permissions->>'production' in ('view', 'edit') then 'view' else 'none' end)
+where permissions ? 'production' and not permissions ? 'newlots';
 -- A profile's role is one of these (it used to be only staff or admin).
 alter table public.profiles drop constraint if exists profiles_role_check;
 do $$ begin
@@ -612,7 +618,7 @@ do $$
 declare t text; a text; rd text;
 begin
   for t, a in select * from (values
-      ('production', '{production}'), ('goods_receipts', '{newreceipts,receipts}'), ('cycle_counts', '{newcounts,counts}'),
+      ('production', '{production,newlots}'), ('goods_receipts', '{newreceipts,receipts}'), ('cycle_counts', '{newcounts,counts}'),
       ('sales', '{sales}'), ('sales_imports', '{sales}'), ('qb_name_map', '{sales}'), ('standard_prices', '{prices}'),
       ('production_plan', '{planning}'), ('purchase_settings', '{safety}'),
       ('items', '{costs}'), ('standard_costs', '{costs}'), ('boms', '{bom}'), ('bom_lines', '{bom}'),

@@ -185,12 +185,12 @@ select table_name, action from public.audit_log where table_name in ('roles', 'c
 
 \echo '--- several roles: the most access any of them gives ---'
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
-insert into public.roles (id, name, permissions) values ('production-crew', 'Production crew', '{"production":"edit"}');
+insert into public.roles (id, name, permissions) values ('production-crew', 'Production crew', '{"newlots":"edit"}'); -- New Lots alone can enter production
 update public.profiles set roles = array['receiving', 'production-crew'] where email = 'staff@stans.test';
 select email, role, roles from public.profiles where email = 'staff@stans.test';
 reset role;
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
-select public.can('production', 'edit') as production_edit, public.can('newreceipts', 'edit') as receipts_edit, public.can('sales') as sees_sales;
+select public.can('newlots', 'edit') as newlots_edit, public.can('newreceipts', 'edit') as receipts_edit, public.can('sales') as sees_sales;
 insert into public.production (date, item_no, cases) values ('2026-07-22', 500001, 2);
 insert into public.goods_receipts (date, item_no, qty) values ('2026-07-22', 100001, 2);
 reset role;

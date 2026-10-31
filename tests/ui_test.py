@@ -50,8 +50,8 @@ def mock_db():
                       dict(user_id='u2', email='staff@stans.test', role='staff', created_at='2026-10-27T12:00:00Z')]
     # u1 has set their security questions (answers kept as 'plain:<normalized>' by the mock).
     db['roles'] = [dict(id='admin', name='Admin', builtin=True, permissions={}, sort=0),
-                   dict(id='staff', name='Accountant', builtin=True, sort=1, permissions={k: ('edit' if k in ('sales', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts') else 'view') for k in
-                        ['dashboard', 'journals', 'taccounts', 'sales', 'sales-customers', 'sales-products', 'prices', 'production', 'newreceipts', 'receipts', 'newcounts', 'counts',
+                   dict(id='staff', name='Accountant', builtin=True, sort=1, permissions={k: ('edit' if k in ('sales', 'production', 'newlots', 'newreceipts', 'receipts', 'newcounts', 'counts') else 'view') for k in
+                        ['dashboard', 'journals', 'taccounts', 'sales', 'sales-customers', 'sales-products', 'prices', 'production', 'lots', 'newlots', 'newreceipts', 'receipts', 'newcounts', 'counts',
                          'inventory', 'consumption', 'planning', 'purchasing', 'safety', 'costs', 'bom', 'labor', 'overhead']})]
     db['closed_periods'] = []
     db['closed_years'] = []
@@ -94,7 +94,8 @@ def shot(page, name):
 
 GROUPS = {
     'Dashboard': ['Dashboard'],
-    'Inventory': ['Production', 'New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
+    'Production': ['Daily', 'Lots', 'New Lots'],
+    'Inventory': ['New Receipts', 'All Receipts', 'New Counts', 'All Counts', 'Daily Inventory', 'Consumption'],
     'Planning': ['Production', 'Purchases', 'Safety Stocks'],
     'Sales': ['Sales Detail', 'By Customer', 'By Product', 'Standard Price'],
     'Standards': ['Master List', 'BOMs', 'Labor', 'Overhead'],
@@ -148,7 +149,7 @@ with sync_playwright() as p:
     check(page.locator('h1', has_text='Management Dashboard').is_visible(), 'dashboard loads after sign-in')
     groups = page.locator('.groups:not(.gear-slot) .group').all_inner_texts()
     print('   groups:', ' | '.join(groups))
-    check([g.title() for g in groups] == ['Dashboard', 'Accounting', 'Sales', 'Inventory', 'Planning', 'Standards'], 'six sections across the top, in order')
+    check([g.title() for g in groups] == ['Dashboard', 'Accounting', 'Sales', 'Production', 'Inventory', 'Planning', 'Standards'], 'seven sections across the top, in order')
     check(page.locator('.brandrow').count() == 0 or page.locator('.brandrow').is_hidden(), 'no gray bar')
     check(page.locator('.tabs').is_hidden(), 'Dashboard has no second row of tabs')
     page.locator('.groups .group', has_text='Inventory').click(); page.wait_for_timeout(100)
@@ -252,7 +253,7 @@ with sync_playwright() as p:
     edge = page.evaluate("[Math.round(document.querySelector('.sidebar').getBoundingClientRect().right), Math.round(document.querySelector('main .tablewrap').getBoundingClientRect().left)]")
     check(edge[1] >= edge[0], f'the table and its scrolling sit to the right of the side bar ({edge})')
     page.evaluate("localStorage.removeItem('side:w250')")
-    tab(page, 'Production')
+    tab(page, 'Daily')
     side = page.evaluate("[...document.querySelectorAll('main .tablewrap')].map(w => w.scrollWidth > w.clientWidth)")
     tab(page, 'Daily Inventory')
     page.evaluate("document.querySelector('#app .layout > .content').scrollTop = 700"); page.wait_for_timeout(200)
@@ -288,7 +289,7 @@ with sync_playwright() as p:
     shot(page, '20-dashboard-full-year')
 
     # ---- production entry: newest day first, scrolling back ----
-    tab(page, 'Production')
+    tab(page, 'Daily')
     check(page.locator('aside.sidebar').is_hidden(), 'production has no side bar')
     heads = page.locator('table.prod-table thead th').all_inner_texts()
     check(not any(x in ' '.join(heads) for x in ('Est. loss', 'Batches', 'Oz', 'Finished Good')), f'no loss / batches / oz columns or Finished Good band ({heads[:4]})')
@@ -783,11 +784,13 @@ with sync_playwright() as p:
     tab(page, 'New Counts')
     tcell = cell(page, 'csf|' + lj); tcell.click(); tcell.fill(''); tcell.press('Tab'); page.wait_for_timeout(250)
 
-    # ---- Production lots (part of the daily list) and Excel export ----
-    tab(page, 'Production')
-    check(page.get_by_role('button', name='Lots', exact=True).count() == 0, 'lots are part of the daily list (no Lots switch)')
-    wk = page.locator('table.prod-table tbody tr.weekend').first.locator('td.sticky-col')
-    check(wk.evaluate('e => getComputedStyle(e).backgroundColor') == 'rgb(255, 255, 255)', 'weekends have a white background')
+    # ---- Production module: Daily (with each day's lots), Lots, New Lots ----
+    tab(page, 'Daily')
+    wk = page.locator('table.prod-table tbody tr.weekend').first
+    bgs = set(wk.locator('td').evaluate_all('es => es.map(e => getComputedStyle(e).backgroundColor)'))
+    check(bgs == {'rgb(255, 255, 255)'}, f'weekend rows are white all the way across ({bgs})')
+    wd = page.locator('table.prod-table tbody tr:not(.weekend):not(.month-row)').first.locator('td.cell.entry').first
+    check(wd.evaluate('e => getComputedStyle(e).backgroundColor') != 'rgb(255, 255, 255)', 'weekdays keep the entry colour')
     tg = page.locator('table.prod-table .lot-toggle').first
     day = tg.evaluate("e => e.closest('tr').dataset.day")
     made = page.evaluate(f"window.__MOCK_DB__.production.filter(r => r.date==='{day}' && r.cases > 0).length")
@@ -795,9 +798,38 @@ with sync_playwright() as p:
     cards = page.locator('tr.lot-detail .lot-card')
     code = cards.first.locator('.lot-code').inner_text() if cards.count() else ''
     check(cards.count() == made and re.match(r'^Lot \d{6}-\d{6}$', code), f'▸ shows the day’s lots and who they shipped to ({cards.count()} lots on {day}, {code})')
-    shot(page, '57-lots')
     tg.click(); page.wait_for_timeout(100)
     check(page.locator('tr.lot-detail').count() == 0, 'and ▸ again hides them')
+
+    tab(page, 'Lots')
+    nl = page.locator('table.xtable tbody tr').count()
+    want_lots = page.evaluate("new Set(window.__MOCK_DB__.production.filter(r => r.cases > 0).map(r => r.date + '|' + r.item_no)).size")
+    check(nl == want_lots, f'Lots: one lot per product per production day ({nl} vs {want_lots})')
+    page.locator('table.xtable tbody tr').nth(5).locator('td').first.click(); page.wait_for_timeout(150)
+    code = page.locator('table.xtable tbody tr.selected td').first.inner_text()
+    check(re.match(r'^\d{6}-\d{6}$', code) and f'Lot {code}' in page.locator('.side-detail').inner_text(), f'selecting a lot shows who it shipped to ({code})')
+    shot(page, '57-lots')
+
+    tab(page, 'New Lots')
+    page.locator('input.big-date').fill('2026-07-08'); page.locator('input.big-date').dispatch_event('change'); page.wait_for_timeout(200)
+    check(page.locator('.dl-row', has_text='Lot 260708-500001').count() == 1, 'New Lots shows the lot code each product will get')
+    page.locator('input[data-k="nl|500001"]').fill('48'); page.locator('input[data-k="nl|500003"]').fill('20'); page.wait_for_timeout(100)
+    tm = page.locator('.nl-time').inner_text()
+    check('batch' in tm and '17' in tm, f'it shows the batches and time the day takes ({tm})')
+    page.get_by_role('button', name='Save production').click(); page.wait_for_timeout(400)
+    got = page.evaluate("[500001, 500003].map(n => (window.__MOCK_DB__.production.find(r => r.date==='2026-07-08' && r.item_no===n) || {}).cases)")
+    check(got == [48, 20] and page.locator('.dl-saved', has_text='Lot 260708-500001').count() == 1, f'Save production adds the lots ({got})')
+    shot(page, '58-new-lots')
+    page.get_by_role('button', name='Undo').click(); page.wait_for_timeout(400)
+    gone = page.evaluate("!window.__MOCK_DB__.production.some(r => r.date==='2026-07-08' && (r.item_no===500001 || r.item_no===500003))")
+    check(gone, 'and Undo takes them back out')
+
+    tab(page, 'Daily Inventory')
+    wk = page.locator('table.t tbody tr.weekend').first
+    bgs = set(wk.locator('td').evaluate_all('es => es.map(e => getComputedStyle(e).backgroundColor)'))
+    check(wk.count() == 1 and bgs <= {'rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)'}, f'Daily Inventory weekend rows are white too ({bgs})')
+
+    tab(page, 'Daily')
     with page.expect_download() as dl:
         page.get_by_role('button', name='Export to Excel').click()
     path = dl.value.path()
@@ -1041,7 +1073,7 @@ with sync_playwright() as p:
     # ---- Settings → Roles and Periods ----
     ctx, page, errors = open_app(browser)
     page.goto(BASE + '/#roles'); page.wait_for_selector('table.roles-table')
-    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 27, 'Roles shows Admin and Accountant for every page (Settings pages too), grouped like the menu')
+    check(page.locator('table.roles-table th.rp-role').count() == 2 and page.locator('table.roles-table tr.rp-row').count() == 29, 'Roles shows Admin and Accountant for every page (Settings pages too), grouped like the menu')
     check(page.locator('.sidebar:not([hidden])').count() == 0, 'Roles has no side bar')
     page.get_by_role('button', name='+ New role').click(); page.wait_for_timeout(100)
     dlg = page.locator('dialog[open]'); dlg.locator('input').first.fill('Receiving'); dlg.locator('select').select_option('staff'); dlg.get_by_role('button', name='Add role').click(); page.wait_for_timeout(300)
@@ -1242,7 +1274,7 @@ with sync_playwright() as p:
     check(page.get_by_role('tab', name='Users').count() == 0 and page.locator('.set-card', has_text='Signed in as').count() == 1, 'staff see only My Account under Settings')
     tab(page, 'Master List')
     check(cell(page, 'sc|100001|2026').is_disabled(), 'staff cannot edit standard costs')
-    tab(page, 'Production')
+    tab(page, 'Daily')
     check(not cell(page, f'production|{TODAY.isoformat()[:8]}01|500001').is_disabled(), 'staff can enter production')
     shot(page, '23-staff-production')
     page.goto(BASE + '/#users'); page.wait_for_timeout(200)
@@ -1256,7 +1288,7 @@ with sync_playwright() as p:
     overflow = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
     check(overflow <= 0, f'no sideways page scroll on a phone (overflow {overflow}px)')
     shot(page, '24-phone-dashboard')
-    tab(page, 'Production'); shot(page, '25-phone-production')
+    tab(page, 'Daily'); shot(page, '25-phone-production')
     for i, t in enumerate(['New Receipts', 'New Counts', 'Purchases', 'Planning/Production', 'Sales Detail']):
         tab(page, t); page.wait_for_timeout(150)
         ov = page.evaluate('Math.max(document.documentElement.scrollWidth - window.innerWidth, document.querySelector("main").scrollWidth - document.querySelector("main").clientWidth)')

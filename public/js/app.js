@@ -1,7 +1,7 @@
 import { h, toast, niceError, passwordProblem, MIN_PASSWORD, PASSWORD_RULE, IDLE_MINUTES } from './ui.js';
 import { sb, configured, state, loadAll, loadProfile, isAdmin, onChange, dataChanged } from './store.js';
 import dashboard from './tabs/dashboard.js';
-import production from './tabs/production.js';
+import production, { lotsTab, newLotsTab } from './tabs/production.js';
 import { newReceipts, allReceipts } from './tabs/receipts.js';
 import { newCounts, allCounts } from './tabs/counts.js';
 import inventory from './tabs/inventory.js';
@@ -30,7 +30,8 @@ const GROUPS = [
   { id: 'overview', label: 'Dashboard', tabs: [dashboard] },
   { id: 'accounting', label: 'Accounting', tabs: [journals, taccounts] },
   { id: 'sales', label: 'Sales', tabs: [sales, byCustomer, byProduct, prices] },
-  { id: 'inventory', label: 'Inventory', tabs: [production, newReceipts, allReceipts, newCounts, allCounts, inventory, consumption] },
+  { id: 'production', label: 'Production', tabs: [production, lotsTab, newLotsTab] },
+  { id: 'inventory', label: 'Inventory', tabs: [newReceipts, allReceipts, newCounts, allCounts, inventory, consumption] },
   { id: 'planning', label: 'Planning', tabs: [productionPlanTab, purchasingTab, safetyStocksTab] },
   { id: 'costing', label: 'Standards', tabs: [costs, bom, labor, overhead] },
   { id: 'settings', label: 'Settings', gear: true, tabs: [account, users, roles, periods, security, history] },

@@ -131,8 +131,10 @@ table.t .sticky-col { position: sticky; left: 0; z-index: 1; background: var(--p
 table.t thead .sticky-col { z-index: 3; }
 table.t tbody tr:hover td { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
 table.t tbody tr:hover td.sticky-col { background: var(--accent-soft); }
-table.t tr.weekend td { background: var(--weekend); }
-table.t tr.weekend td.sticky-col { background: var(--weekend); }
+/* Weekend days: the whole row is plain white, on every page that lists days
+   (entry, calculated and blank cells alike; warning colours still show). */
+table.t tr.weekend { --weekend: var(--panel); --entry: var(--panel); --entry-weekend: var(--panel); --calc: var(--panel); }
+table.t tr.weekend td.sticky-col, table.t tr.weekend th.sticky-col { background: var(--panel); }
 table.t tr.today td.sticky-col { box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
 table.t td.calc { color: var(--ink); }
 table.t tfoot td { position: sticky; bottom: 0; background: var(--panel); font-weight: 650; border-top: 1px solid var(--line-strong); border-bottom: 0; }
@@ -1442,9 +1444,6 @@ table.t.periods-table tr.pr-future td.pr-name { font-weight: 500; }
 /* Inventory → Production (daily): newest day first, endless scroll back */
 .prod-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .prod-top .btn { margin-left: auto; }
-/* weekends look like any other day here */
-table.prod-table tr.weekend td, table.prod-table tr.weekend td.sticky-col { background: var(--panel); }
-table.prod-table tr.weekend td.cell.entry { background: var(--entry); }
 table.prod-table .date-wrap { display: inline-flex; align-items: center; gap: 6px; }
 table.prod-table .lot-toggle { border: 0; background: none; padding: 0 4px; cursor: pointer; color: var(--accent); font-size: 13px; line-height: 1; transition: transform .15s; }
 table.prod-table .lot-toggle[aria-expanded="true"] { transform: rotate(90deg); }
